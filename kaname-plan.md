@@ -63,6 +63,14 @@ Túnel integrado, `known_hosts` con TOFU, soporte ssh-agent.
 
 ### Iteración 4 — ERD lectura
 
+> **Verificar antes de empezar:** que Atlas introspeccione las features de
+> esquema que agregó PostgreSQL 18 — columnas generadas `VIRTUAL`, restricciones
+> temporales con `WITHOUT OVERLAPS` y `NOT NULL NOT VALID`. No hay confirmación
+> en su documentación, y son exactamente el tipo de cosa que el differ ignora en
+> silencio: si Atlas no las ve, cada re-inspección propone borrarlas. Se comprueba
+> con una tabla de prueba, no leyendo el changelog.
+
+
 Atlas inspect → modelo → canvas xyflow, auto-layout, posiciones persistidas por
 conexión.
 
@@ -88,7 +96,10 @@ re-inspeccionar.
 
 ### Iteración 6 — Otros motores
 
-MySQL, MariaDB y SQLite por el mismo pipeline.
+MySQL, MariaDB y SQLite por el mismo pipeline, **cada uno contra su última
+versión estable**, igual que Postgres. Verificar cuál es en su momento en vez de
+asumir: el default del `docker-compose.test.yml` se elige ahí, y la matriz de CI
+cubre la última más las anteriores que se declaren soportadas.
 
 - **S03** — variantes de engine.
 - **S15** — banners de DDL no transaccional (MySQL) y de rebuild de tabla
@@ -284,6 +295,48 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 1 — 2026-09-08
+
+**El contrato de Go va antes que las pantallas, y en paquetes puros primero.**
+`internal/connection` no toca disco, red ni keychain: modelo, validación y DSN.
+Encima van `internal/store` (TOML), `internal/secrets` (keychain) e
+`internal/postgres` (conexión). Cada capa se prueba sola.
+
+**TOML con `github.com/BurntSushi/toml`, cero dependencias transitivas.**
+El archivo de conexiones se sincroniza entre máquinas y se edita a mano, así que
+tiene que diffear limpio y admitir comentarios —JSON no admite—. TOML 1.0 es una
+especificación congelada, de modo que la cadencia baja de releases de esa
+librería no es un riesgo, y a cambio no suma nada que auditar.
+
+**La contraseña se indexa por ID de conexión, no por nombre.**
+El nombre cambia y el ID no: renombrar una conexión no puede dejar una
+credencial huérfana en el keychain. De ahí que el ID sea obligatorio y que el
+store rechace el archivo entero si encuentra uno vacío o repetido.
+
+**Los errores de conexión se clasifican, no se muestran crudos.**
+"No se pudo conectar" obliga al usuario a adivinar entre un host mal escrito,
+una contraseña vieja y un firewall, y cada uno se arregla en un lugar distinto.
+`postgres.Classify` traduce SQLSTATE y errores de red a una causa y una
+sugerencia. Los errores tipados ganan siempre sobre la heurística de texto.
+
+**Todo texto de origen ajeno pasa por `postgres.Redact`.**
+Un test demostró que el mensaje del servidor puede citar una cadena de conexión
+completa. No se puede asumir que quien escribió un mensaje de error tuvo
+cuidado, así que se enmascara la contraseña y se conserva el usuario, que sirve
+para diagnosticar y no es secreto.
+
+**Postgres 18 es el objetivo, no 17.** 18.6 es la estable a septiembre de 2026 y
+la 19 está en beta. El mínimo soportado es 14, la más vieja con soporte oficial.
+`docker-compose.test.yml` toma la versión de `PG_VERSION` para que CI corra la
+matriz.
+
+**Los tests de integración se saltean, no se excluyen con un build tag.**
+Con tag, el código de test no compila en el día a día y un error ahí se
+descubre tarde. Sin tag, siempre pasa por `vet` y se saltea con un mensaje que
+dice cómo levantar la base.
+
+---
 
 ### Iteración 0 — 2026-09-07
 

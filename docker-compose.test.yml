@@ -5,16 +5,23 @@
 # MariaDB y SQLite se suman en la Iteración 6.
 #
 #   docker compose -f docker-compose.test.yml up -d
-#   go test ./... -tags=integration
+#   go test ./...
 #
-# Las credenciales son de juguete y los puertos están corridos a propósito, para
-# no chocar con una instalación local ni tentar a nadie a apuntar esto a algo
-# real.
+# Los tests de integración se saltean solos, con un mensaje que explica esto, si
+# no hay una base escuchando. No hay build tag: así el código de test siempre
+# compila y pasa vet.
+#
+# La versión se elige con PG_VERSION. El default es 18, que es la estable
+# actual; CI corre la matriz de versiones soportadas:
+#
+#   PG_VERSION=17 docker compose -f docker-compose.test.yml up -d
+#
+# Las credenciales son de juguete y el puerto está corrido a propósito, para no
+# chocar con una instalación local ni tentar a nadie a apuntar esto a algo real.
 
 services:
   postgres:
-    image: postgres:17-alpine
-    container_name: kaname-test-pg17
+    image: postgres:${PG_VERSION:-18}-alpine
     environment:
       POSTGRES_USER: kaname
       POSTGRES_PASSWORD: kaname

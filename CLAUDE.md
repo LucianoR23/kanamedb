@@ -27,6 +27,30 @@ los afecta, no después:
 - Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`).
 - Commitear solo cuando se pida explícitamente.
 
+### Antes de commitear
+
+1. `gofmt -l .` sin salida, `go vet ./...`, `go test ./...` y el typecheck del
+   frontend en verde.
+2. `/code-review` sobre el cambio.
+
+**Nivel del review: `high` para código sensible, `medium` para lo rutinario.**
+Los tests verifican lo que se te ocurrió chequear; el review encuentra lo que no
+miraste. En el primer review de este proyecto, seis de siete hallazgos eran "un
+test lo habría agarrado si se me hubiera ocurrido escribirlo", y el séptimo —un
+test que no podía fallar— ningún test lo detecta por definición. Los siete
+fueron legítimos: `high` no resultó ruidoso acá.
+
+- **`high`**: credenciales, DSN, escrituras atómicas, SQL destructivo, keychain,
+  túneles SSH. Todo lo de las iteraciones 1, 5 y 7.
+- **`medium`**: UI, refactors, documentación.
+
+**Un test que no puede fallar es peor que no tener test**, porque da falsa
+tranquilidad. Si un test protege una invariante importante, verificá que rompe:
+inyectá la violación y confirmá que falla. Ojo especialmente con los tipos que
+implementan `Stringer` — `fmt` rutea también `%+v` por `String()`, así que
+inspeccionar la salida formateada no prueba nada sobre los campos. Para eso,
+reflexionar sobre el tipo.
+
 ### Instalaciones
 
 - **Avisar antes de instalar algo que requiera interacción** (login, UAC, prompts).
