@@ -14,33 +14,18 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/store"
 )
 
-// nuevo arma un servicio sobre un archivo temporal y un servicio de keychain
-// propio del test, para no tocar las credenciales reales del usuario.
+// nuevo arma un servicio sobre un archivo temporal y un keychain en memoria.
+//
+// No usa el keychain del sistema a propósito: eso se prueba en internal/secrets.
+// Cuando estos tests lo usaban, los dos paquetes corriendo en procesos
+// paralelos se pisaban sobre el Credential Manager y el resultado era
+// intermitente — a veces una contraseña recién guardada no aparecía.
 func nuevo(t *testing.T) *Connections {
 	t.Helper()
-	kr := secrets.NewWithService(fmt.Sprintf("Kaname-test-svc-%s", t.Name()))
-
-	if err := kr.Set("sonda", "x"); err != nil {
-		t.Skipf("no hay keychain disponible en este entorno: %v", err)
+	return &Connections{
+		store:   store.New(filepath.Join(t.TempDir(), "connections.toml")),
+		keyring: newFakeKeyring(),
 	}
-	if err := kr.Delete("sonda"); err != nil {
-		t.Fatalf("limpiar la sonda: %v", err)
-	}
-
-	st := store.New(filepath.Join(t.TempDir(), "connections.toml"))
-	s := &Connections{store: st, keyring: kr}
-
-	// Cualquier credencial que dejen los tests se borra al terminar.
-	t.Cleanup(func() {
-		conns, err := st.List()
-		if err != nil {
-			return
-		}
-		for _, c := range conns {
-			_ = kr.Delete(c.ID)
-		}
-	})
-	return s
 }
 
 func base(id, name string) connection.Connection {

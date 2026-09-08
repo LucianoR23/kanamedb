@@ -16,14 +16,31 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/store"
 )
 
+// Keyring es lo que este paquete necesita del almacén de credenciales.
+//
+// Es una interfaz y no el tipo concreto por una razón que no es de estilo: la
+// integración con el keychain del sistema vive en internal/secrets y se prueba
+// ahí, contra el almacén real. Los tests de este paquete son de orquestación y
+// no tienen por qué tocar el Credential Manager — cuando lo hacían, dos
+// paquetes de test corriendo en procesos paralelos se pisaban y el resultado
+// era intermitente. También permite que estos tests corran en un CI sin
+// keychain, como el job de Linux.
+type Keyring interface {
+	Set(connectionID, password string) error
+	Get(connectionID string) (string, error)
+	Has(connectionID string) (bool, error)
+	Delete(connectionID string) error
+	Service() string
+}
+
 // Connections es el servicio de la libreta de conexiones: S01, S02 y S03.
 type Connections struct {
 	store   *store.Store
-	keyring *secrets.Keyring
+	keyring Keyring
 }
 
 // NewConnections arma el servicio.
-func NewConnections(st *store.Store, kr *secrets.Keyring) *Connections {
+func NewConnections(st *store.Store, kr Keyring) *Connections {
 	return &Connections{store: st, keyring: kr}
 }
 

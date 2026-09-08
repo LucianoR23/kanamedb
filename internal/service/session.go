@@ -20,7 +20,7 @@ import (
 // workspace de S05 trabaja contra una base por vez.
 type Session struct {
 	store   *store.Store
-	keyring *secrets.Keyring
+	keyring Keyring
 
 	mu      sync.RWMutex
 	current *openSession
@@ -35,7 +35,7 @@ type openSession struct {
 }
 
 // NewSession arma el servicio.
-func NewSession(st *store.Store, kr *secrets.Keyring) *Session {
+func NewSession(st *store.Store, kr Keyring) *Session {
 	return &Session{store: st, keyring: kr}
 }
 
