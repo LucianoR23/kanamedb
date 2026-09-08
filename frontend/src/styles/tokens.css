@@ -1,0 +1,202 @@
+/* Tokens de diseño de Kaname — export canónico de S00 Foundations.
+   Dark es el default; el claro entra con [data-theme="light"] en la raíz.
+
+   Esta es la única fuente de color de la app. Ningún componente escribe un
+   literal: si falta un color, se agrega acá. Ver CLAUDE.md. */
+
+@import "./fonts.css";
+
+:root {
+  /* superficies */
+  --bg-app:        #17181b;
+  --bg-panel:      #1c1e22;
+  --bg-elev:       #23262b;
+  --bg-inset:      #121316;
+  --bg-hover:      rgba(255,255,255,.05);
+  --bg-active:     rgba(255,255,255,.09);
+  --bg-sel:        rgba(124,140,255,.18);
+  --bg-stripe:     rgba(255,255,255,.022);
+
+  /* bordes */
+  --border-subtle: #212429;
+  --border:        #2b2f36;
+  --border-strong: #3b414a;
+
+  /* texto */
+  --text-1:        #e7e9ee;
+  --text-2:        #a4aab5;
+  --text-3:        #8a9098;
+  --text-dim:      #7f868f;
+  --text-on-accent:#0e0f14;
+
+  /* interactivo */
+  --accent:        #7c8cff;
+  --accent-hover:  #94a1ff;
+  --accent-quiet:  rgba(124,140,255,.14);
+  --focus-ring:    rgba(124,140,255,.55);
+
+  /* entornos */
+  --env-local:     #4fc3d9;
+  --env-dev:       #58c98a;
+  --env-stage:     #e2a33c;
+  --env-prod:      #f0554b;
+
+  /* semánticas */
+  --danger:        #f0554b;
+  --danger-hover:  #ff6a60;
+  --danger-quiet:  rgba(240,85,75,.14);
+  --warning:       #e2a33c;
+  --warning-quiet: rgba(226,163,60,.14);
+  --success:       #58c98a;
+  --success-quiet: rgba(88,201,138,.14);
+
+  /* semánticas de la grilla de datos */
+  --cell-modified: rgba(226,163,60,.20);
+  --cell-added:    rgba(88,201,138,.16);
+  --cell-deleted:  rgba(240,85,75,.15);
+  --cell-null:     #8b9199;
+
+  /* sintaxis SQL */
+  --syn-kw:        #8ea2ff;
+  --syn-str:       #8fd08b;
+  --syn-num:       #e5b567;
+  --syn-com:       #8b929c;
+  --syn-fn:        #e2a33c;
+  --syn-type:      #4fc3d9;
+  --syn-punc:      #99a0ab;
+
+  /* elevación */
+  --shadow-menu:   0 6px 22px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.6);
+  --shadow-dialog: 0 24px 64px rgba(0,0,0,.62), 0 2px 8px rgba(0,0,0,.5);
+  --scrim:         rgba(8,9,11,.62);
+
+  /* tipografía */
+  --font-ui:   "Inter Variable", Inter, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+
+  /* radios */
+  --r-sm: 3px;  --r-md: 5px;  --r-lg: 8px;  --r-xl: 12px;
+
+  /* alturas de densidad — S00: nunca por debajo de 11px ni por encima de 22px */
+  --h-tree-row:   24px;
+  --h-grid-row:   25px;
+  --h-status-bar: 24px;
+  --h-tab-strip:  32px;
+  --h-toolbar:    30px;
+  --h-control:    26px;
+  --h-control-sm: 22px;
+  --h-control-lg: 30px;
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg-app:        #eeeeec;
+  --bg-panel:      #f7f7f5;
+  --bg-elev:       #ffffff;
+  --bg-inset:      #ffffff;
+  --bg-hover:      rgba(0,0,0,.045);
+  --bg-active:     rgba(0,0,0,.08);
+  --bg-sel:        rgba(74,91,214,.13);
+  --bg-stripe:     rgba(0,0,0,.018);
+
+  --border-subtle: #e6e6e2;
+  --border:        #dadad5;
+  --border-strong: #bcbcb6;
+
+  --text-1:        #1a1b1e;
+  --text-2:        #5a6067;
+  --text-3:        #64696e;
+  --text-dim:      #696e73;
+  --text-on-accent:#ffffff;
+
+  --accent:        #4a5bd6;
+  --accent-hover:  #3a49c0;
+  --accent-quiet:  rgba(74,91,214,.11);
+  --focus-ring:    rgba(74,91,214,.45);
+
+  --env-local:     #0d6473;
+  --env-dev:       #14713f;
+  --env-stage:     #7d520c;
+  --env-prod:      #c72c22;
+
+  --danger:        #c72c22;
+  --danger-hover:  #ab241b;
+  --danger-quiet:  rgba(199,44,34,.10);
+  --warning:       #7d520c;
+  --warning-quiet: rgba(154,103,18,.12);
+  --success:       #14713f;
+  --success-quiet: rgba(28,139,83,.12);
+
+  --cell-modified: rgba(226,163,60,.28);
+  --cell-added:    rgba(28,139,83,.15);
+  --cell-deleted:  rgba(199,44,34,.12);
+  --cell-null:     #63686d;
+
+  --syn-kw:        #3a49c0;
+  --syn-str:       #1c7a3f;
+  --syn-num:       #8a5a10;
+  --syn-com:       #64696e;
+  --syn-fn:        #9a6712;
+  --syn-type:      #10809a;
+  --syn-punc:      #6b7079;
+
+  --shadow-menu:   0 6px 20px rgba(20,20,25,.16), 0 1px 2px rgba(20,20,25,.12);
+  --shadow-dialog: 0 24px 60px rgba(20,20,25,.22), 0 2px 8px rgba(20,20,25,.12);
+  --scrim:         rgba(40,40,45,.34);
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  /* Es una ventana de escritorio, no una página: sin selección accidental de
+     chrome ni menú contextual del navegador. Texto y datos la rehabilitan. */
+  user-select: none;
+  overflow: hidden;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+
+@keyframes kn-spin   { to { transform: rotate(360deg); } }
+@keyframes kn-pulse  { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes kn-caret  { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+@keyframes kn-slidein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

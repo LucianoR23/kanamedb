@@ -1,0 +1,168 @@
+/* S25 About and shortcuts. */
+
+.page { height: 100%; overflow: auto; background: var(--bg-app); }
+.inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 26px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 44px;
+  padding: 0 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.spacer { flex: 1; }
+
+.head { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+@media (max-width: 900px) { .head { grid-template-columns: minmax(0, 1fr); } }
+
+.identity { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; }
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  font: 700 13px var(--font-mono);
+  color: var(--accent);
+}
+.name { font: 700 21px/1.1 var(--font-ui); letter-spacing: .16em; color: var(--text-1); }
+.build {
+  margin-top: 4px;
+  font: 400 12px var(--font-mono);
+  color: var(--text-3);
+  user-select: text;
+}
+
+.prose {
+  margin: 0 0 12px;
+  max-width: 64ch;
+  font: 400 13px/1.65 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+.prose:last-of-type { margin-bottom: 0; }
+
+/* Aviso de build temprana. Sin esto, la pantalla describe un producto que
+   todavía no hace lo que dice. */
+.earlyNote {
+  margin-top: 16px;
+  padding: 11px 12px;
+  border: 1px solid rgba(226,163,60,.4);
+  border-left: 2px solid var(--warning);
+  border-radius: var(--r-md);
+  background: var(--warning-quiet);
+  font: 400 12px/1.6 var(--font-ui);
+  color: var(--text-2);
+  max-width: 64ch;
+  text-wrap: pretty;
+}
+
+.cards { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.card { padding: 11px 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); }
+.cardWide { padding: 13px 14px; }
+.cardLabel {
+  white-space: nowrap;
+  font: 600 10px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 5px;
+}
+.cardBody { font: 400 11.5px/1.6 var(--font-mono); color: var(--text-2); }
+
+.side { display: flex; flex-direction: column; gap: 12px; }
+.sideLabel {
+  white-space: nowrap;
+  font: 600 10px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 9px;
+}
+.paths { display: flex; flex-direction: column; gap: 7px; }
+.pathName { font: 400 11.5px var(--font-ui); color: var(--text-2); }
+.pathValue {
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+  word-break: break-all;
+  user-select: text;
+}
+.thirdParty { font: 400 11px/1.7 var(--font-mono); color: var(--text-3); user-select: text; }
+
+.section { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.sectionTitle { font: 600 13px var(--font-ui); }
+.rule { flex: 1; height: 1px; background: var(--border); }
+.sectionMeta { white-space: nowrap; font: 400 11px var(--font-mono); color: var(--text-dim); }
+
+/* Lista de estado por motor / plataforma */
+.statusList { display: flex; flex-direction: column; gap: 4px; }
+.statusRow { display: flex; align-items: baseline; gap: 8px; font: 400 11.5px var(--font-mono); }
+.statusOn { color: var(--text-1); }
+.statusOff { color: var(--text-dim); }
+.statusTag { flex: none; font: 600 9px var(--font-ui); letter-spacing: .06em; text-transform: uppercase; }
+.tagOn { color: var(--success); }
+.tagOff { color: var(--text-dim); }
+
+.shortcutsEmpty {
+  padding: 20px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font: 400 12px/1.65 var(--font-ui);
+  color: var(--text-dim);
+  max-width: 72ch;
+  text-wrap: pretty;
+}
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.group { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+.groupHead {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--border);
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.shortcut { display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); }
+.shortcut:last-child { border-bottom: 0; }
+.shortcutLabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px var(--font-ui); color: var(--text-2); }
+.key {
+  flex: none;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  font: 500 11px var(--font-mono);
+  color: var(--text-1);
+}
+
+.error {
+  padding: 11px 12px;
+  border: 1px solid rgba(240,85,75,.4);
+  border-left: 2px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-quiet);
+  font: 400 12px var(--font-ui);
+  color: var(--text-2);
+}
+.errorDetail { margin-top: 4px; font: 400 11px var(--font-mono); color: var(--danger); user-select: text; }

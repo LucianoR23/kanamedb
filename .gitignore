@@ -13,6 +13,11 @@ node_modules/
 # Bindings generados por Wails
 frontend/bindings/
 
+# Artboards bajados de Claude Design. Son una copia local, no la fuente de
+# verdad: el proyecto vive en claude.ai/design y se re-baja con DesignSync.
+# Commitearlos garantizaría que en algún momento mientan.
+design/
+
 # SO / editor
 .DS_Store
 Thumbs.db

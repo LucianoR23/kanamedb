@@ -1,0 +1,31 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Etiquetas de entorno: mayúsculas, Inter. S00 § Badges. */
+.env {
+  font: 600 10px var(--font-ui);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.local   { background: rgba(79,195,217,.16); color: var(--env-local); border-color: rgba(79,195,217,.4); }
+.dev     { background: rgba(88,201,138,.16); color: var(--env-dev);   border-color: rgba(88,201,138,.4); }
+.staging { background: rgba(226,163,60,.16); color: var(--env-stage); border-color: rgba(226,163,60,.4); }
+
+/* Producción va en sólido: es la única que tiene que gritar. */
+.production { background: var(--env-prod); color: #170a09; border-color: transparent; }
+
+/* Etiquetas de estado en Inter */
+.neutral { font: 500 10.5px var(--font-ui); background: var(--bg-active); color: var(--text-2); border-color: var(--border); }
+
+/* Etiquetas con datos o conteos en mono */
+.mono    { font: 600 10.5px var(--font-mono); }
+.warning { background: var(--warning-quiet); color: var(--warning); border-color: rgba(226,163,60,.4); }
+.danger  { background: var(--danger-quiet);  color: var(--danger);  border-color: rgba(240,85,75,.4); }
+.info    { font: 500 10.5px var(--font-mono); background: var(--bg-active); color: var(--text-3); border-color: transparent; }

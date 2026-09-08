@@ -1,0 +1,134 @@
+/* S05 Workspace shell. En la Iteración 0 es solo el chrome: barra superior,
+   sidebar, tab strip, panes redimensionables y barra de estado. Sin contenido
+   real — la conexión llega en la Iteración 1. */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-app);
+  overflow: hidden;
+}
+
+/* Barra superior */
+.titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.wordmark {
+  font: 700 11.5px var(--font-ui);
+  letter-spacing: .14em;
+  color: var(--text-2);
+}
+.divider { flex: none; width: 1px; height: 14px; background: var(--border); }
+.spacer { flex: 1; }
+
+/* Sin conexión: el selector de base es un estado, no un menú. */
+.disconnected {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font: 400 12.5px var(--font-ui);
+  color: var(--text-3);
+}
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+
+/* Cuerpo: sidebar | main | rail */
+.body { flex: 1; display: flex; min-height: 0; }
+
+.sidebar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.sidebarNav { flex: none; display: flex; gap: 2px; padding: 7px 8px 0; }
+.sidebarSearch { flex: none; padding: 8px; }
+.sidebarBody { flex: 1; min-height: 0; overflow: auto; }
+.sidebarFoot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border-subtle);
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.mainBody { flex: 1; min-height: 0; overflow: auto; background: var(--bg-inset); }
+
+.rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+.railHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--h-toolbar);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+.railTitle {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.railBody { flex: 1; min-height: 0; overflow: auto; }
+
+/* Barra de estado */
+.statusbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--h-status-bar);
+  padding: 0 12px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-subtle);
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.statusLink { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+.statusLink:hover { color: var(--accent-hover); text-decoration: underline; }
+
+/* Estados vacíos. El diseño de S05 muestra el workspace conectado; sin
+   conexión hay que decir qué falta y cómo salir del paso. */
+.empty {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+}
+.emptyTitle { font: 500 14px var(--font-ui); color: var(--text-2); }
+.emptyHint { max-width: 46ch; font: 400 12px/1.6 var(--font-ui); color: var(--text-dim); text-wrap: pretty; }
+.emptySmall {
+  padding: 18px 12px;
+  text-align: center;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}

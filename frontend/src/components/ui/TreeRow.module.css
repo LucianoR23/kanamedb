@@ -1,0 +1,49 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: var(--h-tree-row);
+  padding: 0 10px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+}
+.row:hover { background: var(--bg-hover); color: var(--text-1); }
+.selected {
+  background: var(--bg-sel);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--text-1);
+}
+.loading { color: var(--text-dim); cursor: default; }
+
+/* Sangría por nivel: 14px por nivel sobre el padding base. */
+.depth0 { padding-left: 8px; }
+.depth1 { padding-left: 22px; }
+.depth2 { padding-left: 36px; }
+.depth3 { padding-left: 50px; }
+
+.caret {
+  flex: none;
+  width: 8px;
+  font-size: 8px;
+  color: var(--text-3);
+  transition: transform .1s ease;
+}
+.open { transform: rotate(90deg); }
+
+/* Los esquemas son etiquetas de la app (Inter); los objetos vienen de la base
+   y van en mono. S00 § Type scale. */
+.labelUi   { overflow: hidden; text-overflow: ellipsis; font: 500 12px var(--font-ui); }
+.labelMono { overflow: hidden; text-overflow: ellipsis; font: 400 12px var(--font-mono); }
+.selected .labelMono { font-weight: 500; }
+
+.spacer { flex: 1; }
+.meta { flex: none; white-space: nowrap; font: 400 10.5px var(--font-mono); color: var(--text-dim); }
+.selected .meta { color: var(--text-3); }
+.dirty { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--warning); }
+.loadingText { flex: none; font: 400 10px var(--font-ui); color: var(--text-dim); }

@@ -1,0 +1,75 @@
+/* Primitivas de la grilla de datos. Acá está solo la celda y el encabezado —
+   la grilla completa llega en su iteración. */
+
+.headerCell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--h-grid-row);
+  padding: 0 7px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+.headerCell:hover { background: var(--bg-hover); }
+.typeTag { flex: none; font: 700 8px var(--font-mono); color: var(--text-dim); }
+.tagPk { color: var(--env-stage); }
+.tagFk { color: var(--accent); }
+.colName { overflow: hidden; text-overflow: ellipsis; font: 500 11.5px var(--font-mono); color: var(--text-1); }
+.sort { flex: none; font-size: 8px; color: var(--accent); }
+
+.gutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--h-grid-row);
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+.gutterModified { color: var(--warning); }
+.gutterAdded    { font-weight: 700; color: var(--success); }
+.gutterDeleted  { font-weight: 700; color: var(--danger); }
+
+.cell {
+  display: block;
+  height: var(--h-grid-row);
+  line-height: var(--h-grid-row);
+  padding: 0 7px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--border-subtle);
+  /* Un valor de base de datos siempre en mono, siempre seleccionable. */
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+  user-select: text;
+}
+
+/* NULL no es lo mismo que cadena vacía y tiene que verse distinto de un vistazo:
+   NULL es [null] en itálica y gris; la cadena vacía es una celda en blanco. */
+.null { color: var(--cell-null); font-style: italic; }
+
+/* Valores que el motor genera al insertar, no valores tuyos. */
+.generated { color: var(--text-3); }
+
+.modified {
+  background: var(--cell-modified);
+  outline: 1px solid var(--warning);
+  outline-offset: -1px;
+}
+.rowAdded   { background: var(--cell-added); }
+.rowDeleted { background: var(--cell-deleted); }
+.rowDeleted .cell,
+.deleted { color: var(--text-3); text-decoration: line-through; }
+
+.row {
+  display: grid;
+  height: var(--h-grid-row);
+  border-bottom: 1px solid var(--border-subtle);
+}

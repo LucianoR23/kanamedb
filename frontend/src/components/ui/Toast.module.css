@@ -1,0 +1,59 @@
+.stack {
+  position: fixed;
+  right: 14px;
+  bottom: 34px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  gap: 9px;
+  padding: 9px 11px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-menu);
+  pointer-events: auto;
+  animation: kn-slidein .12s ease-out;
+}
+.success { border-left-color: var(--success); }
+.error   { border-left-color: var(--danger); }
+.warning { border-left-color: var(--warning); }
+.info    { border-left-color: var(--accent); }
+
+.content { flex: 1; min-width: 0; }
+.title { font: 500 12px var(--font-ui); color: var(--text-1); }
+
+/* El detalle es lo que dijo el motor: código de error, tiempos, nombre de la
+   base. Va en mono y es seleccionable — se copia y se pega en un ticket. */
+.detail { font: 400 11px var(--font-mono); color: var(--text-3); user-select: text; word-break: break-word; }
+.error .detail { color: var(--danger); }
+
+.action {
+  margin-top: 5px;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: 500 11px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}
+.action:hover { color: var(--accent-hover); text-decoration: underline; }
+
+.close {
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.close:hover { color: var(--text-1); }

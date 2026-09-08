@@ -1,0 +1,67 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--h-control);
+  padding: 0 11px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+.button:disabled {
+  background: var(--bg-inset);
+  border-color: var(--border);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+/* Variantes. S00 § Buttons. */
+.primary   { background: var(--accent);     color: var(--text-on-accent); }
+.primary:hover:not(:disabled)   { background: var(--accent-hover); }
+
+.secondary { background: var(--bg-elev);    color: var(--text-1); border-color: var(--border-strong); }
+.secondary:hover:not(:disabled) { background: var(--bg-active); border-color: var(--text-dim); }
+
+.ghost     { background: transparent;       color: var(--text-2); }
+.ghost:hover:not(:disabled)     { background: var(--bg-hover); color: var(--text-1); }
+
+/* El texto sobre --danger es casi negro y no --text-on-accent: en tema claro
+   --text-on-accent es blanco, que sobre el rojo no llega a 4.5:1. */
+.danger    { background: var(--danger);     color: #180a09; }
+.danger:hover:not(:disabled)    { background: var(--danger-hover); }
+
+.dangerOutline { background: transparent;   color: var(--danger); border-color: var(--danger); }
+.dangerOutline:hover:not(:disabled) { background: var(--danger-quiet); }
+
+/* Tamaños */
+.sm { height: var(--h-control-sm); padding: 0 8px; border-radius: var(--r-sm); font-size: 11.5px; }
+.lg { height: var(--h-control-lg); padding: 0 13px; font-size: 13px; }
+
+.spinner {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--text-3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: kn-spin .8s linear infinite;
+}
+.primary .spinner,
+.danger .spinner { border-color: rgba(0,0,0,.3); border-top-color: currentColor; }
+
+/* Ficha de atajo de teclado, del mismo alto que un botón */
+.shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--h-control);
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-3);
+}

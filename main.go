@@ -9,6 +9,8 @@ import (
 	"log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/LucianoR23/kanamedb/internal/appinfo"
 )
 
 // Los assets del frontend se embeben en el binario: no hay archivos sueltos que
@@ -24,7 +26,9 @@ func main() {
 
 		// Los servicios expuestos al frontend se registran acá. Cada iteración
 		// define su contrato antes de la UI (ver kaname-plan.md).
-		Services: []application.Service{},
+		Services: []application.Service{
+			application.NewService(appinfo.New()),
+		},
 
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

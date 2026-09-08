@@ -1,0 +1,72 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim);
+  border: 0;
+}
+.scrim::backdrop { background: transparent; }
+
+.dialog {
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-dialog);
+  overflow: hidden;
+  color: var(--text-1);
+  animation: kn-slidein .12s ease-out;
+}
+
+/* Variante de escritura en producción: franja roja arriba, encabezado teñido.
+   Tiene que ser imposible confundirla con un diálogo cualquiera. */
+.production { border-color: rgba(240,85,75,.5); }
+.prodStripe { flex: none; height: 3px; background: var(--env-prod); }
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.production .header { background: rgba(240,85,75,.09); }
+.title { font: 600 13.5px var(--font-ui); }
+.spacer { flex: 1; }
+.close {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.close:hover { color: var(--text-1); }
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 13px 14px;
+  font: 400 12.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+  user-select: text;
+}
+
+.footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}

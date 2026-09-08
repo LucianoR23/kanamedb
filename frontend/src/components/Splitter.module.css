@@ -1,0 +1,22 @@
+/* Manija de redimensionado entre panes. La zona de agarre es más ancha que la
+   línea visible: 1px es correcto a la vista e imposible de agarrar. */
+.handle {
+  position: relative;
+  flex: none;
+  width: 5px;
+  margin: 0 -2px;
+  z-index: 5;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+}
+.handle:hover::after,
+.dragging::after { background: var(--accent); }
+.handle:focus-visible::after { background: var(--focus-ring); }

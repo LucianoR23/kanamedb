@@ -1,20 +1,18 @@
-// Placeholder de la Iteración 0. Se reemplaza por el shell de S05 en cuanto
-// estén los tokens de S00.
+import { useState } from "react";
+import { About } from "./screens/About";
+import { Shell } from "./screens/Shell";
+
+type Screen = "shell" | "about";
+
 export default function App() {
-  return (
-    <main
-      style={{
-        display: "grid",
-        placeContent: "center",
-        height: "100vh",
-        margin: 0,
-        background: "#0f1115",
-        color: "#e6e8eb",
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <h1 style={{ fontSize: 24, fontWeight: 500, margin: 0 }}>Kaname</h1>
-      <p style={{ opacity: 0.6, marginTop: 8 }}>Iteración 0 — esqueleto</p>
-    </main>
+  const [screen, setScreen] = useState<Screen>("shell");
+
+  // Iteración 0 no tiene router: son dos pantallas y no hay URLs que preservar.
+  // Cuando aparezcan las tabs de documentos, la navegación vive en el estado
+  // del workspace, no en el historial del webview.
+  return screen === "about" ? (
+    <About onBack={() => setScreen("shell")} />
+  ) : (
+    <Shell onOpenAbout={() => setScreen("about")} />
   );
 }
