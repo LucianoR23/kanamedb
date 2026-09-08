@@ -87,10 +87,15 @@ lectura.
 
 Túnel integrado, `known_hosts` con TOFU, soporte ssh-agent.
 
-- **S03** — tab SSH Tunnel.
-- **S04 SSH host key verification** — completa, incluida la variante de host key
+- ✅ **Contrato de Go** — `internal/tunnel`: inspección de la clave del host sin
+  autenticar, `known_hosts` propio con TOFU, los tres métodos de autenticación,
+  y discado a través del túnel **sin abrir ningún puerto local**.
+- ✅ **S03** — pestaña de túnel SSH. Sin el campo "Local port" del diseño: ver el
+  registro de decisiones.
+- ✅ **S04 SSH host key verification** — completa, incluida la variante de clave
   cambiada.
-- **S24** — variante "tunnel dropped / reconnect".
+- ✅ **S24** — variante de túnel caído: el fallo dice que el túnel se cerró en
+  vez de listar causas posibles.
 
 ### Iteración 4 — ERD lectura
 
@@ -338,6 +343,73 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 3 — 2026-09-08
+
+**El túnel no abre ningún puerto local.**
+Un túnel SSH se implementa habitualmente escuchando en `127.0.0.1` y
+reenviando. Este proyecto no puede: un puerto en loopback es alcanzable desde
+cualquier pestaña del navegador, que es la misma razón por la que no hay
+servidor HTTP. Con credenciales de producción del otro lado, no cierra. pgx
+acepta una función de discado propia, así que la conexión a la base viaja por
+dentro del canal SSH y existe solo dentro del proceso.
+
+Un test funcional no distingue las dos implementaciones —las dos conectan— así
+que la garantía es estructural: un test lee los archivos del paquete y falla si
+aparece un `net.Listen`.
+
+Por lo mismo, la pestaña de S03 **no tiene el campo "Local port"** que muestra
+el diseño. Ese campo existía porque el diseño asumía la implementación clásica.
+En vez de dejarlo sin hacer nada, la pantalla explica la diferencia.
+
+**Se verifica la clave del host antes de mandar ninguna credencial.**
+El protocolo SSH intercambia y verifica la clave del host ANTES de la
+autenticación, así que abortar en la devolución de llamada de la clave garantiza
+que no viajó nada. Es lo que permite que S04 diga "todavía no se envió ninguna
+credencial" y sea cierto, y no una promesa de la interfaz. El test lo prueba con
+credenciales deliberadamente inválidas: si la inspección autenticara, fallaría.
+
+**La clave viaja en la inspección y vuelve para guardarse.**
+La primera versión reconectaba para confiar. Dos motivos para no hacerlo. El de
+corrección: garantiza que se guarda exactamente la clave cuya huella se mostró;
+reconectar abría una ventana en la que el servidor podía presentar otra. Y el
+que enseñó el servidor de pruebas: OpenSSH 9.8 penaliza a quien se conecta sin
+intentar autenticarse (`PerSourcePenalties`, activado por default), así que dos
+conexiones sin autenticar seguidas hacían que el bastión empezara a rechazar.
+
+**`known_hosts` es propio, no el de OpenSSH.**
+Escribir en `~/.ssh/known_hosts` es meterse con configuración que otras
+herramientas también usan. Con archivo propio, las decisiones de confianza de
+Kaname se auditan en un solo lugar. El formato sí es el de OpenSSH, así que se
+lee con `ssh-keygen -F`. Lleva la fecha en el comentario de cada línea, porque
+el diálogo de clave cambiada la muestra y el formato no tiene campo de fecha.
+
+**pgx resuelve los nombres del lado equivocado, y hay que decírselo.**
+Resuelve el host ANTES de llamar a la función de discado, así que un nombre que
+solo existe desde el bastión —el caso normal de un túnel— fallaba con "no such
+host". `LookupFunc` se instala junto con `DialFunc` y no como opción aparte:
+quien ponga una sin la otra se come un error que no se parece a la causa.
+
+**El fallo dice si fue el túnel, en vez de listar sospechosos.**
+Un túnel muerto se manifiesta como un error de red de la base. El diseño de S24
+dice "el servidor puede estar caído, o el túnel puede haberse cerrado". El
+cliente SSH avisa cuando la conexión termina, así que se puede saber cuál de las
+dos y decirlo. Se consulta después de un fallo y no antes de cada operación:
+sondear en cada consulta agregaría trabajo a todas para atajar un caso raro.
+
+**El servidor SSH de pruebas se construye acá.**
+La imagen de terceros que se probó primero trae `AllowTcpForwarding no` con el
+`Include` comentado, así que no hay forma de sobrescribirlo desde afuera. Con
+Dockerfile propio el `sshd_config` está a la vista y se revisa en el diff.
+
+**La ruta del pipe del agente en Windows tenía una barra de menos.**
+`\.\pipe\...` en vez de `\\.\pipe\...`. El pipe no existe nunca con esa ruta,
+así que el método por defecto no funcionaba y el error decía "¿está corriendo el
+servicio ssh-agent?" con el servicio arrancado. Lo encontró el test del agente en
+su primera corrida contra un agente real. Vale anotar la limitación: sin agente
+ese test se saltea, no falla, así que en CI no se habría detectado nunca.
+
+---
 
 ### Iteración 3 — 2026-09-08
 

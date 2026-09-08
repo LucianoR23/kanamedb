@@ -31,6 +31,9 @@ const (
 	FailurePermission FailureKind = "permission"
 	// FailureTLS es que el canal cifrado no se pudo establecer o verificar.
 	FailureTLS FailureKind = "tls"
+	// FailureTunnel es que el túnel SSH se cayó. La base puede estar
+	// perfectamente: lo que se rompió es el camino hasta ella.
+	FailureTunnel FailureKind = "tunnel"
 	// FailureCanceled es que el usuario canceló. No es un error: es lo que
 	// pidió. La interfaz no tiene que dibujarlo como un fallo, con su cartel
 	// rojo y su SQLSTATE, porque eso hace dudar de si además pasó algo malo.

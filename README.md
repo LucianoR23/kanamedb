@@ -5,10 +5,12 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 2 — SQL básico.** Se conecta a PostgreSQL, guarda la libreta
-> de conexiones con las contraseñas en el keychain del sistema operativo, lista el
-> esquema real, y trae editor SQL con autocompletado, grilla de resultados y datos
-> de tabla con paginado. Solo lectura. El diagrama ERD llega en la Iteración 4.
+> **Estado: Iteración 3 — SSH.** Se conecta a PostgreSQL directo o a través de un
+> bastión SSH —con verificación de la clave del host y sin abrir ningún puerto
+> local—, guarda la libreta de conexiones con los secretos en el keychain del
+> sistema operativo, lista el esquema real, y trae editor SQL con autocompletado,
+> grilla de resultados y datos de tabla con paginado. Solo lectura. El diagrama
+> ERD llega en la Iteración 4.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---
@@ -73,6 +75,13 @@ El binario queda en `bin/kaname.exe` (~14 MB con la Iteración 1: pgx, Atlas y e
 > en modo desarrollo— y el `.syso` con ícono, manifest de DPI y metadata de versión.
 
 ### Verificaciones
+
+Los tests de integración necesitan los motores de prueba, que incluyen un
+servidor SSH para el túnel:
+
+```sh
+docker compose -f docker-compose.test.yml up -d
+```
 
 ```sh
 gofmt -l .                         # formato de Go

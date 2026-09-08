@@ -27,6 +27,7 @@ const CULPRIT: Record<string, string> = {
   timeout: "el host y el puerto",
   tls: "el modo SSL",
   permission: "los permisos del usuario en el servidor",
+  tunnel: "el bastión SSH: el túnel se cerró y hay que reabrirlo",
 };
 
 /**

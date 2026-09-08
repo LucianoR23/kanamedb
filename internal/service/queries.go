@@ -94,7 +94,7 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	if f != nil {
 		// El lote parcial viaja igual: dice qué alcanzó a procesar el servidor
 		// antes del error, que es distinto de "no pasó nada".
-		return RunResult{Batch: lote, Failure: f}
+		return RunResult{Batch: lote, Failure: q.porElTunel(f)}
 	}
 	return RunResult{OK: true, Batch: lote}
 }
@@ -138,7 +138,7 @@ func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableData
 		Offset:     req.Offset,
 	})
 	if f != nil {
-		return TableDataResult{Failure: f}
+		return TableDataResult{Failure: q.porElTunel(f)}
 	}
 	return TableDataResult{OK: true, Result: res, OrderedBy: orden}
 }
@@ -168,7 +168,7 @@ func (q *Queries) TableCount(ctx context.Context, runID, schema, table string) C
 
 	n, f := postgres.TableCount(ctx, sesion.pool, schema, table)
 	if f != nil {
-		return CountResult{Failure: f}
+		return CountResult{Failure: q.porElTunel(f)}
 	}
 	return CountResult{OK: true, Count: n}
 }
@@ -207,5 +207,26 @@ func (q *Queries) registrar(ctx context.Context, runID string) (context.Context,
 		// Después de borrar del mapa: cancelar libera los recursos del context
 		// y ya no puede alcanzar a una ejecución posterior con el mismo runID.
 		cancel()
+	}
+}
+
+// porElTunel reetiqueta un fallo cuando la causa real fue el túnel.
+//
+// Un túnel que se murió se manifiesta como un error de red de la base:
+// "connection refused", "connection reset". Sin esta comprobación, la interfaz
+// solo puede ofrecer una lista de posibles causas —el servidor, la red, el
+// túnel— y quien lo lee tiene que descartarlas de a una. Preguntarle al cliente
+// SSH si sigue vivo convierte esa lista en una respuesta.
+func (q *Queries) porElTunel(f *postgres.Failure) *postgres.Failure {
+	if f == nil || !q.session.TunnelDown() {
+		return f
+	}
+	return &postgres.Failure{
+		Kind:    postgres.FailureTunnel,
+		Message: "El túnel SSH se cerró.",
+		Hint:    "La base puede estar perfectamente: lo que se cortó es el camino hasta ella. Reconectá para abrir el túnel de nuevo.",
+		// Se conserva lo que dijo el motor: es la frase que alguien va a
+		// reconocer si busca el problema en otro lado.
+		Detail: f.Detail,
 	}
 }

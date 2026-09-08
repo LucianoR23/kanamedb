@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -124,6 +125,33 @@ func capturarClaveDelHost(ctx context.Context, cfg Config) (ssh.PublicKey, error
 type Client struct {
 	ssh  *ssh.Client
 	desc string
+	// caido se enciende cuando el servidor cierra la conexión.
+	//
+	// Sin esto, un túnel que se murió se manifiesta como un error de red de la
+	// base —"connection refused"— y la interfaz solo puede decir "el servidor
+	// puede estar caído, o el túnel puede haberse cerrado". Con esto puede
+	// decir cuál de las dos, que es la diferencia entre una pista y una
+	// respuesta.
+	caido atomic.Bool
+}
+
+// Closed dice si el túnel se cerró por su cuenta.
+func (c *Client) Closed() bool {
+	if c == nil {
+		return true
+	}
+	return c.caido.Load()
+}
+
+// vigilar marca el cliente como caído cuando el servidor cierra.
+//
+// ssh.Client.Wait bloquea hasta que la conexión termina, así que va en su
+// propia goroutine. Termina sola: cerrar el cliente hace que Wait vuelva.
+func (c *Client) vigilar() {
+	go func() {
+		_ = c.ssh.Wait()
+		c.caido.Store(true)
+	}()
 }
 
 // Describe es usuario@host:puerto. Sin secretos.
@@ -215,7 +243,9 @@ func Dial(ctx context.Context, cfg Config, kh *KnownHosts, sec Secrets, opts Dia
 		conn.Close()
 		return nil, fmt.Errorf("conectar a %s: %w", cfg.Describe(), err)
 	}
-	return &Client{ssh: ssh.NewClient(c, chans, reqs), desc: cfg.Describe()}, nil
+	cli := &Client{ssh: ssh.NewClient(c, chans, reqs), desc: cfg.Describe()}
+	cli.vigilar()
+	return cli, nil
 }
 
 // verificador compara contra known_hosts y contra la aceptación de una sola vez.

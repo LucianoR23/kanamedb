@@ -232,6 +232,18 @@ func (o *openSession) cerrar() {
 	}
 }
 
+// TunnelDown dice si esta sesión usa túnel y el túnel se cayó.
+//
+// Se pregunta DESPUÉS de que algo falla, no antes de cada operación: sondear
+// el túnel en cada consulta agregaría trabajo a todas para atajar un caso raro.
+// Cuando algo falla, en cambio, saber si el camino sigue en pie cambia el
+// mensaje de "puede ser esto o aquello" a "fue esto".
+func (s *Session) TunnelDown() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.current != nil && s.current.tunel != nil && s.current.tunel.Closed()
+}
+
 // Current devuelve el estado de la sesión.
 func (s *Session) Current() SessionView {
 	s.mu.RLock()

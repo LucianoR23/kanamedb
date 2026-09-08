@@ -276,3 +276,48 @@ func clavePublicaAlAzar(t *testing.T) ssh.PublicKey {
 	}
 	return sshPub
 }
+
+// Un túnel que se cae tiene que poder decirlo.
+//
+// Sin esto, un túnel muerto se manifiesta como un error de red de la base
+// —"connection refused"— y la interfaz solo puede ofrecer una lista de posibles
+// causas. Saber que el camino se cortó convierte esa lista en una respuesta.
+func TestElClienteSabeCuandoElTunelSeCayo(t *testing.T) {
+	cfg, kh := configDePrueba(t)
+	aceptar(t, cfg, kh)
+
+	c, err := Dial(context.Background(), cfg, kh, Secrets{Password: sshPassword}, DialOptions{})
+	if err != nil {
+		t.Fatalf("Dial() error: %v", err)
+	}
+
+	if c.Closed() {
+		t.Fatal("un túnel recién abierto dice que está cerrado")
+	}
+
+	// Cerrarlo simula que el servidor cortó: para el cliente es lo mismo, la
+	// conexión se termina y Wait vuelve.
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+
+	// La goroutine que vigila corre en paralelo, así que se espera a que se
+	// entere. Con un plazo generoso: lo que se prueba es que se entera, no en
+	// cuántos milisegundos.
+	limite := time.Now().Add(3 * time.Second)
+	for !c.Closed() && time.Now().Before(limite) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !c.Closed() {
+		t.Error("el túnel se cerró y el cliente no se enteró")
+	}
+}
+
+// Un cliente nulo cuenta como cerrado: quien pregunta quiere saber si puede
+// contar con el túnel, y no tenerlo es la forma más clara de no poder.
+func TestUnClienteNuloCuentaComoCerrado(t *testing.T) {
+	var c *Client
+	if !c.Closed() {
+		t.Error("un cliente nulo dijo que estaba abierto")
+	}
+}
