@@ -5,8 +5,10 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 0 — esqueleto.** Compila, abre ventana, tiene el sistema de
-> componentes y CI, pero todavía no se conecta a ninguna base.
+> **Estado: Iteración 1 — conexiones.** Se conecta a PostgreSQL, guarda la libreta
+> de conexiones, deja las contraseñas en el keychain del sistema operativo y lista
+> las tablas reales en el árbol de esquema. La grilla de datos y el editor SQL
+> llegan en la Iteración 2.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---
@@ -65,7 +67,7 @@ wails3 task build ARCH=amd64       # win-x64
 wails3 task build ARCH=arm64       # win-arm64
 ```
 
-El binario queda en `bin/kaname.exe` (~10 MB).
+El binario queda en `bin/kaname.exe` (~14 MB con la Iteración 1: pgx, Atlas y el keychain).
 
 > No uses `go build` directo. Se saltea el tag `production` —que deja el webview
 > en modo desarrollo— y el `.syso` con ícono, manifest de DPI y metadata de versión.
@@ -80,6 +82,13 @@ cd frontend && pnpm run typecheck  # tipos de TypeScript
 ```
 
 Es lo mismo que corre CI en cada push.
+
+> En un clon recién bajado, `go vet` y `go test` fallan con
+> `pattern all:frontend/dist: no matching files found`. No es un error tuyo: el
+> paquete `main` embebe el frontend construido y `frontend/dist/` es un artefacto
+> que no se commitea. Corré `wails3 task build` una vez, o —si solo querés los
+> tests de Go— alcanza con `mkdir -p frontend/dist && touch frontend/dist/.gitkeep`.
+> Es lo que hace CI antes de compilar.
 
 ### Regenerar los bindings
 

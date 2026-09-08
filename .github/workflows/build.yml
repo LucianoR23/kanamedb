@@ -34,6 +34,15 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      # El paquete main embebe frontend/dist con go:embed, y dist es un
+      # artefacto de build que no se commitea. Sin el directorio, `go vet` y
+      # `go test` ni siquiera compilan main: fallan con "no matching files
+      # found". El marcador vacío alcanza para compilar —acá no se ejecuta la
+      # interfaz— y el frontend de verdad lo construye el job de build.
+      - name: Marcador para el go:embed del frontend
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+
       - name: gofmt
         shell: bash
         run: |
@@ -105,6 +114,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      # El paquete main embebe frontend/dist con go:embed, y dist es un
+      # artefacto de build que no se commitea. Sin el directorio, `go vet` y
+      # `go test` ni siquiera compilan main: fallan con "no matching files
+      # found". El marcador vacío alcanza para compilar —acá no se ejecuta la
+      # interfaz— y el frontend de verdad lo construye el job de build.
+      - name: Marcador para el go:embed del frontend
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
 
       # -count=1 obligatorio: la caché de go test no sabe contra qué versión de
       # motor está corriendo, así que sin él una corrida contra la 16 podría

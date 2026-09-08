@@ -198,8 +198,10 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
 ### CI
 
 GitHub Actions. Hoy: matriz win-x64 (`windows-latest`) y win-arm64
-(`windows-11-arm`), más un job de gofmt + vet + test + typecheck. Linux y macOS
-se suman en la Iteración 9. El build usa el pipeline de `wails3 task`, no
+(`windows-11-arm`), un job de gofmt + vet + test + typecheck, y una matriz de
+integración contra PostgreSQL 18, 17, 16 y 14 en `ubuntu-latest` con
+`KANAME_REQUIRE_POSTGRES=1`, para que un job sin base se ponga rojo en vez de
+verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `wails3 task`, no
 `go build` a mano — ver el registro de decisiones.
 
 ---
@@ -355,6 +357,19 @@ matriz.
 Con tag, el código de test no compila en el día a día y un error ahí se
 descubre tarde. Sin tag, siempre pasa por `vet` y se saltea con un mensaje que
 dice cómo levantar la base.
+
+**CI crea `frontend/dist` antes de tocar Go; el marcador no se commitea.**
+El primer push puso los cinco jobs en rojo con `pattern all:frontend/dist: no
+matching files found`. El paquete `main` embebe el frontend construido, y
+`frontend/dist/` es un artefacto ignorado: en un clon limpio, `go vet ./...` y
+`go test ./...` ni siquiera compilan `main`. El checklist local no lo detecta
+nunca, porque en la máquina de desarrollo el directorio existe de haber corrido
+`wails3 task build` — una verificación que solo pasa por tener basura previa no
+verifica nada. CI crea un `.gitkeep` vacío antes de los comandos de Go (el
+prefijo `all:` hace que un archivo con punto cuente como coincidencia) y el
+frontend de verdad lo sigue construyendo el job de build. Commitear el marcador
+habría sido más corto y peor: un `dist` vacío en el repo deja que `go build`
+produzca un binario que abre una ventana en blanco, sin avisar.
 
 ---
 
