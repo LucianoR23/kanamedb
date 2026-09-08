@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 func fieldErrors(t *testing.T, c Connection) map[string]string {
@@ -223,5 +225,69 @@ func TestAvisaSobreProduccionSinVerificarCertificado(t *testing.T) {
 	}
 	if !strings.Contains(avisos[0].Message, "verify-full") {
 		t.Errorf("contra producción el aviso debería sugerir verify-full: %q", avisos[0].Message)
+	}
+}
+
+func TestValidateElTunelSSH(t *testing.T) {
+	base := func() Connection {
+		return Connection{
+			ID: "a1", Name: "n", Engine: Postgres, Environment: Local,
+			Host: "db.interna", Port: 5432, Database: "d", User: "u",
+			SSH: tunnel.Config{
+				Enabled: true, Host: "bastion.interna", Port: 22, User: "ops",
+				Auth: tunnel.AuthAgent,
+			},
+		}
+	}
+
+	if err := base().Validate(); err != nil {
+		t.Fatalf("una configuración de túnel válida dio error: %v", err)
+	}
+
+	casos := []struct {
+		nombre string
+		tocar  func(*Connection)
+		campo  string
+	}{
+		{"sin host", func(c *Connection) { c.SSH.Host = "" }, "ssh.host"},
+		{"sin usuario", func(c *Connection) { c.SSH.User = "" }, "ssh.user"},
+		{"puerto fuera de rango", func(c *Connection) { c.SSH.Port = 70000 }, "ssh.port"},
+		{"método desconocido", func(c *Connection) { c.SSH.Auth = "magia" }, "ssh.auth"},
+		{"clave sin ruta", func(c *Connection) { c.SSH.Auth = tunnel.AuthKeyFile }, "ssh.keyPath"},
+		{"bastión igual a la base", func(c *Connection) {
+			c.SSH.Host = "db.interna"
+			c.SSH.Port = 5432
+			c.Port = 5432
+		}, "ssh.host"},
+	}
+	for _, tc := range casos {
+		t.Run(tc.nombre, func(t *testing.T) {
+			c := base()
+			tc.tocar(&c)
+			err := c.Validate()
+			if err == nil {
+				t.Fatal("no dio error")
+			}
+			var v *ValidationError
+			if !errors.As(err, &v) {
+				t.Fatalf("el error no es de validación: %v", err)
+			}
+			if !v.Has(tc.campo) {
+				t.Errorf("el error no señala el campo %q: %v", tc.campo, err)
+			}
+		})
+	}
+}
+
+// Con el túnel apagado, sus campos no tienen por qué estar completos: apagarlo
+// no debería obligar a borrar la configuración para poder guardar.
+func TestUnTunelApagadoNoExigeSusCampos(t *testing.T) {
+	c := Connection{
+		ID: "a1", Name: "n", Engine: Postgres, Environment: Local,
+		Host: "db", Port: 5432, Database: "d", User: "u",
+		SSH: tunnel.Config{Enabled: false, Host: "", User: "", Auth: "magia"},
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("un túnel apagado hizo fallar la validación: %v", err)
 	}
 }

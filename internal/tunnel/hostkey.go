@@ -171,18 +171,23 @@ func (k *KnownHosts) TrustKey(address string, pub ssh.PublicKey) error {
 		comentarioKaname,
 		time.Now().UTC().Format(time.RFC3339))
 
-	// Escritura atómica: el archivo se reemplaza entero o no se toca. Un corte
-	// a mitad de camino dejaría un known_hosts truncado, y un known_hosts
-	// truncado no es un archivo con menos hosts: es uno que vuelve a preguntar
-	// por hosts que ya estaban aceptados, y preguntar de más entrena a decir
-	// que sí sin mirar.
-	tmp, err := os.CreateTemp(filepath.Dir(k.path), ".known_hosts-*")
+	return escribirAtomico(k.path, strings.Join(conservadas, "")+linea)
+}
+
+// escribirAtomico reemplaza el archivo entero o no lo toca.
+//
+// Un corte a mitad de camino dejaría un known_hosts truncado, y eso no es un
+// archivo con menos hosts: es uno que vuelve a preguntar por hosts que ya
+// estaban aceptados. Preguntar de más entrena a decir que sí sin mirar, que es
+// exactamente lo que este diálogo no puede permitirse.
+func escribirAtomico(path, contenido string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".known_hosts-*")
 	if err != nil {
 		return fmt.Errorf("crear el archivo temporal: %w", err)
 	}
 	defer os.Remove(tmp.Name())
 
-	if _, err := tmp.WriteString(strings.Join(conservadas, "") + linea); err != nil {
+	if _, err := tmp.WriteString(contenido); err != nil {
 		tmp.Close()
 		return fmt.Errorf("escribir known_hosts: %w", err)
 	}
@@ -196,7 +201,7 @@ func (k *KnownHosts) TrustKey(address string, pub ssh.PublicKey) error {
 	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
 		return fmt.Errorf("permisos de known_hosts: %w", err)
 	}
-	if err := os.Rename(tmp.Name(), k.path); err != nil {
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("reemplazar known_hosts: %w", err)
 	}
 	return nil
@@ -294,4 +299,24 @@ func (k *KnownHosts) Trust(address, authorizedKey string) error {
 		return fmt.Errorf("la clave a aceptar no se pudo interpretar: %w", err)
 	}
 	return k.TrustKey(address, pub)
+}
+
+// Forget saca una dirección de la lista de aceptadas.
+//
+// Sin esto, deshacer un "confiar" obligaría a editar el archivo a mano — y
+// alguien que acaba de darse cuenta de que aceptó una clave que no debía es
+// justo quien menos necesita ponerse a editar known_hosts con un editor.
+func (k *KnownHosts) Forget(address string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	conservadas, err := k.lineasSinHost(address)
+	if err != nil {
+		return err
+	}
+	// Sin archivo no hay nada que olvidar, y crear uno vacío sería raro.
+	if _, err := os.Stat(k.path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return escribirAtomico(k.path, strings.Join(conservadas, ""))
 }

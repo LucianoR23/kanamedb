@@ -14,6 +14,7 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/service"
 	"github.com/LucianoR23/kanamedb/internal/store"
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 // Los assets del frontend se embeben en el binario: no hay archivos sueltos que
@@ -32,7 +33,8 @@ func main() {
 
 	connections := store.New(info.Paths.Connections)
 	keyring := secrets.New()
-	sesion := service.NewSession(connections, keyring)
+	known := tunnel.NewKnownHosts(info.Paths.KnownHosts)
+	sesion := service.NewSession(connections, keyring, known)
 
 	app := application.New(application.Options{
 		Name:        "Kaname",
@@ -43,6 +45,7 @@ func main() {
 			application.NewService(service.NewConnections(connections, keyring)),
 			application.NewService(sesion),
 			application.NewService(service.NewQueries(sesion)),
+			application.NewService(service.NewHosts(known)),
 		},
 
 		Assets: application.AssetOptions{

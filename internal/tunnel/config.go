@@ -63,6 +63,16 @@ func (c Config) Normalize() Config {
 	c.KeyPath = strings.TrimSpace(c.KeyPath)
 	c.Auth = AuthMethod(strings.ToLower(strings.TrimSpace(string(c.Auth))))
 
+	// Los defaults solo se aplican con el túnel encendido.
+	//
+	// Rellenarlos siempre metería `port = 22` y `auth = "agent"` en el archivo
+	// de TODAS las conexiones, incluidas las que nunca van a usar un bastión:
+	// configuración de algo que no existe, en un archivo que se lee a mano. Y
+	// además haría que guardar y volver a leer una conexión la devolviera
+	// distinta de como entró.
+	if !c.Enabled {
+		return c
+	}
 	if c.Port == 0 {
 		c.Port = DefaultPort
 	}

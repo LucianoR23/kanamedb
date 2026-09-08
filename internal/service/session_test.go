@@ -11,6 +11,7 @@ import (
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/store"
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 // sesionDePrueba arma una libreta con una conexión al Postgres de pruebas y su
@@ -48,7 +49,9 @@ func sesionDePrueba(t *testing.T) (*Session, *Connections, string) {
 		}
 	}
 
-	sesion := NewSession(st, kr)
+	// known_hosts propio del test: ninguna conexión de prueba usa túnel, pero
+	// la sesión lo necesita para poder abrirlo si alguna lo usara.
+	sesion := NewSession(st, kr, tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")))
 	t.Cleanup(sesion.Disconnect)
 	return sesion, &Connections{store: st, keyring: kr}, c.ID
 }

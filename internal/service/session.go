@@ -14,6 +14,7 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/schema"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/store"
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 // Session es la conexión abierta. La Iteración 1 sostiene una sola: el
@@ -21,13 +22,18 @@ import (
 type Session struct {
 	store   *store.Store
 	keyring Keyring
+	known   *tunnel.KnownHosts
 
 	mu      sync.RWMutex
 	current *openSession
 }
 
 type openSession struct {
-	conn     connection.Connection
+	conn connection.Connection
+	// tunel es el salto SSH, si la conexión lo usa. Se cierra junto con el pool:
+	// dejarlo abierto mantendría viva una sesión en el bastión que ya no sirve
+	// para nada y que el administrador de ese host ve como conectada.
+	tunel    *tunnel.Client
 	pool     *pgxpool.Pool
 	server   *postgres.ServerInfo
 	openedAt time.Time
@@ -35,8 +41,8 @@ type openSession struct {
 }
 
 // NewSession arma el servicio.
-func NewSession(st *store.Store, kr Keyring) *Session {
-	return &Session{store: st, keyring: kr}
+func NewSession(st *store.Store, kr Keyring, known *tunnel.KnownHosts) *Session {
+	return &Session{store: st, keyring: kr, known: known}
 }
 
 // SessionView es el estado de la conexión tal como lo ve la interfaz.
@@ -118,8 +124,48 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 		})
 	}
 
-	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), connectOptions(c))
+	opciones := connectOptions(c)
+
+	// El túnel se abre ANTES que la base: si el salto no se puede establecer,
+	// no tiene sentido intentar la conexión de abajo, y el error del túnel es
+	// el que explica qué pasó.
+	var tunelAbierto *tunnel.Client
+	if c.SSH.Enabled {
+		secreto, err := s.keyring.Get(SSHSecretID(id))
+		if err != nil && !errors.Is(err, secrets.ErrNotFound) {
+			return failed(&postgres.Failure{
+				Kind:    postgres.FailureOther,
+				Message: "No se pudo leer el secreto del bastión del keychain.",
+			})
+		}
+		sec := tunnel.Secrets{}
+		switch c.SSH.Auth {
+		case connection.SSHAuthPassword:
+			sec.Password = secreto
+		case connection.SSHAuthKeyFile:
+			sec.Passphrase = secreto
+		}
+
+		cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{})
+		if err != nil {
+			return failed(&postgres.Failure{
+				Kind:    postgres.FailureOther,
+				Message: "No se pudo abrir el túnel SSH.",
+				Detail:  postgres.Redact(err.Error()),
+				Hint:    "Revisá el bastión, el usuario y el método de autenticación en la pestaña SSH.",
+			})
+		}
+		tunelAbierto = cli
+		opciones.DialFunc = cli.DialContext
+	}
+
+	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), opciones)
 	if failure != nil {
+		// El túnel quedó abierto y ya no sirve: cerrarlo acá evita dejar una
+		// sesión colgada en el bastión por cada intento fallido.
+		if tunelAbierto != nil {
+			tunelAbierto.Close()
+		}
 		return failed(failure)
 	}
 
@@ -127,6 +173,7 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 	anterior := s.current
 	s.current = &openSession{
 		conn:     c,
+		tunel:    tunelAbierto,
 		pool:     pool,
 		server:   info,
 		openedAt: time.Now(),
@@ -137,7 +184,7 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 	// El cierre va fuera del lock: puede tardar y no hay razón para bloquear a
 	// quien pregunte el estado mientras tanto.
 	if anterior != nil {
-		anterior.pool.Close()
+		anterior.cerrar()
 	}
 	return ConnectResult{OK: true, Session: vista}
 }
@@ -155,7 +202,23 @@ func (s *Session) Disconnect() {
 	s.mu.Unlock()
 
 	if anterior != nil {
-		anterior.pool.Close()
+		anterior.cerrar()
+	}
+}
+
+// cerrar suelta el pool y el túnel, en ese orden.
+//
+// El orden importa: cerrar el túnel primero dejaría al pool intentando hablar
+// por un canal muerto, y sus errores de cierre serían ruido que no explica nada.
+func (o *openSession) cerrar() {
+	if o == nil {
+		return
+	}
+	if o.pool != nil {
+		o.pool.Close()
+	}
+	if o.tunel != nil {
+		o.tunel.Close()
 	}
 }
 

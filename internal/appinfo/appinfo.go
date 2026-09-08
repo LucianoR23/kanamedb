@@ -49,6 +49,20 @@ type Paths struct {
 	// Logs es donde van los diagnósticos. Nunca contienen credenciales,
 	// connection strings ni valores de filas.
 	Logs string `json:"logs"`
+
+	// KnownHosts son las claves de servidores SSH que se aceptaron.
+	//
+	// Es un archivo propio y no `~/.ssh/known_hosts`: escribir en el de OpenSSH
+	// es meterse con configuración que otras herramientas también usan, y tener
+	// las decisiones de confianza de Kaname en un solo lugar permite auditarlas
+	// de un vistazo. El formato sí es el de OpenSSH, así que se lee con
+	// `ssh-keygen -F` sin aprender nada nuevo.
+	//
+	// Contiene claves PÚBLICAS de servidores. No es un secreto: es lo que
+	// cualquiera obtiene conectándose a esos hosts. Pero sí es una lista de a
+	// qué máquinas se conecta esta persona, así que va junto a la configuración
+	// y no se sincroniza salvo que se quiera.
+	KnownHosts string `json:"knownHosts"`
 }
 
 // Service es el servicio que se registra en Wails.
@@ -114,5 +128,6 @@ func resolvePaths() (Paths, error) {
 		Config:      filepath.Join(base, "config.toml"),
 		State:       state,
 		Logs:        filepath.Join(state, "logs"),
+		KnownHosts:  filepath.Join(base, "known_hosts"),
 	}, nil
 }

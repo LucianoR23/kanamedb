@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 // FieldError es un problema en un campo concreto. La UI lo pinta debajo del
@@ -49,7 +51,62 @@ func (c Connection) Validate() error {
 	errs := c.identityErrors()
 	errs = append(errs, c.connectErrors()...)
 	errs = append(errs, c.safetyErrors()...)
+	errs = append(errs, c.sshErrors()...)
 	return wrap(errs)
+}
+
+// sshErrors valida el salto por el bastión.
+//
+// Los nombres de campo llevan el prefijo `ssh.` porque el formulario los tiene
+// en su propia pestaña: sin el prefijo, un error de "host" no diría si el que
+// falta es el de la base o el del bastión, y son dos campos en dos pantallas
+// distintas.
+func (c Connection) sshErrors() []FieldError {
+	c = c.Normalize()
+	if !c.SSH.Enabled {
+		// Apagado, sus campos son configuración muerta y no tienen por qué
+		// estar completos: apagar el túnel no debería obligar a borrarlo.
+		return nil
+	}
+
+	var errs []FieldError
+	if c.SSH.Host == "" {
+		errs = append(errs, FieldError{Field: "ssh.host", Message: "El túnel SSH necesita un host."})
+	}
+	if c.SSH.User == "" {
+		errs = append(errs, FieldError{Field: "ssh.user", Message: "El túnel SSH necesita un usuario."})
+	}
+	if c.SSH.Port < 1 || c.SSH.Port > 65535 {
+		errs = append(errs, FieldError{
+			Field:   "ssh.port",
+			Message: fmt.Sprintf("El puerto SSH %d está fuera de rango.", c.SSH.Port),
+		})
+	}
+	switch c.SSH.Auth {
+	case tunnel.AuthAgent, tunnel.AuthPassword:
+	case tunnel.AuthKeyFile:
+		if c.SSH.KeyPath == "" {
+			errs = append(errs, FieldError{
+				Field:   "ssh.keyPath",
+				Message: "La autenticación por clave necesita la ruta de la clave privada.",
+			})
+		}
+	default:
+		errs = append(errs, FieldError{
+			Field:   "ssh.auth",
+			Message: fmt.Sprintf("Método de autenticación SSH desconocido: %q.", c.SSH.Auth),
+		})
+	}
+
+	// El bastión y la base no pueden ser el mismo destino: sería un túnel a
+	// sí mismo, y el síntoma —una conexión que cuelga— no se parece a la causa.
+	if c.SSH.Host == c.Host && c.SSH.Port == c.Port {
+		errs = append(errs, FieldError{
+			Field:   "ssh.host",
+			Message: "El bastión y la base apuntan al mismo host y puerto.",
+		})
+	}
+	return errs
 }
 
 // ValidateForConnect revisa solo lo que hace falta para abrir la conexión.

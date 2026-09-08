@@ -1,9 +1,14 @@
 // Package connection define qué es una conexión a una base de datos en Kaname:
 // cómo se valida, cómo se arma su DSN y cómo se la nombra sin filtrar secretos.
 //
-// El paquete es puro: no toca disco, red ni keychain. La contraseña nunca es un
-// campo de Connection — vive en el keychain del sistema y se pasa como argumento
-// solo en el momento de conectar. Ver CLAUDE.md.
+// El paquete no toca disco, red ni keychain: se puede probar entero sin montar
+// nada. La contraseña nunca es un campo de Connection — vive en el keychain del
+// sistema y se pasa como argumento solo en el momento de conectar. Ver CLAUDE.md.
+//
+// Importa internal/tunnel por su tipo de configuración, que es igual de puro.
+// Se prefiere el tipo compartido antes que una copia de sus campos: dos
+// definiciones del mismo dato se separan, y separarse acá significaría que la
+// conexión guarda un campo que el túnel no lee.
 package connection
 
 import (
@@ -15,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 // Engine es el motor de base de datos.
@@ -145,6 +152,15 @@ type Connection struct {
 	SSLMode SSLMode `toml:"ssl_mode" json:"sslMode"`
 
 	Safety Safety `toml:"safety" json:"safety"`
+
+	// SSH es el salto por un bastión. Apagado, el resto de sus campos queda
+	// como configuración muerta pero legible.
+	//
+	// Se usa el tipo de internal/tunnel y no una copia de sus campos para que
+	// no haya dos definiciones que mantener en sincronía. El paquete de
+	// configuración de tunnel no importa nada de criptografía —eso vive en los
+	// otros archivos— así que el modelo no arrastra peso por esto.
+	SSH tunnel.Config `toml:"ssh,omitempty" json:"ssh"`
 }
 
 // Safety son las protecciones por conexión.
@@ -342,6 +358,8 @@ func (c Connection) Normalize() Connection {
 	c.Database = strings.TrimSpace(c.Database)
 	c.User = strings.TrimSpace(c.User)
 
+	c.SSH = c.SSH.Normalize()
+
 	// Los enums también se limpian porque el archivo se edita a mano. Sin esto,
 	// `engine = " Postgres"` da "Motor desconocido" y el motivo —un espacio de
 	// más, o una mayúscula— queda invisible en el mensaje.
@@ -361,3 +379,13 @@ func (c Connection) Normalize() Connection {
 	}
 	return c
 }
+
+// Los métodos de autenticación SSH, re-exportados.
+//
+// Existen para que quien ya usa este paquete no tenga que importar además el
+// del túnel solo para nombrar una constante. Son los mismos valores.
+const (
+	SSHAuthAgent    = tunnel.AuthAgent
+	SSHAuthKeyFile  = tunnel.AuthKeyFile
+	SSHAuthPassword = tunnel.AuthPassword
+)
