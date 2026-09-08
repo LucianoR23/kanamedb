@@ -18,12 +18,19 @@ Wails v3 + React/Vite, assets embebidos, CI que compila win-x64 y win-arm64.
 - ✅ **Scaffold** — Wails v3.0.0-beta.17 + React 19 + TypeScript 7 + Vite 8, assets
   embebidos, sin sockets. Ventana verificada. Commit `d63f04f`.
 - ✅ **CI** — GitHub Actions, matriz win-x64 / win-arm64. Pendiente de remote.
-- ⏳ **S00 Foundations** — tokens CSS (dark + light, acentos de entorno), tipografía,
+- ✅ **S00 Foundations** — tokens CSS (dark + light, acentos de entorno), tipografía,
   espaciado y componentes base: botones, inputs, tabs, badges, tree row, celda de
   grilla, dialog, toast, context menu.
-- ⏳ **S05 Main workspace shell** — shell vacío: sidebar, tab strip, status bar, panes
+- ✅ **S05 Main workspace shell** — shell vacío: sidebar, tab strip, status bar, panes
   redimensionables. Sin contenido real.
-- ⏳ **S25 About** — completa.
+- ✅ **S25 About** — completa, con el servicio `appinfo` como contrato.
+- 🔴 **Bloqueante** — la ventana recorta ~20 % de la UI con escalado de pantalla
+  distinto de 100 %. Es un bug de Wails, no del layout. Ver el registro de
+  decisiones. La iteración no cierra hasta resolverlo.
+
+El diseño vive en Claude Design, proyecto
+`025e0714-d352-4c71-a783-68c91cdc66e8`. Se baja con `DesignSync` a `design/`,
+que está en `.gitignore`: una copia commiteada se desactualiza y miente.
 
 ### Iteración 1 — Conexiones
 
@@ -282,6 +289,52 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 0 — 2026-09-07
+
+**🔴 Wails v3 recorta la UI con escalado de pantalla distinto de 100 %.**
+En una pantalla al 125 %, el webview reporta un viewport CSS igual al área
+cliente en píxeles **físicos** (1426 CSS para un cliente de 1425 físicos) pero
+rasteriza a `devicePixelRatio` 1.25. El contenido se dibuja 1.25× más grande que
+el viewport para el que se maquetó, así que el 20 % inferior y derecho queda
+fuera de la ventana: desaparecen la barra de estado y el pane derecho.
+
+Verificado que **no es nuestro código**: el mismo layout mide correcto en Chrome
+(2 asides, 1 footer, 2 separadores) tanto en dev como en el build de producción,
+y el bug reproduce en el template limpio de Wails sin una línea propia. Tampoco
+es una regresión: pasa igual en beta.16 y en beta.17. El manifest declara
+`permonitorv2` y `WebView2CompositionHosting` está en `false`, así que Wails sí
+pide `BOUNDS_MODE_USE_RAW_PIXELS`.
+
+Pendiente: reportarlo upstream y decidir si se aplica una compensación en la app
+mientras tanto. **La Iteración 0 no cierra hasta que esto esté resuelto** — el
+criterio del plan es usarla, y hoy no se puede en una pantalla escalada.
+
+**Fuentes autohospedadas, no Google Fonts.**
+Los artboards cargan Inter y JetBrains Mono desde `fonts.googleapis.com`, pero el
+propio S00 aclara que viajan con la app. Un `<link>` a un CDN es una petición
+saliente en cada arranque —IP, User-Agent, horario— y rompe sin internet. Se
+usan los `.woff2` de `@fontsource-variable/*`, con `@font-face` propios para
+incluir solo los subconjuntos latin y latin-ext: 189 KB en vez de los ~700 KB
+que entrarían con cirílico, griego y vietnamita.
+
+**CSS Modules, sin librería de estilos.**
+Alcanzan y no agregan dependencias. Los tokens quedan como variables CSS, que es
+como los define el diseño. `noUncheckedIndexedAccess` los tipa como
+`string | undefined`, así que hay un helper `cx()` en `src/lib`; la flag se
+mantiene porque es la que va a cuidar los accesos por índice de la grilla.
+
+**El contrato de Go va antes que la pantalla, también para About.**
+`internal/appinfo` expone versión, plataforma y rutas, con tests que además
+verifican que ninguna ruta huela a secreto. S25 no tiene ni una constante propia
+sobre el binario: no puede mentir sobre lo que está corriendo.
+
+**Se omite de S25 lo que todavía no existe.**
+El artboard muestra `v0.4.2`, "28 MB installed", rutas `~/.config/kaname/` y 40
+atajos de teclado. Nada de eso es cierto hoy. La pantalla usa los datos reales
+del binding, marca motores y plataformas con su estado verdadero, y deja la
+sección de atajos vacía con una explicación. Se documenta cada atajo cuando la
+función que dispara exista. La grilla "All screens" del artboard es navegación
+del canvas de diseño, no de la app.
+
 
 **Nombre del repo: `kanamedb`; producto: Kaname.**
 `kaname` solo es inbuscable (colisiona con la palabra japonesa y con personajes

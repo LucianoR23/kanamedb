@@ -5,9 +5,13 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 0 — esqueleto.** El proyecto compila, abre ventana y tiene
-> CI, pero todavía no se conecta a ninguna base. Ver [`kaname-plan.md`](kaname-plan.md)
-> para el plan completo y el registro de decisiones.
+> **Estado: Iteración 0 — esqueleto.** Compila, abre ventana, tiene el sistema de
+> componentes y CI, pero todavía no se conecta a ninguna base.
+> Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
+>
+> ⚠️ **Bug abierto:** con escalado de pantalla distinto de 100 %, la ventana
+> recorta cerca del 20 % de la UI. Es de Wails, no del layout, y reproduce en su
+> template limpio. Detalle en el registro de decisiones.
 
 ---
 
@@ -104,9 +108,15 @@ main.go              Punto de entrada. Registra servicios y crea la ventana.
 build/               Assets e íconos por plataforma, Taskfiles de build.
   config.yml         Metadata del producto (nombre, versión, identificador).
 frontend/
-  src/               React 19 + TypeScript.
+  src/
+    styles/          Tokens de diseño. La única fuente de color de la app.
+    components/ui/   Componentes base de S00. Nada de elementos nativos.
+    screens/         Pantallas Sxx.
+    lib/             Utilidades chicas.
   bindings/          Generado por Wails. No se commitea.
   .npmrc             Filtro de supply chain. Leer antes de tocar.
+internal/            Paquetes de Go. Cada servicio expuesto al frontend vive acá.
+design/             Artboards bajados de Claude Design. No se commitea.
 .github/workflows/   CI: lint, typecheck y build win-x64 + win-arm64.
 CLAUDE.md            Convenciones de código y reglas de seguridad.
 kaname-plan.md       Plan por iteraciones y registro de decisiones.
@@ -115,7 +125,8 @@ kaname-plan.md       Plan por iteraciones y registro de decisiones.
 ## Stack
 
 **Go 1.26** · **Wails v3** (ventana nativa, sin servidor HTTP) ·
-**React 19** con React Compiler · **TypeScript 7** · **Vite 8** · **pnpm**
+**React 19** con React Compiler · **TypeScript 7** · **Vite 8** · **pnpm** ·
+CSS Modules sobre variables CSS · Inter y JetBrains Mono autohospedadas
 
 A medida que avancen las iteraciones se suman
 [Atlas](https://atlasgo.io/) para introspección y diff de esquemas,
@@ -139,3 +150,20 @@ versión del módulo Go.
 
 Windows x64 y arm64 se compilan hoy. Linux y macOS necesitan cgo, así que no se
 cross-compilan desde Windows: van por CI en la Iteración 9.
+
+## Diseño
+
+Las 26 pantallas viven en un proyecto de Claude Design, no en el repo. Se bajan
+con `DesignSync` al directorio `design/`, que está en `.gitignore`: una copia
+commiteada se desactualiza y termina mintiendo.
+
+Reglas que salen de S00 Foundations y valen para toda la UI:
+
+- **Todo lo que entra o sale de una base va en mono.** Identificadores, tipos,
+  valores, SQL, tiempos, rutas. Lo que dice la app va en Inter.
+- **Los colores salen de los tokens.** Ningún componente escribe un literal. Si
+  falta un color, se agrega a `tokens.css`.
+- **Nada de elementos nativos.** `<select>` y compañía ignoran el tema en
+  Windows. Se usan los componentes de `components/ui`.
+- **NULL y la cadena vacía se ven distinto.** `[null]` en itálica y gris; la
+  cadena vacía, una celda en blanco. Confundirlos es un bug de datos esperando.
