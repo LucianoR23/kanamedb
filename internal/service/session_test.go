@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/store"
@@ -212,5 +213,43 @@ func TestLaSesionExplicaPorQueEsDeSoloLectura(t *testing.T) {
 	if !strings.Contains(res.Session.ReadOnlyReason, "configurada") {
 		t.Errorf("ReadOnlyReason = %q: no explica que fue una decisión, no el servidor",
 			res.Session.ReadOnlyReason)
+	}
+}
+
+// connectOptions es el pegamento entre las protecciones de la conexión y el
+// pool. Que `Safety.StatementTimeout()` devuelva 30 s y que `Connect` aplique
+// lo que recibe están probados por separado; sin este test, borrar la línea que
+// los une dejaría los dos verdes y el corte por tiempo sin aplicarse.
+func TestConnectOptionsLlevaLasProteccionesAlPool(t *testing.T) {
+	c := connection.Connection{
+		Engine: connection.Postgres,
+		Safety: connection.Safety{
+			ReadOnly: true,
+			// Cero significa "usá el default", que son 30 s.
+			StatementTimeoutSeconds: 0,
+		},
+	}
+
+	opts := connectOptions(c)
+	if !opts.ReadOnly {
+		t.Error("la conexión es de solo lectura y el pool no se entera")
+	}
+	if got, quiere := opts.StatementTimeout, 30*time.Second; got != quiere {
+		t.Errorf("StatementTimeout = %v, se esperaba %v", got, quiere)
+	}
+	if opts.MaxConns <= 0 {
+		t.Errorf("MaxConns = %d: el pool quedaría sin tamaño", opts.MaxConns)
+	}
+
+	// Y sin solo lectura, el pool tampoco lo inventa.
+	c.Safety.ReadOnly = false
+	c.Safety.StatementTimeoutSeconds = connection.Unlimited
+	sin := connectOptions(c)
+	if sin.ReadOnly {
+		t.Error("el pool se puso en solo lectura sin que la conexión lo pidiera")
+	}
+	if sin.StatementTimeout != 0 {
+		t.Errorf("StatementTimeout = %v: sin límite tiene que llegar como cero al pool",
+			sin.StatementTimeout)
 	}
 }
