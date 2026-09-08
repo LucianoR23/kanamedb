@@ -191,8 +191,9 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
   sin secretos.
 - **Canvas ERD:** `@xyflow/react`.
 - **Layout:** `@dagrejs/dagre`; ELK solo si dagre no alcanza.
-- **Grilla:** `react-data-grid` v7.0.0-beta.61, pineada exacta. Reemplaza a
-  `glide-data-grid` — ver el registro de decisiones.
+- **Grilla:** CSS Grid propio, virtualizado con `@tanstack/react-virtual`
+  v3.14.10, pineada exacta. Reemplaza a `glide-data-grid` — ver el registro de
+  decisiones.
 - **Editor:** CodeMirror 6 + `@codemirror/lang-sql`.
 - **Estado UI:** Zustand.
 
@@ -262,12 +263,11 @@ verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `w
   (`build:server`, `run:server`, `build:docker`). Ver registro de decisiones.
 - WebView2 (Windows) se actualiza y reporta a Microsoft por su cuenta, y no lo
   controlás desde la app. Es el precio de no embeber Chromium.
-- El resto (xyflow, CodeMirror, react-data-grid, Wails, pgx) no hace phone-home.
+- El resto (xyflow, CodeMirror, TanStack Virtual, Wails, pgx) no hace phone-home.
 - ✅ **glide-data-grid revisada y descartada** (2026-09-08). No declara React 19
   en la versión estable y el repo lleva meses quieto. Ver el registro de
-  decisiones. En su lugar, `react-data-grid`: instala sin warnings de peers
-  contra React 19.2.8, sin dependencias transitivas, y pasa la política de
-  `minimum-release-age`.
+  decisiones. En su lugar, CSS Grid propio virtualizado con
+  `@tanstack/react-virtual`: MIT, peer con React 19, un solo paquete.
 - **`minimum-release-age` de 7 días** activo en `frontend/.npmrc`: pnpm rechaza
   paquetes publicados hace menos de una semana. Es defensa contra supply chain y
   no se desactiva. Cuando bloquee una versión, se baja a la anterior elegible; si
@@ -324,35 +324,41 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 2 — 2026-09-08
 
-**La grilla es `react-data-grid`, no `glide-data-grid`.**
-El plan dejó anotado revisar la actividad de glide antes de esta iteración. La
-revisión la descarta, por cuatro cosas que se suman:
+**La grilla no es una librería de grilla: es CSS Grid propio más virtualización.**
+Descartada `glide-data-grid`, que era lo que decía el plan: su estable declara
+`react: ^16 || 17 || 18`, React 19 solo está en una alpha sin promover desde
+junio de 2025, el repo no recibe un push desde enero de 2026, y arrastra
+`lodash`, `marked` y `react-responsive-carousel` como peers. Sobre todo, dibuja
+en canvas: los colores se pintarían desde JS y acá salen solo de tokens CSS, de
+los que dependen el tema claro y los acentos por entorno.
 
-1. La estable publicada, 6.0.3, declara `react: ^16.12.0 || 17.x || 18.x`.
-   React 19 solo aparece en `6.0.4-alpha24`, una alpha que no se promovió desde
-   que se cerró el issue #1021 en junio de 2025. Queda elegir entre depender de
-   una alpha o forzar peers en una grilla que toca internals de React con fuerza.
-2. El repo no recibe un push desde el 21 de enero de 2026: siete meses y medio.
-3. Arrastra peso que no usamos: `lodash`, `marked` y `react-responsive-carousel`
-   como peers, más `@linaria/react` —CSS-in-JS en tiempo de build— como
-   dependencia. Un parser de markdown y una librería de carrusel para mostrar
-   filas no se justifican.
-4. La decisiva y propia de este proyecto: glide dibuja en canvas, así que los
-   colores se pintan desde JS y no desde CSS. Acá la regla es que los colores
-   salen solo de tokens, y de ahí dependen el tema claro y los acentos por
-   entorno. Una grilla en canvas obliga a leer cada token desde JS y a
-   reimplementar el tema adentro — y a que se desincronice la primera vez que
-   alguien toque un token.
+El reemplazo elegido primero fue `react-data-grid`, y se revirtió el mismo día al
+leer los diseños. Vale anotarlo así: se eligió la librería antes de mirar la
+pantalla, y la pantalla cambió la respuesta.
 
-`react-data-grid` (MIT, Comcast/adazzle) resuelve las cuatro: peer `react:
-^19.2`, cero dependencias de runtime, último push del 6 de septiembre de 2026 y
-celdas de DOM, o sea tokens CSS, selección de texto y accesibilidad de verdad.
-Además trae editores, que es lo que va a necesitar la Iteración 7. Verificado, no
-deducido de la metadata: `pnpm add` resolvió sin un solo warning de peers contra
-React 19.2.8 y sumó exactamente un paquete.
+S07 y S10 son literalmente un `display:grid`. Anchos por columna en
+`grid-template-columns`, filas de 25px, el canal `#` de 38px con su propio fondo,
+y cada celda pintada con tokens: `--cell-null` en itálica, `--cell-modified` con
+outline `--warning`, `--cell-deleted` tachada, `--bg-stripe` en las impares.
+Encima, popovers anclados por coordenada de fila y columna. Una librería de
+grilla no ahorra nada de eso — hay que pelearle su DOM y sus clases para llegar
+al mismo lugar.
 
-La objeción honesta: su tag `latest` es `7.0.0-beta.61`, una beta de larga data.
-Se pinea exacta, como el resto de lo crítico, y se sube leyendo el changelog.
+TanStack Table v9, que ya es estable (9.2.4), tampoco entra, por una razón que
+solo se ve mirando el diseño: el contador dice `1,000 of 12,481 rows · filtered`.
+El orden y el filtro son SQL, no estado del cliente. Los modelos de sorting,
+filtering y pagination de TanStack son justo lo que no vamos a usar.
+
+Lo único genuinamente difícil es virtualizar: mil filas por ocho columnas son
+ocho mil nodos, y con "cargar más" crece. Eso lo resuelve
+`@tanstack/react-virtual` —MIT, peer con React 19, un solo paquete— sin opinar
+sobre el marcado. Al instalarlo, `minimum-release-age` bajó de 3.14.11 a 3.14.10
+por sí solo: la defensa de supply chain está viva y no es decorativa.
+
+Desvío deliberado del diseño: el encabezado va dentro del contenedor con scroll y
+`position:sticky`, no como hermano de arriba. En el mock las columnas entran
+justas y no hay scroll horizontal; con cuarenta columnas sí lo hay, y con el
+encabezado afuera se desincroniza.
 
 ---
 
