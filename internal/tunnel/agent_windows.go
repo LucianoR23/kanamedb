@@ -16,7 +16,7 @@ import (
 // No es un socket de dominio Unix como en el resto de los sistemas: es un named
 // pipe, y por eso hace falta go-winio. Sin él habría que pedirle al usuario que
 // exporte la clave a un archivo, que es exactamente lo que el agente evita.
-const pipeAgente = `\.\pipe\openssh-ssh-agent`
+const pipeAgente = `\\.\pipe\openssh-ssh-agent`
 
 // agentSigners pide las claves al agente del sistema.
 //
