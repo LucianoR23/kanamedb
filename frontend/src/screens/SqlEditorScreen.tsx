@@ -249,7 +249,7 @@ export function SqlEditorScreen({
               <div className={styles.corriendoMeta}>
                 {(transcurrido / 1000).toFixed(1)} s
                 {statementTimeoutSeconds > 0
-                  ? ` · el servidor corta a los ${statementTimeoutSeconds} s`
+                  ? ` · el servidor la corta si supera ${statementTimeoutSeconds} s`
                   : ""}
               </div>
               <button type="button" className={styles.cancel} onClick={cancelar}>
