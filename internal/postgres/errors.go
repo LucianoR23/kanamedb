@@ -31,6 +31,10 @@ const (
 	FailurePermission FailureKind = "permission"
 	// FailureTLS es que el canal cifrado no se pudo establecer o verificar.
 	FailureTLS FailureKind = "tls"
+	// FailureCanceled es que el usuario canceló. No es un error: es lo que
+	// pidió. La interfaz no tiene que dibujarlo como un fallo, con su cartel
+	// rojo y su SQLSTATE, porque eso hace dudar de si además pasó algo malo.
+	FailureCanceled FailureKind = "canceled"
 	// FailureOther es todo lo demás.
 	FailureOther FailureKind = "other"
 )
@@ -98,7 +102,7 @@ func classify(err error, desc string) *Failure {
 		}
 	}
 	if errors.Is(err, context.Canceled) {
-		return &Failure{Kind: FailureOther, Message: "Conexión cancelada."}
+		return &Failure{Kind: FailureCanceled, Message: "Cancelada."}
 	}
 
 	// El servidor contestó y dijo que no: acá hay un SQLSTATE que interpretar.

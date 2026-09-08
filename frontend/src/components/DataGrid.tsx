@@ -146,14 +146,17 @@ export function DataGrid({
 
   const visibles = table.getVisibleLeafColumns();
 
-  // La última columna se estira para que la fila llegue al borde. Con muchas
-  // columnas colapsa a su mínimo y aparece el scroll horizontal, que es lo
-  // correcto: preferimos desplazar antes que apretar todo hasta que no se lea.
+  // Todas las columnas conservan su ancho y una columna de relleno se come lo
+  // que sobra.
+  //
+  // Antes se estiraba la última, y con un resultado de una sola columna
+  // numérica el valor quedaba pegado al borde derecho de la pantalla, a medio
+  // metro de su encabezado. Una columna no tiene por qué medir lo que mide la
+  // ventana solo porque es la última.
   const template = [
     `${GUTTER_W}px`,
-    ...visibles.map((c, i) =>
-      i === visibles.length - 1 ? `minmax(${c.getSize()}px, 1fr)` : `${c.getSize()}px`,
-    ),
+    ...visibles.map((c) => `${c.getSize()}px`),
+    "minmax(0, 1fr)",
   ].join(" ");
 
   const virtual = useVirtualizer({
@@ -207,6 +210,7 @@ export function DataGrid({
             </div>
           );
         })}
+        <div className={styles.filler} aria-hidden="true" />
       </div>
 
       <div className={styles.body} style={{ height: virtual.getTotalSize() }}>
@@ -239,6 +243,7 @@ export function DataGrid({
                   />
                 );
               })}
+              <div className={styles.filler} aria-hidden="true" />
             </div>
           );
         })}
@@ -250,12 +255,15 @@ export function DataGrid({
 /**
  * Una celda.
  *
- * NULL y la cadena vacía se muestran distinto, y esa es la razón de que el
- * valor llegue como `string | null` desde Go en vez de como `string`. `[null]`
- * en itálica es la ausencia de valor; `""` es una cadena de largo cero, que es
- * un dato. Mostrarlas igual —las dos como celda en blanco— haría imposible
- * distinguir "no se cargó" de "se cargó vacío", que en una base es la
- * diferencia entre dos bugs distintos.
+ * NULL lleva marca —`[null]`, en itálica y apagado— y la cadena vacía no lleva
+ * ninguna: celda en blanco. Esa asimetría es la que hace la distinción legible,
+ * y es la razón de que el valor llegue como `string | null` desde Go.
+ *
+ * La primera versión dibujaba la cadena vacía como `""` y estaba mal por dos
+ * motivos. Uno: dos textos grises casi iguales no se distinguen de un vistazo.
+ * Dos, y peor: `""` es un valor posible. Una celda que contiene literalmente
+ * dos comillas se habría visto idéntica a una vacía, o sea que la marca
+ * inventaba una ambigüedad nueva para resolver otra.
  */
 function Celda({
   valor,
@@ -271,21 +279,15 @@ function Celda({
   onDoubleClick?: () => void;
 }) {
   const esNulo = valor === null;
-  const esVacio = valor === "";
   return (
     <div
       role="gridcell"
-      className={cx(
-        styles.cell,
-        selected && styles.cellSelected,
-        esNulo && styles.cellNull,
-        esVacio && styles.cellEmpty,
-      )}
+      className={cx(styles.cell, selected && styles.cellSelected, esNulo && styles.cellNull)}
       style={{ textAlign: align }}
       onClick={onClick}
       {...(onDoubleClick ? { onDoubleClick } : {})}
     >
-      {esNulo ? "[null]" : esVacio ? '""' : valor}
+      {esNulo ? "[null]" : valor}
     </div>
   );
 }

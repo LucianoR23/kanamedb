@@ -35,7 +35,7 @@ func TestClassifyDistingueLasCausas(t *testing.T) {
 		{"servidor arrancando", &pgconn.PgError{Code: sqlStateCannotConnectNow}, FailureOther},
 		{"dns", &net.DNSError{Err: "no such host", Name: "dev-db.internal"}, FailureNetwork},
 		{"timeout de contexto", context.DeadlineExceeded, FailureTimeout},
-		{"cancelado", context.Canceled, FailureOther},
+		{"cancelado", context.Canceled, FailureCanceled},
 		{"tls", errors.New("tls: failed to verify certificate: x509: certificate signed by unknown authority"), FailureTLS},
 		{"ssl no habilitado", errors.New("server does not support SSL, but SSL was required"), FailureTLS},
 		{"conexión rechazada", errors.New("dial tcp 10.0.0.1:5432: connect: connection refused"), FailureNetwork},

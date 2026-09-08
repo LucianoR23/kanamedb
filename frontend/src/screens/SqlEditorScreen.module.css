@@ -369,3 +369,51 @@
   font: 400 10.5px var(--font-mono);
   color: var(--text-dim);
 }
+
+/* Selector de resultados: aparece solo cuando el lote tuvo más de una
+ * sentencia. Con una sola sería una fila de pestañas con una pestaña. */
+.resultTabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 5px 10px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+.resultTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  cursor: pointer;
+}
+.resultTab:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.resultTabOn {
+  background: var(--bg-active);
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+.resultTabNo {
+  font: 700 9px var(--font-mono);
+  color: var(--text-dim);
+}
+.resultTabOn .resultTabNo {
+  color: var(--accent);
+}
+
+.tagMeta {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}

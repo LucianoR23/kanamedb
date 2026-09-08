@@ -36,14 +36,23 @@ func NewQueries(s *Session) *Queries {
 // ignorar a medias, y una consulta fallida terminaría dibujando una grilla
 // vacía como si no hubiera encontrado filas.
 type RunResult struct {
-	OK      bool              `json:"ok"`
-	Result  *query.Result     `json:"result,omitempty"`
+	OK bool `json:"ok"`
+
+	// Batch trae TODOS los resultados del lote, no solo el último. La interfaz
+	// deja elegir cuál mirar: con `select 1; select 2;` los dos existen, y
+	// quedarse con uno obligaría a volver a ejecutar para ver el otro.
+	Batch   *query.Batch      `json:"batch,omitempty"`
 	Failure *postgres.Failure `json:"failure,omitempty"`
 }
 
 // TableDataResult agrega a RunResult qué orden se usó.
 type TableDataResult struct {
-	RunResult
+	OK bool `json:"ok"`
+
+	// Result y no Batch: leer una tabla es una sola sentencia, y obligar a la
+	// interfaz a desenvolver un lote de uno sería ceremonia sin motivo.
+	Result  *query.Result     `json:"result,omitempty"`
+	Failure *postgres.Failure `json:"failure,omitempty"`
 
 	// OrderedBy son las columnas que hacen determinista el paginado. Vacío
 	// significa que la tabla no tiene clave primaria y que "cargar más" puede
@@ -79,23 +88,25 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	ctx, listo := q.registrar(ctx, runID)
 	defer listo()
 
-	res, f := postgres.Run(ctx, sesion.pool, sql, postgres.RunOptions{
+	lote, f := postgres.Run(ctx, sesion.pool, sql, postgres.RunOptions{
 		RowLimit: sesion.conn.Safety.EffectiveRowLimit(),
 	})
 	if f != nil {
-		return RunResult{Failure: f}
+		// El lote parcial viaja igual: dice qué alcanzó a procesar el servidor
+		// antes del error, que es distinto de "no pasó nada".
+		return RunResult{Batch: lote, Failure: f}
 	}
-	return RunResult{OK: true, Result: res}
+	return RunResult{OK: true, Batch: lote}
 }
 
 // TableData lee una página de una tabla para S10.
 func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableDataResult {
 	sesion, err := q.session.abierta()
 	if err != nil {
-		return TableDataResult{RunResult: RunResult{Failure: &postgres.Failure{
+		return TableDataResult{Failure: &postgres.Failure{
 			Kind:    postgres.FailureOther,
 			Message: err.Error(),
-		}}}
+		}}
 	}
 
 	ctx, listo := q.registrar(ctx, req.RunID)
@@ -127,12 +138,9 @@ func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableData
 		Offset:     req.Offset,
 	})
 	if f != nil {
-		return TableDataResult{RunResult: RunResult{Failure: f}}
+		return TableDataResult{Failure: f}
 	}
-	return TableDataResult{
-		RunResult: RunResult{OK: true, Result: res},
-		OrderedBy: orden,
-	}
+	return TableDataResult{OK: true, Result: res, OrderedBy: orden}
 }
 
 // CountResult es el conteo exacto de una tabla.

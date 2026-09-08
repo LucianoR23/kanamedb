@@ -60,7 +60,20 @@ func TableData(ctx context.Context, pool *pgxpool.Pool, schema, table string, op
 
 	// RowLimit negativo: el LIMIT de la consulta ya acota, y un segundo corte
 	// del lado del cliente solo podría marcar Truncated de más.
-	return Run(ctx, pool, b.String(), RunOptions{RowLimit: Unlimited})
+	lote, f := Run(ctx, pool, b.String(), RunOptions{RowLimit: Unlimited})
+	if f != nil {
+		return nil, f
+	}
+	// Es una sola sentencia, así que hay exactamente un resultado. Se
+	// desenvuelve acá para que quien lee una tabla no tenga que pensar en lotes.
+	if len(lote.Results) != 1 {
+		return nil, &Failure{
+			Kind:    FailureOther,
+			Message: fmt.Sprintf("La lectura de la tabla devolvió %d resultados y se esperaba uno.", len(lote.Results)),
+		}
+	}
+	res := lote.Results[0]
+	return &res, nil
 }
 
 // Unlimited desactiva el corte de lectura de Run.

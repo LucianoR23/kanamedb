@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import type { Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
+import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/postgres";
 import { Button, PillTabs } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
@@ -15,8 +15,9 @@ import styles from "./SqlEditorScreen.module.css";
 type Estado =
   | { fase: "vacio" }
   | { fase: "corriendo"; desde: number }
-  | { fase: "listo"; result: Result }
-  | { fase: "error"; failure: Failure; result: Result | null };
+  | { fase: "cancelada" }
+  | { fase: "listo"; batch: Batch }
+  | { fase: "error"; failure: Failure; batch: Batch | null };
 
 const PANEL = { min: 220, max: 520, initial: 300 };
 
@@ -51,6 +52,8 @@ export function SqlEditorScreen({
   const [seleccion, setSeleccion] = useState<CellRef | null>(null);
   const [visor, setVisor] = useState<CellRef | null>(null);
   const [transcurrido, setTranscurrido] = useState(0);
+  // Cuál de los resultados del lote se está mirando.
+  const [cual, setCual] = useState(0);
 
   // El identificador de ejecución es por pestaña: cancelar acá no puede cortar
   // la consulta de otra pestaña.
@@ -75,24 +78,39 @@ export function SqlEditorScreen({
     setEstado({ fase: "corriendo", desde: Date.now() });
     setSeleccion(null);
     const res = await QueriesSvc.Run(runID, sql);
-    if (res.ok && res.result) {
-      setEstado({ fase: "listo", result: res.result });
+    if (res.ok && res.batch) {
+      // Se abre en el último resultado con filas: es lo que la persona acaba de
+      // terminar de escribir. Los anteriores quedan a un clic de distancia.
+      const ultimo = (res.batch.results ?? []).reduce((acc, r, i) => (r.returnsRows ? i : acc), 0);
+      setCual(ultimo);
+      setEstado({ fase: "listo", batch: res.batch });
       setPanel("results");
-    } else {
-      setEstado({
-        fase: "error",
-        failure: res.failure ?? ({ kind: "other", message: "La consulta falló sin detalle." } as Failure),
-        result: res.result ?? null,
-      });
-      setPanel("messages");
+      return;
     }
+    const f = res.failure;
+    // Cancelar es lo que la persona pidió, no un error. Sin este caso, apretar
+    // Cancelar devolvía un cartel rojo con "context canceled", que hace dudar de
+    // si además pasó algo malo.
+    if (f?.kind === "canceled") {
+      setEstado({ fase: "cancelada" });
+      setPanel("results");
+      return;
+    }
+    setEstado({
+      fase: "error",
+      failure: f ?? ({ kind: "other", message: "La consulta falló sin detalle." } as Failure),
+      batch: res.batch ?? null,
+    });
+    setPanel("messages");
   }
 
   function cancelar() {
     void QueriesSvc.Cancel(runID);
   }
 
-  const result = estado.fase === "listo" ? estado.result : null;
+  const lote = estado.fase === "listo" ? estado.batch : null;
+  const resultados = lote?.results ?? [];
+  const result: Result | null = resultados[Math.min(cual, resultados.length - 1)] ?? null;
   const columnas = result?.columns ?? [];
 
   return (
@@ -181,13 +199,48 @@ export function SqlEditorScreen({
             ariaLabel="Panel de resultados"
           />
           <span className={styles.grow} />
+          {result ? (
+            <span className={styles.meta}>
+              {result.returnsRows
+                ? `${(result.rows ?? []).length.toLocaleString("es", { useGrouping: true })} filas`
+                : result.command}
+              {result.truncated ? " · cortado por el límite" : ""}
+            </span>
+          ) : null}
           <span className={cx(styles.meta, estado.fase === "error" && styles.metaError)}>
             {metaDe(estado)}
           </span>
         </div>
 
+        {resultados.length > 1 ? (
+          <div className={styles.resultTabs}>
+            {resultados.map((r, i) => (
+              <button
+                type="button"
+                key={i}
+                className={cx(styles.resultTab, i === cual && styles.resultTabOn)}
+                onClick={() => {
+                  setCual(i);
+                  setSeleccion(null);
+                }}
+              >
+                <span className={styles.resultTabNo}>{i + 1}</span>
+                {r.command}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div className={styles.resultsBody}>
-          {panel === "messages" ? (
+          {estado.fase === "cancelada" ? (
+            <div className={styles.sinFilas}>
+              <p className={styles.sinFilasTitulo}>Consulta cancelada</p>
+              <p className={styles.sinFilasNota}>
+                Se cortó la ejecución en el servidor. No quedó nada a medias: Postgres
+                revierte la transacción implícita del lote.
+              </p>
+            </div>
+          ) : panel === "messages" ? (
             <Mensajes estado={estado} />
           ) : corriendo ? (
             <div className={styles.corriendo}>
@@ -261,6 +314,9 @@ export function SqlEditorScreen({
  * fila del select y el drop pasaría desapercibido.
  */
 function Mensajes({ estado }: { estado: Estado }) {
+  if (estado.fase === "cancelada") {
+    return <p className={styles.vacio}>La consulta se canceló.</p>;
+  }
   if (estado.fase === "error") {
     const f = estado.failure;
     return (
@@ -277,28 +333,39 @@ function Mensajes({ estado }: { estado: Estado }) {
             {f.hint ? <p className={styles.errorHint}>{f.hint}</p> : null}
           </div>
         </div>
-        <Tags statements={estado.result?.statements ?? null} />
+        <Tags resultados={estado.batch?.results ?? null} />
       </div>
     );
   }
   if (estado.fase === "listo") {
     return (
       <div className={styles.mensajes}>
-        <Tags statements={estado.result.statements ?? null} />
+        <Tags resultados={estado.batch.results ?? null} />
       </div>
     );
   }
   return <p className={styles.vacio}>Todavía no se ejecutó nada.</p>;
 }
 
-function Tags({ statements }: { statements: string[] | null }) {
-  if (!statements || statements.length === 0) return null;
+/**
+ * Una línea por sentencia del lote.
+ *
+ * Dice además cuántas filas movió cada una, porque el tag del motor solo no
+ * alcanza: `select 1; select 2;` produce "SELECT 1" dos veces —las dos
+ * devolvieron una fila— y leído sin más parece la misma sentencia repetida.
+ */
+function Tags({ resultados }: { resultados: Result[] | null }) {
+  if (!resultados || resultados.length === 0) return null;
   return (
     <ol className={styles.tags}>
-      {statements.map((s, i) => (
+      {resultados.map((r, i) => (
         <li key={i} className={styles.tag}>
           <span className={styles.tagNo}>{i + 1}</span>
-          <span className={styles.tagText}>{s}</span>
+          <span className={styles.tagText}>{r.command}</span>
+          <span className={styles.grow} />
+          <span className={styles.tagMeta}>
+            {r.returnsRows ? `${(r.rows ?? []).length} devueltas` : `${r.affectedRows} afectadas`}
+          </span>
         </li>
       ))}
     </ol>
@@ -309,14 +376,14 @@ function metaDe(e: Estado): string {
   switch (e.fase) {
     case "corriendo":
       return "ejecutando…";
+    case "cancelada":
+      return "cancelada";
     case "error":
       return "falló";
     case "listo": {
-      const r = e.result;
-      const filas = (r.rows ?? []).length;
-      const partes = [`${filas.toLocaleString("es", { useGrouping: true })} filas`, `${r.elapsedMs} ms`];
-      if (r.truncated) partes.push("cortado por el límite");
-      if ((r.statements ?? []).length > 1) partes.push(`${(r.statements ?? []).length} sentencias`);
+      const rs = e.batch.results ?? [];
+      const partes: string[] = [`${e.batch.elapsedMs} ms`];
+      if (rs.length > 1) partes.unshift(`${rs.length} sentencias`);
       return partes.join(" · ");
     }
     default:

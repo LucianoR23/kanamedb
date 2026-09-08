@@ -44,7 +44,34 @@ type Column struct {
 	Class    Class  `json:"class"`
 }
 
-// Result es lo que devuelve una ejecución.
+// Batch es el resultado de ejecutar un lote de sentencias.
+//
+// Es una lista y no un resultado suelto porque un editor de SQL manda varias
+// sentencias separadas por punto y coma y el motor las ejecuta todas. Quedarse
+// con la última y descartar el resto sería mentir por omisión: con
+// `select 1; select 2;` se vería solo el segundo y no habría forma de saber que
+// hubo un primero.
+type Batch struct {
+	Results []Result `json:"results"`
+
+	// ElapsedMs es lo que tardó el lote entero, no una sentencia.
+	ElapsedMs int64 `json:"elapsedMs"`
+}
+
+// Last devuelve el índice del último resultado con filas, o -1 si ninguno tiene.
+//
+// Es el que conviene mostrar al abrir: cuando alguien escribe varias sentencias
+// y ejecuta, lo que quiere ver es lo que acaba de escribir.
+func (b Batch) Last() int {
+	for i := len(b.Results) - 1; i >= 0; i-- {
+		if b.Results[i].ReturnsRows {
+			return i
+		}
+	}
+	return -1
+}
+
+// Result es el resultado de UNA sentencia.
 //
 // Los valores viajan como *string y no como string por una razón que no es
 // cosmética: en una base, NULL y la cadena vacía son cosas distintas, y una
@@ -72,29 +99,11 @@ type Result struct {
 	// Command es el tag crudo del motor: "SELECT 12", "UPDATE 3", "CREATE TABLE".
 	Command string `json:"command"`
 
-	// Statements son los tags de TODAS las sentencias que se ejecutaron, en
-	// orden. Es lo que alimenta la pestaña Messages.
-	//
-	// Existe porque un editor de SQL recibe varias sentencias separadas por
-	// punto y coma y las ejecuta todas. Mostrar solo el resultado de una y
-	// callar el resto sería el peor fallo posible acá: `select 1; drop table x;`
-	// mostraría la fila del select como si no hubiera pasado nada más.
-	//
-	// Cuando una sentencia falla, esta lista trae las que el servidor alcanzó
-	// a confirmar antes — pero OJO: eso no significa que hayan quedado
-	// aplicadas. Postgres corre el lote en una transacción implícita y revierte
-	// todo. Verificado: un `create table` que figura acá con su tag no deja la
-	// tabla creada si una sentencia posterior falla. El aviso que lo explica va
-	// en Failure.Hint.
-	Statements []string `json:"statements"`
-
 	// Truncated dice que la lectura se cortó en RowLimit y que hay más filas
 	// del otro lado. Sin esto, un límite silencioso es peor que no tener
 	// límite: quien mira la grilla cree que vio todo.
 	Truncated bool `json:"truncated"`
 	RowLimit  int  `json:"rowLimit"`
-
-	ElapsedMs int64 `json:"elapsedMs"`
 }
 
 // RowCount es la cantidad de filas efectivamente leídas.

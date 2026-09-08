@@ -38,8 +38,8 @@ func TestRunSinConexionDevuelveFalloYNoRompe(t *testing.T) {
 	if res.Failure == nil || res.Failure.Message == "" {
 		t.Errorf("el fallo llegó vacío: %+v", res.Failure)
 	}
-	if res.Result != nil {
-		t.Error("vino un resultado junto con el fallo")
+	if res.Batch != nil {
+		t.Error("vino un resultado junto con el fallo de no haber conexión")
 	}
 }
 

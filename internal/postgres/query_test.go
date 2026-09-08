@@ -12,13 +12,24 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
+// correr ejecuta y devuelve el ÚLTIMO resultado del lote, que es el caso
+// habitual de una sola sentencia.
 func correr(t *testing.T, pool *pgxpool.Pool, sql string, opts RunOptions) *query.Result {
 	t.Helper()
-	res, f := Run(context.Background(), pool, sql, opts)
+	lote := correrLote(t, pool, sql, opts)
+	if len(lote.Results) == 0 {
+		t.Fatalf("Run(%q) no devolvió ningún resultado", sql)
+	}
+	return &lote.Results[len(lote.Results)-1]
+}
+
+func correrLote(t *testing.T, pool *pgxpool.Pool, sql string, opts RunOptions) *query.Batch {
+	t.Helper()
+	lote, f := Run(context.Background(), pool, sql, opts)
 	if f != nil {
 		t.Fatalf("Run(%q) falló: %s · %s", sql, f.Message, f.Detail)
 	}
-	return res
+	return lote
 }
 
 // La invariante central de la grilla: en una base, NULL y ” son cosas
@@ -234,6 +245,11 @@ func TestRunSeCancela(t *testing.T) {
 	if f == nil {
 		t.Fatal("la consulta cancelada devolvió resultado")
 	}
+	// Cancelar no es un error del motor: tiene su propia clase para que la
+	// interfaz no lo dibuje como un fallo con cartel rojo.
+	if f.Kind != FailureCanceled {
+		t.Errorf("Kind = %q, se esperaba %q", f.Kind, FailureCanceled)
+	}
 	if tardo > 5*time.Second {
 		t.Errorf("tardó %s: no se canceló, esperó a que terminara", tardo)
 	}
@@ -288,28 +304,34 @@ func TestRunReconoceLosArrays(t *testing.T) {
 func TestRunEjecutaTodasLasSentenciasDelLote(t *testing.T) {
 	pool, esquema := conectar(t)
 
-	res := correr(t, pool, fmt.Sprintf(
+	lote := correrLote(t, pool, fmt.Sprintf(
 		`create table %s.lote (id int);
 		 insert into %s.lote values (1), (2);
 		 select id from %s.lote order by id;`,
 		esquema, esquema, esquema), RunOptions{})
 
-	if len(res.Statements) != 3 {
-		t.Fatalf("Statements = %v, se esperaban 3", res.Statements)
+	if len(lote.Results) != 3 {
+		t.Fatalf("resultados = %d, se esperaban 3", len(lote.Results))
 	}
-	if res.Statements[0] != "CREATE TABLE" {
-		t.Errorf("Statements[0] = %q", res.Statements[0])
+	if lote.Results[0].Command != "CREATE TABLE" {
+		t.Errorf("Results[0].Command = %q", lote.Results[0].Command)
 	}
-	if res.Statements[1] != "INSERT 0 2" {
-		t.Errorf("Statements[1] = %q", res.Statements[1])
+	if lote.Results[1].Command != "INSERT 0 2" {
+		t.Errorf("Results[1].Command = %q", lote.Results[1].Command)
 	}
-	// La grilla muestra el último resultado con filas, que es lo que el usuario
-	// terminó de escribir.
-	if len(res.Rows) != 2 {
-		t.Errorf("filas = %d, se esperaban 2 del select final", len(res.Rows))
+	// Los dos primeros no devuelven filas y el tercero sí: la interfaz tiene que
+	// poder mostrar cualquiera, no solo el último.
+	if lote.Results[0].ReturnsRows || lote.Results[1].ReturnsRows {
+		t.Error("un CREATE o un INSERT dicen que devuelven filas")
 	}
-	if !res.ReturnsRows {
-		t.Error("ReturnsRows quedó en falso pese al select final")
+	if !lote.Results[2].ReturnsRows {
+		t.Error("el select final dice que no devuelve filas")
+	}
+	if len(lote.Results[2].Rows) != 2 {
+		t.Errorf("filas del select = %d, se esperaban 2", len(lote.Results[2].Rows))
+	}
+	if lote.Last() != 2 {
+		t.Errorf("Last() = %d, se esperaba 2 (el último con filas)", lote.Last())
 	}
 }
 
@@ -319,14 +341,14 @@ func TestRunEjecutaTodasLasSentenciasDelLote(t *testing.T) {
 func TestRunAvisaQueElLoteSeRevirtio(t *testing.T) {
 	pool, esquema := conectar(t)
 
-	res, f := Run(context.Background(), pool, fmt.Sprintf(
+	lote, f := Run(context.Background(), pool, fmt.Sprintf(
 		`create table %s.revertida (id int); select * from %s.no_existe;`,
 		esquema, esquema), RunOptions{})
 
 	if f == nil {
 		t.Fatal("una tabla inexistente no dio error")
 	}
-	if res == nil || len(res.Statements) == 0 {
+	if lote == nil || len(lote.Results) == 0 {
 		t.Fatal("no se informó qué sentencias procesó el servidor antes del error")
 	}
 	if !strings.Contains(f.Hint, "revirtieron") {

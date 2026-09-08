@@ -41,7 +41,7 @@ type RunOptions struct {
 // Se usa el protocolo simple a propósito. Es el que usa psql, no crea sentencias
 // preparadas —que ensucian el servidor con SQL que se escribe una vez— y, sobre
 // todo, garantiza que el servidor devuelva todo en formato texto. Ver leerFilas.
-func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (*query.Result, *Failure) {
+func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (*query.Batch, *Failure) {
 	limite := opts.RowLimit
 	if limite == 0 {
 		limite = DefaultRowLimit
@@ -60,22 +60,20 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 	// igual, porque el servidor recibe el lote entero—. Exec expone todos.
 	mrr := conn.Conn().PgConn().Exec(ctx, sql)
 
-	res := &query.Result{Rows: [][]*string{}}
-	var oids []uint32
+	lote := &query.Batch{Results: []query.Result{}}
+	// Los OID de cada resultado, en paralelo, para resolver después los tipos
+	// que pgx no conoce. No van en Result porque a la interfaz no le sirven.
+	var oidsPorResultado [][]uint32
 
 	for mrr.NextResult() {
 		rr := mrr.ResultReader()
 		campos := rr.FieldDescriptions()
 
+		res := query.Result{Rows: [][]*string{}, RowLimit: limite}
+		oids := make([]uint32, len(campos))
 		if len(campos) > 0 {
-			// De varias sentencias que devuelven filas se muestra la última, que
-			// es la que el usuario acaba de terminar de escribir. Las anteriores
-			// quedan igual anotadas en Statements: no se pierden, se resumen.
 			res.Columns = make([]query.Column, len(campos))
-			res.Rows = [][]*string{}
 			res.ReturnsRows = true
-			res.Truncated = false
-			oids = make([]uint32, len(campos))
 			tm := conn.Conn().TypeMap()
 			for i, f := range campos {
 				res.Columns[i] = columnaDe(f, tm)
@@ -110,29 +108,30 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 
 		tag, err := rr.Close()
 		if err != nil {
-			res.ElapsedMs = time.Since(arranque).Milliseconds()
-			return res, conAvisoDeLote(Classify(err, "la consulta"), res.Statements)
+			lote.ElapsedMs = time.Since(arranque).Milliseconds()
+			return lote, conAvisoDeLote(Classify(err, "la consulta"), lote.Results)
 		}
-		res.Statements = append(res.Statements, tag.String())
 		res.Command = tag.String()
 		res.AffectedRows = tag.RowsAffected()
+		lote.Results = append(lote.Results, res)
+		oidsPorResultado = append(oidsPorResultado, oids)
 	}
 
 	if err := mrr.Close(); err != nil {
-		res.ElapsedMs = time.Since(arranque).Milliseconds()
-		return res, conAvisoDeLote(Classify(err, "la consulta"), res.Statements)
+		lote.ElapsedMs = time.Since(arranque).Milliseconds()
+		return lote, conAvisoDeLote(Classify(err, "la consulta"), lote.Results)
 	}
-
-	res.ElapsedMs = time.Since(arranque).Milliseconds()
-	res.RowLimit = limite
+	lote.ElapsedMs = time.Since(arranque).Milliseconds()
 
 	// Los tipos que pgx no conoce —enums, dominios, tipos del usuario— se
 	// resuelven contra el catálogo, y recién cuando aparecen. La consulta normal
 	// devuelve tipos incorporados y no paga ningún viaje extra.
-	if err := resolverTiposDesconocidos(ctx, pool, res, oids); err != nil {
-		return nil, Classify(err, "los tipos del resultado")
+	for i := range lote.Results {
+		if err := resolverTiposDesconocidos(ctx, pool, &lote.Results[i], oidsPorResultado[i]); err != nil {
+			return nil, Classify(err, "los tipos del resultado")
+		}
 	}
-	return res, nil
+	return lote, nil
 }
 
 // columnaDe traduce la descripción del campo a lo que necesita la interfaz.
@@ -255,15 +254,19 @@ func clasePorCategoria(c string) query.Class {
 // La excepción es un COMMIT explícito en el medio del lote, que cierra la
 // transacción implícita y hace durable lo anterior. No se puede saber desde acá
 // sin parsear la SQL, así que el aviso lo dice en vez de afirmar de más.
-func conAvisoDeLote(f *Failure, previas []string) *Failure {
+func conAvisoDeLote(f *Failure, previas []query.Result) *Failure {
 	if f == nil || len(previas) == 0 {
 		return f
+	}
+	tags := make([]string, len(previas))
+	for i, r := range previas {
+		tags[i] = r.Command
 	}
 	aviso := fmt.Sprintf(
 		"Antes del error, el servidor procesó %d sentencia(s): %s. "+
 			"Postgres corre el lote en una transacción implícita, así que se revirtieron todas, "+
 			"salvo que la consulta traiga un COMMIT explícito.",
-		len(previas), strings.Join(previas, ", "))
+		len(previas), strings.Join(tags, ", "))
 	if f.Hint == "" {
 		f.Hint = aviso
 	} else {

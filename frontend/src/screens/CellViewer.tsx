@@ -168,8 +168,8 @@ function modosDe(clase: string, valor: string | null): Modo[] {
             <span className={styles.nullTag}>[null]</span>
             <span className={styles.nullNote}>sin valor almacenado</span>
             <p className={styles.nullExplain}>
-              Esta celda no tiene valor. Una cadena vacía sería un valor distinto: la grilla la
-              muestra como <code>""</code>.
+              Esta celda no tiene valor. Una cadena vacía sería un valor distinto: en la grilla se
+              ve como celda en blanco, sin la marca <code>[null]</code>.
             </p>
           </div>
         ),
