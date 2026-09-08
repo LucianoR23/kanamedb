@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,17 +48,81 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 	}
 
 	arranque := time.Now()
-	rows, err := pool.Query(ctx, sql, pgx.QueryExecModeSimpleProtocol)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, Classify(err, "la consulta")
+	}
+	defer conn.Release()
+
+	// Exec del protocolo simple y no pool.Query: Query devuelve UN resultado y
+	// descarta los demás en silencio. Con `select 1; drop table x;` mostraría la
+	// fila del select como si el drop no hubiera existido —y el drop se ejecuta
+	// igual, porque el servidor recibe el lote entero—. Exec expone todos.
+	mrr := conn.Conn().PgConn().Exec(ctx, sql)
+
+	res := &query.Result{Rows: [][]*string{}}
+	var oids []uint32
+
+	for mrr.NextResult() {
+		rr := mrr.ResultReader()
+		campos := rr.FieldDescriptions()
+
+		if len(campos) > 0 {
+			// De varias sentencias que devuelven filas se muestra la última, que
+			// es la que el usuario acaba de terminar de escribir. Las anteriores
+			// quedan igual anotadas en Statements: no se pierden, se resumen.
+			res.Columns = make([]query.Column, len(campos))
+			res.Rows = [][]*string{}
+			res.ReturnsRows = true
+			res.Truncated = false
+			oids = make([]uint32, len(campos))
+			tm := conn.Conn().TypeMap()
+			for i, f := range campos {
+				res.Columns[i] = columnaDe(f, tm)
+				oids[i] = f.DataTypeOID
+			}
+		}
+
+		for rr.NextRow() {
+			if limite >= 0 && len(res.Rows) >= limite {
+				res.Truncated = true
+				// Se sigue leyendo hasta el final del resultado igual: cortar acá
+				// dejaría la conexión con datos pendientes y la próxima consulta
+				// leería los de esta.
+				continue
+			}
+			crudas := rr.Values()
+			fila := make([]*string, len(crudas))
+			for i, b := range crudas {
+				// NULL viaja con longitud -1 y la cadena vacía con longitud 0.
+				// El protocolo las distingue y acá se preserva: un
+				// `if len(b) == 0` las colapsaría y la grilla mostraría las dos
+				// como celda en blanco.
+				if b == nil {
+					continue
+				}
+				// Se copia porque los bytes solo valen hasta el próximo NextRow.
+				s := string(b)
+				fila[i] = &s
+			}
+			res.Rows = append(res.Rows, fila)
+		}
+
+		tag, err := rr.Close()
+		if err != nil {
+			res.ElapsedMs = time.Since(arranque).Milliseconds()
+			return res, conAvisoDeLote(Classify(err, "la consulta"), res.Statements)
+		}
+		res.Statements = append(res.Statements, tag.String())
+		res.Command = tag.String()
+		res.AffectedRows = tag.RowsAffected()
 	}
 
-	res, oids, err := leerFilas(rows, limite)
-	// rows.Err() ya lo mira leerFilas; acá solo queda cerrar.
-	rows.Close()
-	if err != nil {
-		return nil, Classify(err, "la consulta")
+	if err := mrr.Close(); err != nil {
+		res.ElapsedMs = time.Since(arranque).Milliseconds()
+		return res, conAvisoDeLote(Classify(err, "la consulta"), res.Statements)
 	}
+
 	res.ElapsedMs = time.Since(arranque).Milliseconds()
 	res.RowLimit = limite
 
@@ -70,68 +133,6 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 		return nil, Classify(err, "los tipos del resultado")
 	}
 	return res, nil
-}
-
-// leerFilas arma el Result recorriendo el cursor.
-// Devuelve además los OID de cada columna: el Result no los lleva —a la
-// interfaz no le sirven— pero hacen falta para resolver los tipos que pgx no
-// reconoce, y las descripciones de campo dejan de ser válidas al cerrar rows.
-func leerFilas(rows pgx.Rows, limite int) (*query.Result, []uint32, error) {
-	campos := rows.FieldDescriptions()
-	res := &query.Result{
-		Columns:     make([]query.Column, len(campos)),
-		Rows:        [][]*string{},
-		ReturnsRows: len(campos) > 0,
-	}
-
-	tm := rows.TypeMap()
-	oids := make([]uint32, len(campos))
-	for i, f := range campos {
-		res.Columns[i] = columnaDe(f, tm)
-		oids[i] = f.DataTypeOID
-	}
-
-	for rows.Next() {
-		// Se lee una fila de más para saber si quedaron más del otro lado. Sin
-		// eso habría que elegir entre mentir —cortar en el límite y no decirlo—
-		// o contar las filas con una segunda consulta.
-		if limite >= 0 && len(res.Rows) == limite {
-			res.Truncated = true
-			break
-		}
-
-		crudas := rows.RawValues()
-		fila := make([]*string, len(crudas))
-		for i, b := range crudas {
-			// Acá está toda la fidelidad del resultado. En el protocolo, NULL
-			// viaja con longitud -1 y la cadena vacía con longitud 0: pgx
-			// preserva la diferencia como slice nil contra slice vacío. Un
-			// `if len(b) == 0` la borraría, y la grilla mostraría un NULL y un
-			// '' exactamente igual.
-			if b == nil {
-				continue
-			}
-			// Se copia porque la API lo exige: RawValues documenta que los
-			// bytes solo valen hasta el próximo Next o hasta cerrar rows.
-			//
-			// No es una precaución observada. Se intentó reproducir el daño
-			// aliaseando el buffer con unsafe.String y el resultado salió
-			// correcto igual, así que en esta versión de pgx y por este camino
-			// el buffer no se reusa. Se copia por el contrato, no por el
-			// síntoma — que es la razón que sigue valiendo cuando pgx cambie.
-			s := string(b)
-			fila[i] = &s
-		}
-		res.Rows = append(res.Rows, fila)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-
-	tag := rows.CommandTag()
-	res.Command = tag.String()
-	res.AffectedRows = tag.RowsAffected()
-	return res, oids, nil
 }
 
 // columnaDe traduce la descripción del campo a lo que necesita la interfaz.
@@ -240,4 +241,33 @@ func clasePorCategoria(c string) query.Class {
 		return query.ClassArray
 	}
 	return query.ClassOther
+}
+
+// conAvisoDeLote explica qué pasó con las sentencias anteriores del lote.
+//
+// Verificado contra el motor: Postgres ejecuta un string con varias sentencias
+// dentro de una transacción implícita, así que si una falla se revierten todas
+// — incluidas las que el servidor ya había confirmado con su tag. Sin este
+// aviso, la lista de sentencias ejecutadas se lee como "esto quedó aplicado",
+// que es exactamente al revés y en la dirección peligrosa: alguien creería que
+// una tabla existe cuando no se creó.
+//
+// La excepción es un COMMIT explícito en el medio del lote, que cierra la
+// transacción implícita y hace durable lo anterior. No se puede saber desde acá
+// sin parsear la SQL, así que el aviso lo dice en vez de afirmar de más.
+func conAvisoDeLote(f *Failure, previas []string) *Failure {
+	if f == nil || len(previas) == 0 {
+		return f
+	}
+	aviso := fmt.Sprintf(
+		"Antes del error, el servidor procesó %d sentencia(s): %s. "+
+			"Postgres corre el lote en una transacción implícita, así que se revirtieron todas, "+
+			"salvo que la consulta traiga un COMMIT explícito.",
+		len(previas), strings.Join(previas, ", "))
+	if f.Hint == "" {
+		f.Hint = aviso
+	} else {
+		f.Hint += " " + aviso
+	}
+	return f
 }

@@ -72,6 +72,22 @@ type Result struct {
 	// Command es el tag crudo del motor: "SELECT 12", "UPDATE 3", "CREATE TABLE".
 	Command string `json:"command"`
 
+	// Statements son los tags de TODAS las sentencias que se ejecutaron, en
+	// orden. Es lo que alimenta la pestaña Messages.
+	//
+	// Existe porque un editor de SQL recibe varias sentencias separadas por
+	// punto y coma y las ejecuta todas. Mostrar solo el resultado de una y
+	// callar el resto sería el peor fallo posible acá: `select 1; drop table x;`
+	// mostraría la fila del select como si no hubiera pasado nada más.
+	//
+	// Cuando una sentencia falla, esta lista trae las que el servidor alcanzó
+	// a confirmar antes — pero OJO: eso no significa que hayan quedado
+	// aplicadas. Postgres corre el lote en una transacción implícita y revierte
+	// todo. Verificado: un `create table` que figura acá con su tag no deja la
+	// tabla creada si una sentencia posterior falla. El aviso que lo explica va
+	// en Failure.Hint.
+	Statements []string `json:"statements"`
+
 	// Truncated dice que la lectura se cortó en RowLimit y que hay más filas
 	// del otro lado. Sin esto, un límite silencioso es peor que no tener
 	// límite: quien mira la grilla cree que vio todo.

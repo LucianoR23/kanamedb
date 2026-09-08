@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -277,5 +278,70 @@ func TestRunReconoceLosArrays(t *testing.T) {
 	// Y el valor sigue llegando como el texto que arma el servidor.
 	if got := *res.Rows[0][0]; got != "{a,b}" {
 		t.Errorf("valor = %q, se esperaba \"{a,b}\"", got)
+	}
+}
+
+// Un editor de SQL manda varias sentencias separadas por punto y coma. Mostrar
+// el resultado de una y callar el resto es el peor fallo posible acá: con
+// `select 1; drop table x;` se vería la fila del select y el drop pasaría
+// desapercibido, aunque el servidor lo ejecuta igual.
+func TestRunEjecutaTodasLasSentenciasDelLote(t *testing.T) {
+	pool, esquema := conectar(t)
+
+	res := correr(t, pool, fmt.Sprintf(
+		`create table %s.lote (id int);
+		 insert into %s.lote values (1), (2);
+		 select id from %s.lote order by id;`,
+		esquema, esquema, esquema), RunOptions{})
+
+	if len(res.Statements) != 3 {
+		t.Fatalf("Statements = %v, se esperaban 3", res.Statements)
+	}
+	if res.Statements[0] != "CREATE TABLE" {
+		t.Errorf("Statements[0] = %q", res.Statements[0])
+	}
+	if res.Statements[1] != "INSERT 0 2" {
+		t.Errorf("Statements[1] = %q", res.Statements[1])
+	}
+	// La grilla muestra el último resultado con filas, que es lo que el usuario
+	// terminó de escribir.
+	if len(res.Rows) != 2 {
+		t.Errorf("filas = %d, se esperaban 2 del select final", len(res.Rows))
+	}
+	if !res.ReturnsRows {
+		t.Error("ReturnsRows quedó en falso pese al select final")
+	}
+}
+
+// Verificado contra el motor: el lote va en una transacción implícita, así que
+// un fallo revierte lo anterior. El aviso tiene que decirlo, porque la lista de
+// sentencias confirmadas se lee al revés — como si hubieran quedado aplicadas.
+func TestRunAvisaQueElLoteSeRevirtio(t *testing.T) {
+	pool, esquema := conectar(t)
+
+	res, f := Run(context.Background(), pool, fmt.Sprintf(
+		`create table %s.revertida (id int); select * from %s.no_existe;`,
+		esquema, esquema), RunOptions{})
+
+	if f == nil {
+		t.Fatal("una tabla inexistente no dio error")
+	}
+	if res == nil || len(res.Statements) == 0 {
+		t.Fatal("no se informó qué sentencias procesó el servidor antes del error")
+	}
+	if !strings.Contains(f.Hint, "revirtieron") {
+		t.Errorf("el aviso no explica que se revirtió el lote: %q", f.Hint)
+	}
+
+	// Y la tabla efectivamente no existe: es lo que el aviso afirma.
+	var existe bool
+	err := pool.QueryRow(context.Background(),
+		`select exists (select 1 from pg_tables where schemaname = $1 and tablename = 'revertida')`,
+		esquema).Scan(&existe)
+	if err != nil {
+		t.Fatalf("comprobar la tabla: %v", err)
+	}
+	if existe {
+		t.Error("la tabla quedó creada: el aviso de reversión estaría mintiendo")
 	}
 }

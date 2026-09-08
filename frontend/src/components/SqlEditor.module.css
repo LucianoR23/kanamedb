@@ -1,0 +1,12 @@
+/* El host del editor. CodeMirror pinta todo lo de adentro; acá solo se le da
+ * un alto y se lo deja crecer, porque sin `min-height: 0` el flex padre no lo
+ * deja encogerse y el editor desborda el panel. */
+.host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.host :global(.cm-editor) {
+  height: 100%;
+}
