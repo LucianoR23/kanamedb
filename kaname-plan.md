@@ -370,18 +370,28 @@ lista anunciada. Guardarlos como campos propios queda pendiente; el aviso es lo
 que impide que la conexión guardada sea distinta de la que el usuario pegó sin
 que nada se lo diga.
 
-**CI crea `frontend/dist` antes de tocar Go; el marcador no se commitea.**
-El primer push puso los cinco jobs en rojo con `pattern all:frontend/dist: no
-matching files found`. El paquete `main` embebe el frontend construido, y
-`frontend/dist/` es un artefacto ignorado: en un clon limpio, `go vet ./...` y
-`go test ./...` ni siquiera compilan `main`. El checklist local no lo detecta
-nunca, porque en la máquina de desarrollo el directorio existe de haber corrido
-`wails3 task build` — una verificación que solo pasa por tener basura previa no
-verifica nada. CI crea un `.gitkeep` vacío antes de los comandos de Go (el
-prefijo `all:` hace que un archivo con punto cuente como coincidencia) y el
-frontend de verdad lo sigue construyendo el job de build. Commitear el marcador
-habría sido más corto y peor: un `dist` vacío en el repo deja que `go build`
-produzca un binario que abre una ventana en blanco, sin avisar.
+**El paquete `main` solo se compila donde tiene sentido compilarlo.**
+El primer push puso todo en rojo, y por dos causas distintas que se destaparon
+una después de la otra. La primera: `pattern all:frontend/dist: no matching
+files found`. `main` embebe el frontend construido y `frontend/dist/` es un
+artefacto ignorado, así que en un clon limpio `go vet ./...` y `go test ./...`
+ni siquiera compilan `main`. El checklist local no lo detecta nunca, porque en
+la máquina de desarrollo el directorio quedó de un `wails3 task build` anterior
+— una verificación que solo pasa por tener basura previa no verifica nada. El
+job `check` crea un `.gitkeep` vacío antes de los comandos de Go; el prefijo
+`all:` hace que un archivo con punto cuente como coincidencia. Commitear ese
+marcador habría sido más corto y peor: un `dist` vacío en el repo deja que
+`go build` produzca un binario que abre una ventana en blanco, sin avisar.
+
+La segunda apareció recién con la primera arreglada: en `ubuntu-latest`,
+compilar `main` arrastra el backend GTK4/WebKitGTK de Wails y `pkg-config` no
+los encuentra. Instalarlos en la matriz de Postgres no probaría nada — el
+binario de Linux recién se arma en la Iteración 9 — así que el job de
+integración corre `./internal/...` y no `./...`. Se puede porque `internal/` no
+importa Wails por ningún lado (`go list -deps ./internal/... | grep wails` da
+cero): la regla de mantener los bindings en su propio paquete se paga acá, en
+poder probar toda la lógica en cualquier sistema operativo. Que `main` compile
+lo cubre `check`, en Windows, que es donde el binario existe.
 
 ---
 

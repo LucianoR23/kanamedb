@@ -115,15 +115,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # El paquete main embebe frontend/dist con go:embed, y dist es un
-      # artefacto de build que no se commitea. Sin el directorio, `go vet` y
-      # `go test` ni siquiera compilan main: fallan con "no matching files
-      # found". El marcador vacío alcanza para compilar —acá no se ejecuta la
-      # interfaz— y el frontend de verdad lo construye el job de build.
-      - name: Marcador para el go:embed del frontend
-        shell: bash
-        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
-
       # -count=1 obligatorio: la caché de go test no sabe contra qué versión de
       # motor está corriendo, así que sin él una corrida contra la 16 podría
       # devolver el resultado cacheado de la corrida contra la 18.
@@ -134,11 +125,16 @@ jobs:
       #
       # KANAME_EXPECT_PG_MAJOR verifica que esta pata esté hablando con la
       # versión que dice, y no cuatro veces con el mismo servidor.
+      #
+      # Va sobre ./internal/... y no ./...: compilar el paquete main en Linux
+      # arrastra el backend GTK4/WebKitGTK de Wails, que este runner no tiene y
+      # que instalar acá no probaría nada —el binario de Linux recién se arma en
+      # la Iteración 9—. Que main compile lo cubre el job `check`, en Windows.
       - name: Tests de integración
         env:
           KANAME_REQUIRE_POSTGRES: "1"
           KANAME_EXPECT_PG_MAJOR: ${{ matrix.postgres }}
-        run: go test -count=1 ./...
+        run: go test -count=1 ./internal/...
 
   build:
     name: Build ${{ matrix.arch }}
