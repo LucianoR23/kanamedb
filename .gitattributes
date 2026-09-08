@@ -1,0 +1,13 @@
+# Normalizar a LF en el repo; el checkout en Windows usa CRLF donde corresponde.
+* text=auto eol=lf
+
+# Scripts que corren en Linux/macOS (CI, empaquetado): siempre LF.
+*.sh   text eol=lf
+
+# Binarios
+*.png  binary
+*.ico  binary
+*.icns binary
+*.ttf  binary
+*.car  binary
+*.exe  binary

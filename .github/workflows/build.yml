@@ -1,0 +1,117 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WAILS_VERSION: v3.0.0-beta.17
+
+jobs:
+  check:
+    name: Lint y typecheck
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Archivos sin formatear:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Instalar deps del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Instalar el CLI de Wails
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      # Los bindings son el contrato Go<->TS. Sin generarlos, el typecheck no
+      # valida las llamadas del frontend a los servicios de Go.
+      - name: Generar bindings
+        run: wails3 generate bindings -clean=true -ts -i
+
+      - name: Typecheck del frontend
+        working-directory: frontend
+        run: pnpm run typecheck
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: win-x64
+            runner: windows-latest
+            goarch: amd64
+          - arch: win-arm64
+            runner: windows-11-arm
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Instalar el CLI de Wails
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - name: Instalar deps del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (bindings + frontend + syso + binario, tags production)
+        run: wails3 task build ARCH=${{ matrix.goarch }}
+
+      - name: Renombrar por arquitectura
+        shell: bash
+        run: mv bin/kaname.exe "bin/kaname-${{ matrix.arch }}.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaname-${{ matrix.arch }}
+          path: bin/kaname-${{ matrix.arch }}.exe
+          if-no-files-found: error

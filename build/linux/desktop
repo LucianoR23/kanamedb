@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Kaname
+Comment=Gestor de bases de datos con diagrama ERD editable
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/kaname.exe %u
+Terminal=false
+Type=Application
+Icon=kaname.exe
+Categories=Utility;
+StartupWMClass=kaname.exe
+
+ 

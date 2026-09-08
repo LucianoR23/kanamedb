@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="kaname.exe"
+        Arguments=""
+        InstallLocation="C:\Program Files\Kaname\Kaname">
+    </Installer>
+    <PackageInformation
+        PackageName="Kaname"
+        PackageDisplayName="Kaname"
+        PublisherName="CN=Kaname"
+        PublisherDisplayName="Kaname"
+        Version="0.1.0.0"
+        PackageDescription="Gestor de bases de datos con diagrama ERD editable">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="dev.kaname.app"
+                Description="Gestor de bases de datos con diagrama ERD editable"
+                DisplayName="Kaname"
+                ExecutableName="kaname.exe"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>Kaname</DisplayName>
+            <PublisherDisplayName>Kaname</PublisherDisplayName>
+            <Description>Gestor de bases de datos con diagrama ERD editable</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="kaname.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>

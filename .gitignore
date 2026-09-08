@@ -1,0 +1,24 @@
+# Build
+.task
+bin/
+frontend/dist/
+build/linux/appimage/build/
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+*.exe
+*.syso
+
+# Frontend
+node_modules/
+
+# Bindings generados por Wails
+frontend/bindings/
+
+# SO / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Local — NUNCA commitear: puede contener rutas o datos de conexiones reales
+/.kaname/
+*.local.json
+*.local.toml

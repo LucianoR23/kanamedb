@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Kaname",
+			"FileDescription": "Gestor de bases de datos con diagrama ERD editable",
+			"LegalCopyright": "© 2026",
+			"ProductName": "Kaname",
+			"Comments": "Kaname"
+		}
+	}
+}
