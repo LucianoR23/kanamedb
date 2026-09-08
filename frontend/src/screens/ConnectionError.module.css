@@ -1,0 +1,31 @@
+/* S24, variante "connection error". */
+
+.target {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  margin-bottom: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.name { font: 500 12.5px var(--font-ui); color: var(--text-1); }
+.describe {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-3);
+  word-break: break-all;
+  user-select: text;
+}
+
+.message { margin: 0 0 8px; font: 500 13px/1.5 var(--font-ui); color: var(--text-1); }
+.hint { margin: 0 0 8px; font: 400 12.5px/1.55 var(--font-ui); color: var(--text-2); text-wrap: pretty; }
+.culprit { margin: 0; font: 400 12.5px/1.55 var(--font-ui); color: var(--text-2); }
+
+.code { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.codeLabel {
+  font: 600 10px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}

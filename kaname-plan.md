@@ -33,12 +33,21 @@ que está en `.gitignore`: una copia commiteada se desactualiza y miente.
 
 Manager de conexiones, keychain, conectar a Postgres, árbol de esquema.
 
-- **S01 Welcome** — sin la opción "Open SQLite file".
-- **S02 Connection manager** — completa.
-- **S03 Connection editor** — solo tab General. SSH, TLS y Advanced quedan como
-  placeholders deshabilitados.
-- **S05** — árbol de esquema con tablas de Postgres únicamente.
-- **S24 Confirmation dialogs** — solo variante "connection error".
+- ✅ **Contrato de Go** — `connection`, `store`, `secrets`, `postgres`, `schema`
+  y `service`, con tests. Verificado contra Postgres 18, 17, 16 y 14.
+- ✅ **S01 Welcome** — sin la opción "Open SQLite file".
+- ✅ **S02 Connection manager** — completa.
+- ✅ **S03 Connection editor** — solo tab General. SSH, TLS, Safety y Advanced
+  quedan como placeholders deshabilitados.
+- ✅ **S24 Confirmation dialogs** — variante "connection error", que lleva al
+  campo que hay que arreglar según la causa del fallo.
+- ⏳ **S05** — árbol de esquema con tablas de Postgres únicamente. La
+  introspección está; falta poblar el árbol.
+
+Fuera de alcance por ahora, aunque el diseño de S01 y S02 las muestre: la
+detección de motores locales, el import de conexiones, las carpetas y el panel
+de "última sesión". Las tres primeras no las pide el plan; la última necesita el
+estado local de la Iteración 9.
 
 ### Iteración 2 — SQL básico
 

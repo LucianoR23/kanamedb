@@ -8,6 +8,11 @@
   background: var(--scrim);
   border: 0;
 }
+
+/* El navegador oculta un <dialog> sin el atributo `open` con
+   `display: none`, y el `display: grid` de arriba lo pisaba: el diálogo se
+   veía siempre. Hay que devolvérselo explícitamente. */
+.scrim:not([open]) { display: none; }
 .scrim::backdrop { background: transparent; }
 
 .dialog {

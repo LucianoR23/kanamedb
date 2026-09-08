@@ -1,0 +1,130 @@
+/* S01 Welcome. */
+
+.screen { display: flex; flex-direction: column; height: 100%; background: var(--bg-app); overflow: hidden; }
+
+.titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.wordmark { font: 700 11.5px var(--font-ui); letter-spacing: .14em; color: var(--text-2); }
+.divider { flex: none; width: 1px; height: 14px; background: var(--border); }
+.section { font: 400 12px var(--font-ui); color: var(--text-3); }
+.spacer { flex: 1; }
+
+.body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+@media (max-width: 900px) { .body { grid-template-columns: minmax(0, 1fr); } }
+
+.main { display: flex; align-items: center; justify-content: center; padding: 0 60px; overflow: auto; }
+.column { width: 100%; max-width: 520px; padding: 32px 0; }
+
+.identity { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  font: 700 12px var(--font-mono);
+  color: var(--accent);
+}
+.name { font: 700 19px/1.1 var(--font-ui); letter-spacing: .16em; color: var(--text-1); }
+.tagline { margin-top: 3px; font: 400 12px var(--font-ui); color: var(--text-3); }
+
+.headline { margin: 0 0 8px; font: 600 22px/1.25 var(--font-ui); letter-spacing: -.01em; }
+.lede {
+  margin: 0 0 22px;
+  max-width: 46ch;
+  font: 400 13px/1.6 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+
+.howto { display: flex; flex-direction: column; gap: 14px; padding-top: 20px; border-top: 1px solid var(--border-subtle); }
+.howtoLabel {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.step { display: flex; gap: 10px; }
+.stepNumber {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-inset);
+  font: 600 10px/17px var(--font-mono);
+  color: var(--text-2);
+  text-align: center;
+}
+.stepTitle { font: 500 12px var(--font-ui); color: var(--text-1); }
+.stepText { font: 400 11.5px/1.5 var(--font-ui); color: var(--text-3); text-wrap: pretty; }
+
+.side {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow: auto;
+}
+.sideBlock { padding: 18px 20px 14px; border-bottom: 1px solid var(--border-subtle); }
+.sideLabel {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 10px;
+}
+.dashed {
+  height: 1px;
+  margin: 16px 0 6px;
+  background: repeating-linear-gradient(90deg, var(--border) 0 6px, transparent 6px 12px);
+}
+.sideText { margin: 0; max-width: 30ch; font: 400 12px/1.5 var(--font-ui); color: var(--text-3); text-wrap: pretty; }
+
+.sideFoot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+.offline { display: flex; align-items: center; gap: 8px; font: 400 11.5px var(--font-ui); color: var(--text-2); }
+.offlineDot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+.link {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: 500 11px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}
+.link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+.statusbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--h-status-bar);
+  padding: 0 12px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-subtle);
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }

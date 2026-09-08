@@ -30,3 +30,6 @@ export { Toast, ToastStack } from "./Toast";
 export type { ToastItem, ToastTone } from "./Toast";
 
 export { TreeRow } from "./TreeRow";
+
+export { PasswordField, passwordAction } from "./PasswordField";
+export type { PasswordState } from "./PasswordField";
