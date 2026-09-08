@@ -41,11 +41,27 @@ func (v *ValidationError) Has(field string) bool {
 
 const maxNameLength = 120
 
-// Validate revisa la conexión y devuelve todos los problemas encontrados.
-// Devuelve nil si está bien.
+// Validate revisa la conexión entera y devuelve todos los problemas
+// encontrados. Devuelve nil si está bien.
 //
 // Se espera que la conexión ya haya pasado por Normalize.
 func (c Connection) Validate() error {
+	errs := c.identityErrors()
+	errs = append(errs, c.connectErrors()...)
+	return wrap(errs)
+}
+
+// ValidateForConnect revisa solo lo que hace falta para abrir la conexión.
+//
+// Existe porque el DSN no necesita ni nombre ni identificador: esos son datos
+// de la libreta de conexiones, no del protocolo. Sin esta separación, armar un
+// DSN exigiría cosas que no tienen nada que ver con conectar.
+func (c Connection) ValidateForConnect() error {
+	return wrap(c.connectErrors())
+}
+
+// identityErrors valida lo que identifica la conexión dentro de la aplicación.
+func (c Connection) identityErrors() []FieldError {
 	var errs []FieldError
 	add := func(field, msg string) {
 		errs = append(errs, FieldError{Field: field, Message: msg})
@@ -66,6 +82,19 @@ func (c Connection) Validate() error {
 		add("name", fmt.Sprintf("El nombre no puede pasar de %d caracteres.", maxNameLength))
 	}
 
+	if !c.Environment.Known() {
+		add("environment", fmt.Sprintf("Entorno desconocido: %q.", c.Environment))
+	}
+	return errs
+}
+
+// connectErrors valida lo que hace falta para llegar al servidor.
+func (c Connection) connectErrors() []FieldError {
+	var errs []FieldError
+	add := func(field, msg string) {
+		errs = append(errs, FieldError{Field: field, Message: msg})
+	}
+
 	switch {
 	case c.Engine == "":
 		add("engine", "Elegí un motor.")
@@ -75,17 +104,16 @@ func (c Connection) Validate() error {
 		add("engine", fmt.Sprintf("%s todavía no está implementado.", c.Engine))
 	}
 
-	if !c.Environment.Known() {
-		add("environment", fmt.Sprintf("Entorno desconocido: %q.", c.Environment))
-	}
-
+	// Sin base, Postgres usa el NOMBRE DEL USUARIO como base por defecto: la
+	// app se conectaría en silencio a una base distinta de la que el usuario
+	// cree. Es peor que fallar.
 	if c.Database == "" {
 		add("database", "El nombre de la base es obligatorio.")
 	}
 
 	// SQLite es un archivo: no tiene host, puerto ni usuario.
 	if c.Engine == SQLite {
-		return wrap(errs)
+		return errs
 	}
 
 	if c.Host == "" {
@@ -100,8 +128,7 @@ func (c Connection) Validate() error {
 	if c.SSLMode != "" && !c.SSLMode.Known() {
 		add("sslMode", fmt.Sprintf("Modo SSL desconocido: %q.", c.SSLMode))
 	}
-
-	return wrap(errs)
+	return errs
 }
 
 func wrap(errs []FieldError) error {
@@ -128,11 +155,11 @@ func (c Connection) Warnings() []Warning {
 	// campo crudo apagaba el aviso justo en el caso inseguro.
 	if mode := c.EffectiveSSLMode(); c.Engine != SQLite && !mode.Verifies() {
 		msg := "La conexión no verifica el certificado del servidor."
-		if mode == SSLDisable {
+		switch mode {
+		case SSLDisable:
 			msg = "La conexión viaja sin cifrar."
-		}
-		if c.SSLMode == "" {
-			msg = "Sin modo SSL configurado se usa prefer, que no verifica el certificado y acepta seguir en claro."
+		case SSLPrefer, SSLAllow:
+			msg = "Con " + string(mode) + " la conexión no verifica el certificado y acepta seguir en claro si el servidor no ofrece TLS."
 		}
 		if c.Environment == Production {
 			msg += " Contra producción, conviene verify-full."

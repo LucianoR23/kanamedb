@@ -191,11 +191,16 @@ func (c Connection) DSN(password string) (string, error) {
 	if c.Engine != Postgres {
 		return "", fmt.Errorf("motor %q todavía no está implementado", c.Engine)
 	}
-	// Sin usuario, url.User quedaría en nil y la contraseña se descartaría en
-	// silencio: pgx caería al usuario del sistema operativo y el fallo llegaría
-	// como un error de autenticación opaco en vez de "falta el usuario".
-	if c.User == "" {
-		return "", fmt.Errorf("la conexión %s no tiene usuario", c.Describe())
+	// El DSN es la última puerta antes de la red: se normaliza y se valida acá
+	// aunque quien llama ya debería haberlo hecho. El archivo de conexiones se
+	// edita a mano y llega hasta acá sin garantías.
+	//
+	// Importa especialmente que Database no esté vacío: sin ese parámetro
+	// PostgreSQL usa el nombre del usuario como base, y la app se conectaría en
+	// silencio a una base distinta de la que el usuario cree.
+	c = c.Normalize()
+	if err := c.ValidateForConnect(); err != nil {
+		return "", fmt.Errorf("no se puede armar la conexión: %w", err)
 	}
 
 	port := c.Port

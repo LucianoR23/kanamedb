@@ -255,3 +255,51 @@ func TestElModoSSLEfectivoDeUnCampoVacioEsPrefer(t *testing.T) {
 		t.Error("prefer no verifica el certificado y no debería decir que sí")
 	}
 }
+
+// Sin el parámetro de base, PostgreSQL usa el NOMBRE DEL USUARIO como base por
+// defecto. La app se conectaría en silencio a una base distinta de la que el
+// usuario cree, que es peor que fallar.
+func TestDSNFallaSinBaseEnVezDeConectarACualquiera(t *testing.T) {
+	c := valid()
+	c.Database = ""
+	dsn, err := c.DSN("x")
+	if err == nil {
+		t.Fatalf("DSN() sin base no devolvió error, devolvió %q", dsn)
+	}
+	if !strings.Contains(err.Error(), "database") {
+		t.Errorf("el error no nombra el campo: %v", err)
+	}
+}
+
+// El DSN es la última puerta antes de la red: el archivo de conexiones se edita
+// a mano y llega hasta acá sin garantías.
+func TestDSNValidaLoQueNecesitaParaConectar(t *testing.T) {
+	casos := map[string]func(*Connection){
+		"sin host":              func(c *Connection) { c.Host = "" },
+		"sin base":              func(c *Connection) { c.Database = "" },
+		"sin usuario":           func(c *Connection) { c.User = "" },
+		"puerto inválido":       func(c *Connection) { c.Port = 70000 },
+		"ssl desconocido":       func(c *Connection) { c.SSLMode = "sí-porfa" },
+		"motor sin implementar": func(c *Connection) { c.Engine = MySQL },
+	}
+	for nombre, romper := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			c := valid()
+			romper(&c)
+			if _, err := c.DSN("x"); err == nil {
+				t.Error("DSN() no falló")
+			}
+		})
+	}
+}
+
+// Pero no exige nombre ni identificador: eso es de la libreta de conexiones,
+// no del protocolo.
+func TestDSNNoExigeNombreNiIdentificador(t *testing.T) {
+	c := valid()
+	c.ID = ""
+	c.Name = ""
+	if _, err := c.DSN("x"); err != nil {
+		t.Errorf("DSN() exigió datos que no hacen falta para conectar: %v", err)
+	}
+}

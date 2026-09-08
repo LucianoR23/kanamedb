@@ -133,9 +133,12 @@ func Classify(err error, desc string) *Failure {
 		}
 	}
 
+	// Un fallo sin clasificar igual tiene que decir algo: si no, el usuario ve
+	// siempre el mismo texto vacío de contenido y el reporte de bug tampoco
+	// sirve. Redact lo hace seguro de mostrar.
 	return &Failure{
 		Kind:    FailureOther,
-		Message: "No se pudo conectar con " + desc + ".",
+		Message: "No se pudo conectar con " + desc + ": " + Redact(err.Error()),
 	}
 }
 

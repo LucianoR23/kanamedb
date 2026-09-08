@@ -7,7 +7,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -86,9 +85,29 @@ func Probe(ctx context.Context, dsn, desc string) (*ServerInfo, *Failure) {
 	if err != nil {
 		return nil, Classify(err, desc)
 	}
+	if f := checkVersion(info); f != nil {
+		return nil, f
+	}
 	info.Latency = time.Since(inicio)
 	info.LatencyMS = info.Latency.Milliseconds()
 	return info, nil
+}
+
+// checkVersion rechaza servidores por debajo del mínimo soportado.
+//
+// No es formalismo: en PostgreSQL 13 y anteriores, pg_class.reltuples vale 0
+// para una tabla nunca analizada en vez de -1, así que el árbol mostraría
+// "0 filas" para una tabla con millones. La distinción entre "no sé" y "cero"
+// se pierde en silencio, que es la peor forma de perderla.
+func checkVersion(info *ServerInfo) *Failure {
+	if info.Supported() {
+		return nil
+	}
+	return &Failure{
+		Kind:    FailureOther,
+		Message: info.Display + " es más antigua de lo que Kaname soporta.",
+		Hint:    "El mínimo es PostgreSQL 14, la versión más vieja con soporte oficial.",
+	}
 }
 
 // Connect abre un pool listo para usar y verifica que responde.
@@ -107,7 +126,12 @@ func Connect(ctx context.Context, dsn, desc string, maxConns int32) (*pgxpool.Po
 	if maxConns > 0 {
 		cfg.MaxConns = maxConns
 	}
-	cfg.ConnConfig.ConnectTimeout = DefaultConnectTimeout
+	// Solo si el DSN no trajo el suyo: un connect_timeout explícito en la cadena
+	// de conexión es una decisión del usuario, y pisarla hacía que Connect y
+	// Probe se comportaran distinto ante el mismo DSN.
+	if cfg.ConnConfig.ConnectTimeout == 0 {
+		cfg.ConnConfig.ConnectTimeout = DefaultConnectTimeout
+	}
 	// Una conexión ociosa que el servidor cerró por su cuenta reaparece como un
 	// error raro en la próxima query. Reciclarlas antes evita ese misterio.
 	cfg.MaxConnIdleTime = 5 * time.Minute
@@ -134,6 +158,10 @@ func Connect(ctx context.Context, dsn, desc string, maxConns int32) (*pgxpool.Po
 	if err != nil {
 		pool.Close()
 		return nil, nil, Classify(err, desc)
+	}
+	if f := checkVersion(info); f != nil {
+		pool.Close()
+		return nil, nil, f
 	}
 	info.Latency = time.Since(inicio)
 	info.LatencyMS = info.Latency.Milliseconds()
@@ -176,7 +204,3 @@ func readServerInfo(ctx context.Context, conn *pgx.Conn) (*ServerInfo, error) {
 	info.Display = "PostgreSQL " + short
 	return &info, nil
 }
-
-// ErrUnsupportedVersion se devuelve cuando el servidor es más viejo de lo que
-// la app soporta.
-var ErrUnsupportedVersion = errors.New("versión de PostgreSQL no soportada")

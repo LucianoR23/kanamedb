@@ -395,3 +395,44 @@ environment = " DEV "
 		t.Errorf("la conexión normalizada no valida: %v", err)
 	}
 }
+
+// El archivo se edita a mano y read() solo normaliza. Get valida para que nada
+// roto llegue al resto de la app; List devuelve todo para que el gestor pueda
+// mostrar la entrada rota y dejar arreglarla.
+func TestGetValidaYListNo(t *testing.T) {
+	s := nuevo(t)
+	escribirCrudo(t, s.Path(), `
+version = 1
+
+[[connection]]
+id = "rota"
+name = "sin base"
+engine = "postgres"
+host = "db.local"
+port = 5432
+database = ""
+user = "rw"
+environment = "dev"
+`)
+	// List la muestra: el usuario tiene que poder verla para arreglarla.
+	todas, err := s.List()
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(todas) != 1 {
+		t.Fatalf("List() devolvió %d conexiones, se esperaba 1", len(todas))
+	}
+
+	// Get la rechaza: sin base, Postgres usaría el nombre del usuario como base.
+	_, err = s.Get("rota")
+	if err == nil {
+		t.Fatal("Get() devolvió una conexión sin base")
+	}
+	var ve *connection.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Get() devolvió %T (%v), se esperaba *ValidationError", err, err)
+	}
+	if !ve.Has("database") {
+		t.Errorf("el error no señala el campo database: %v", ve.Errors)
+	}
+}

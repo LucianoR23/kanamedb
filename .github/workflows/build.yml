@@ -109,7 +109,17 @@ jobs:
       # -count=1 obligatorio: la caché de go test no sabe contra qué versión de
       # motor está corriendo, así que sin él una corrida contra la 16 podría
       # devolver el resultado cacheado de la corrida contra la 18.
+      #
+      # KANAME_REQUIRE_POSTGRES convierte el "saltear" en "fallar": si el mapeo
+      # de puertos o el tag de la imagen se rompen, este job tiene que ponerse
+      # rojo y no verde sin haber probado nada.
+      #
+      # KANAME_EXPECT_PG_MAJOR verifica que esta pata esté hablando con la
+      # versión que dice, y no cuatro veces con el mismo servidor.
       - name: Tests de integración
+        env:
+          KANAME_REQUIRE_POSTGRES: "1"
+          KANAME_EXPECT_PG_MAJOR: ${{ matrix.postgres }}
         run: go test -count=1 ./...
 
   build:

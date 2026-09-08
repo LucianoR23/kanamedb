@@ -83,6 +83,16 @@ func (s *Store) Get(id string) (connection.Connection, error) {
 	}
 	for _, c := range f.Connections {
 		if c.ID == id {
+			// El archivo se edita a mano y read() solo normaliza. Sin esta
+			// validación, una entrada rota —una base vacía, un puerto fuera de
+			// rango, un motor con un typo— sale de acá como si estuviera bien y
+			// el problema aparece mucho más lejos.
+			//
+			// List() sí devuelve todo sin validar: el gestor de conexiones tiene
+			// que poder mostrar una entrada rota para que el usuario la arregle.
+			if err := c.Validate(); err != nil {
+				return connection.Connection{}, fmt.Errorf("la conexión %q está mal configurada: %w", c.Name, err)
+			}
 			return c, nil
 		}
 	}
@@ -226,8 +236,12 @@ func (s *Store) write(f *file) error {
 		tmp.Close()
 		return fmt.Errorf("escribir %s: %w", tmpName, err)
 	}
-	// Sync antes del rename: el rename puede completarse y el contenido seguir
-	// en el caché del sistema si se corta la luz justo ahí.
+	// Sync antes del rename, para que el contenido esté en disco y no solo en
+	// el caché cuando el rename lo publique. No se sincroniza el directorio
+	// después del rename —no hay forma portable de hacerlo en Windows, que es
+	// la plataforma objetivo—, así que la garantía es: el archivo nunca queda
+	// truncado ni a medias, pero un corte justo después del rename podría
+	// revertirlo al contenido anterior en algunos sistemas de archivos.
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return fmt.Errorf("sincronizar %s a disco: %w", tmpName, err)

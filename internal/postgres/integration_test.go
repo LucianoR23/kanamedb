@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,16 +27,49 @@ func testDSN(t *testing.T) string {
 		dsn = defaultTestDSN
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, f := Probe(ctx, dsn, "base de pruebas"); f != nil {
+	info, f := Probe(ctx, dsn, "base de pruebas")
+	if f != nil {
+		// En CI saltearse no es aceptable: si el mapeo de puertos, el tag de la
+		// imagen o las credenciales se rompen, los tests de integración darían
+		// verde sin haber probado nada. Un test que no puede fallar es peor que
+		// no tener test. Ver CLAUDE.md.
+		if os.Getenv("KANAME_REQUIRE_POSTGRES") != "" {
+			t.Fatalf("KANAME_REQUIRE_POSTGRES está puesto y no hay base: %s", f.Message)
+		}
 		t.Skipf(
 			"no hay Postgres de pruebas escuchando (%s).\n"+
 				"Levantalo con: docker compose -f docker-compose.test.yml up -d\n"+
 				"O apuntá a otro con KANAME_TEST_POSTGRES=postgres://...",
 			f.Message)
 	}
+
+	// Y que sea la versión que se pidió: sin esto, la matriz podría estar
+	// corriendo cuatro veces contra el mismo servidor y nadie se enteraría.
+	if err := checkExpectedMajor(info); err != nil {
+		t.Fatal(err)
+	}
 	return dsn
+}
+
+// checkExpectedMajor compara la versión del servidor con la que CI dice estar
+// probando en esta pata de la matriz.
+func checkExpectedMajor(info *ServerInfo) error {
+	quiere := os.Getenv("KANAME_EXPECT_PG_MAJOR")
+	if quiere == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(quiere)
+	if err != nil {
+		return fmt.Errorf("KANAME_EXPECT_PG_MAJOR=%q no es un número", quiere)
+	}
+	if got := info.VersionNum / 10000; got != n {
+		return fmt.Errorf(
+			"se esperaba PostgreSQL %d y el servidor es %s (%d): la matriz no está probando lo que dice",
+			n, info.Display, info.VersionNum)
+	}
+	return nil
 }
 
 func TestProbeContraUnaBaseReal(t *testing.T) {
