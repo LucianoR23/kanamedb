@@ -191,7 +191,8 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
   sin secretos.
 - **Canvas ERD:** `@xyflow/react`.
 - **Layout:** `@dagrejs/dagre`; ELK solo si dagre no alcanza.
-- **Grilla:** `glide-data-grid`.
+- **Grilla:** `react-data-grid` v7.0.0-beta.61, pineada exacta. Reemplaza a
+  `glide-data-grid` — ver el registro de decisiones.
 - **Editor:** CodeMirror 6 + `@codemirror/lang-sql`.
 - **Estado UI:** Zustand.
 
@@ -261,9 +262,12 @@ verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `w
   (`build:server`, `run:server`, `build:docker`). Ver registro de decisiones.
 - WebView2 (Windows) se actualiza y reporta a Microsoft por su cuenta, y no lo
   controlás desde la app. Es el precio de no embeber Chromium.
-- El resto (xyflow, CodeMirror, glide-data-grid, Wails, pgx) no hace phone-home.
-- Mirá la actividad del repo de glide-data-grid: bajó bastante. **Pendiente de
-  revisar antes de la Iteración 2.**
+- El resto (xyflow, CodeMirror, react-data-grid, Wails, pgx) no hace phone-home.
+- ✅ **glide-data-grid revisada y descartada** (2026-09-08). No declara React 19
+  en la versión estable y el repo lleva meses quieto. Ver el registro de
+  decisiones. En su lugar, `react-data-grid`: instala sin warnings de peers
+  contra React 19.2.8, sin dependencias transitivas, y pasa la política de
+  `minimum-release-age`.
 - **`minimum-release-age` de 7 días** activo en `frontend/.npmrc`: pnpm rechaza
   paquetes publicados hace menos de una semana. Es defensa contra supply chain y
   no se desactiva. Cuando bloquee una versión, se baja a la anterior elegible; si
@@ -317,6 +321,40 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 2 — 2026-09-08
+
+**La grilla es `react-data-grid`, no `glide-data-grid`.**
+El plan dejó anotado revisar la actividad de glide antes de esta iteración. La
+revisión la descarta, por cuatro cosas que se suman:
+
+1. La estable publicada, 6.0.3, declara `react: ^16.12.0 || 17.x || 18.x`.
+   React 19 solo aparece en `6.0.4-alpha24`, una alpha que no se promovió desde
+   que se cerró el issue #1021 en junio de 2025. Queda elegir entre depender de
+   una alpha o forzar peers en una grilla que toca internals de React con fuerza.
+2. El repo no recibe un push desde el 21 de enero de 2026: siete meses y medio.
+3. Arrastra peso que no usamos: `lodash`, `marked` y `react-responsive-carousel`
+   como peers, más `@linaria/react` —CSS-in-JS en tiempo de build— como
+   dependencia. Un parser de markdown y una librería de carrusel para mostrar
+   filas no se justifican.
+4. La decisiva y propia de este proyecto: glide dibuja en canvas, así que los
+   colores se pintan desde JS y no desde CSS. Acá la regla es que los colores
+   salen solo de tokens, y de ahí dependen el tema claro y los acentos por
+   entorno. Una grilla en canvas obliga a leer cada token desde JS y a
+   reimplementar el tema adentro — y a que se desincronice la primera vez que
+   alguien toque un token.
+
+`react-data-grid` (MIT, Comcast/adazzle) resuelve las cuatro: peer `react:
+^19.2`, cero dependencias de runtime, último push del 6 de septiembre de 2026 y
+celdas de DOM, o sea tokens CSS, selección de texto y accesibilidad de verdad.
+Además trae editores, que es lo que va a necesitar la Iteración 7. Verificado, no
+deducido de la metadata: `pnpm add` resolvió sin un solo warning de peers contra
+React 19.2.8 y sumó exactamente un paquete.
+
+La objeción honesta: su tag `latest` es `7.0.0-beta.61`, una beta de larga data.
+Se pinea exacta, como el resto de lo crítico, y se sube leyendo el changelog.
+
+---
 
 ### Iteración 1 — 2026-09-08
 

@@ -138,7 +138,7 @@ A medida que avancen las iteraciones se suman
 [pgx](https://github.com/jackc/pgx) y demás drivers,
 [xyflow](https://reactflow.dev/) para el canvas del ERD,
 [CodeMirror 6](https://codemirror.net/) para el editor SQL y
-[glide-data-grid](https://grid.glideapps.com/) para la grilla de resultados.
+[react-data-grid](https://github.com/adazzle/react-data-grid) para la grilla de resultados.
 
 ## Dependencias: dos cosas para saber
 

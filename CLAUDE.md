@@ -107,7 +107,7 @@ Tratar como requisitos duros, no como sugerencias:
 | Estado local | SQLite en `%APPDATA%`, **sin secretos** |
 | Frontend | React 19 + TypeScript + Vite |
 | ERD | `@xyflow/react` + `@dagrejs/dagre` |
-| Grilla | `glide-data-grid` |
+| Grilla | `react-data-grid` (pineada exacta) |
 | Editor SQL | CodeMirror 6 + `@codemirror/lang-sql` |
 | Estado UI | Zustand |
 
