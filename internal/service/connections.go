@@ -14,6 +14,8 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/postgres"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/store"
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Keyring es lo que este paquete necesita del almacén de credenciales.
@@ -37,11 +39,14 @@ type Keyring interface {
 type Connections struct {
 	store   *store.Store
 	keyring Keyring
+	// known hace falta para probar una conexión con túnel: la prueba abre el
+	// salto, y abrirlo exige que la clave del bastión esté aceptada.
+	known *tunnel.KnownHosts
 }
 
 // NewConnections arma el servicio.
-func NewConnections(st *store.Store, kr Keyring) *Connections {
-	return &Connections{store: st, keyring: kr}
+func NewConnections(st *store.Store, kr Keyring, known *tunnel.KnownHosts) *Connections {
+	return &Connections{store: st, keyring: kr, known: known}
 }
 
 // ConnectionView es una conexión tal como la ve la interfaz: la configuración,
@@ -310,7 +315,21 @@ func (s *Connections) Test(ctx context.Context, c connection.Connection, action 
 		}}
 	}
 
-	info, failure := postgres.Probe(ctx, dsn, c.Describe())
+	// Con túnel, la prueba pasa por el túnel. Probar directo daría un error de
+	// red que no menciona el bastión — o peor, funcionaría desde una red donde
+	// la base es alcanzable y daría por buena una configuración que en otra
+	// máquina no va a andar.
+	var dial pgconn.DialFunc
+	if c.SSH.Enabled {
+		cli, f := s.abrirTunelParaProbar(ctx, c)
+		if f != nil {
+			return TestResult{Failure: f}
+		}
+		defer cli.Close()
+		dial = cli.DialContext
+	}
+
+	info, failure := postgres.ProbeThrough(ctx, dsn, c.Describe(), dial)
 	if failure != nil {
 		return TestResult{Failure: failure}
 	}
@@ -352,4 +371,58 @@ func (s *Connections) view(c connection.Connection) ConnectionView {
 		v.Warnings = []connection.Warning{}
 	}
 	return v
+}
+
+// abrirTunelParaProbar levanta el salto SSH para una prueba de conexión.
+//
+// Si la clave del bastión todavía no está aceptada, no se conecta ni se
+// pregunta acá: probar es una acción del editor y la verificación de la clave es
+// un diálogo bloqueante que vive en otro lugar. Se devuelve un fallo que dice
+// exactamente qué hacer, en vez de un error de SSH que no lo diría.
+func (s *Connections) abrirTunelParaProbar(
+	ctx context.Context, c connection.Connection,
+) (*tunnel.Client, *postgres.Failure) {
+	secreto, err := s.keyring.Get(SSHSecretID(c.ID))
+	if err != nil && !errors.Is(err, secrets.ErrNotFound) {
+		return nil, &postgres.Failure{
+			Kind:    postgres.FailureOther,
+			Message: "No se pudo leer el secreto del bastión del keychain.",
+		}
+	}
+	sec := tunnel.Secrets{}
+	switch c.SSH.Auth {
+	case connection.SSHAuthPassword:
+		sec.Password = secreto
+	case connection.SSHAuthKeyFile:
+		sec.Passphrase = secreto
+	}
+
+	insp, err := tunnel.Inspect(ctx, c.SSH, s.known)
+	if err != nil {
+		return nil, &postgres.Failure{
+			Kind:    postgres.FailureTunnel,
+			Message: "No se pudo contactar al bastión SSH.",
+			Detail:  postgres.Redact(err.Error()),
+			Hint:    "Revisá el host y el puerto de la pestaña Túnel SSH, y que el servidor esté escuchando.",
+		}
+	}
+	if insp.Verdict != tunnel.VerdictTrusted {
+		return nil, &postgres.Failure{
+			Kind:    postgres.FailureTunnel,
+			Message: "La clave del bastión todavía no está verificada.",
+			Detail:  insp.Presented.Fingerprint,
+			Hint:    "Guardá la conexión y conectá: ahí se muestra la huella para que la verifiques antes de enviar ninguna credencial.",
+		}
+	}
+
+	cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{})
+	if err != nil {
+		return nil, &postgres.Failure{
+			Kind:    postgres.FailureTunnel,
+			Message: "No se pudo abrir el túnel SSH.",
+			Detail:  postgres.Redact(err.Error()),
+			Hint:    "Revisá el usuario y el método de autenticación en la pestaña Túnel SSH.",
+		}
+	}
+	return cli, nil
 }

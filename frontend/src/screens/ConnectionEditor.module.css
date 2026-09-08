@@ -239,3 +239,14 @@
   font: 400 11px var(--font-mono);
   color: var(--text-1);
 }
+
+/* Punto en la pestaña que tiene campos sin completar. */
+.tabAviso {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  vertical-align: middle;
+}

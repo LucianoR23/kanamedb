@@ -103,6 +103,15 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pasteNotices, setPasteNotices] = useState<string[]>([]);
+
+  // Qué campos tocó la persona, y si ya intentó guardar o probar.
+  //
+  // Sin esto, abrir una conexión nueva pinta de rojo todo lo obligatorio antes
+  // de que nadie haya escrito una letra. Un formulario que reta por no haber
+  // completado un campo al que todavía no se llegó enseña a ignorar el rojo, y
+  // entonces el rojo deja de servir cuando de verdad hace falta.
+  const [tocados, setTocados] = useState<ReadonlySet<string>>(new Set());
+  const [intentado, setIntentado] = useState(false);
   // El bastión tiene su propio secreto —contraseña o frase de paso— y su propio
   // estado: una conexión puede tener guardada la de la base y no la del salto.
   const [sshPassword, setSshPassword] = useState<PasswordState>(
@@ -125,10 +134,48 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
     };
   }, [conn]);
 
-  const problems = new Map(view.problems?.map((p) => [p.field, p.message]) ?? []);
+  const todosLosProblemas = new Map(view.problems?.map((p) => [p.field, p.message]) ?? []);
+
+  // Los problemas que se MUESTRAN: los de campos ya tocados, y todos una vez
+  // que se intentó guardar o probar. En ese momento sí corresponde señalar lo
+  // que falta, porque la persona dijo "listo".
+  const problems = {
+    get: (campo: string) =>
+      intentado || tocados.has(campo) ? todosLosProblemas.get(campo) : undefined,
+    has: (campo: string) => (intentado || tocados.has(campo)) && todosLosProblemas.has(campo),
+  };
+
+  // A qué pestaña pertenece cada campo, para poder señalarla y para saltar a
+  // ella cuando se intenta guardar con algo incompleto en otra.
+  function tabDelCampo(campo: string): string {
+    if (campo.startsWith("ssh.")) return "tunnel";
+    if (campo.startsWith("safety.")) return "safety";
+    return "general";
+  }
+
+  const tabsConProblemas = new Set(
+    [...todosLosProblemas.keys()].map(tabDelCampo),
+  );
+
+  /** La primera pestaña con algo incompleto, en el orden en que se muestran. */
+  function primerTabConProblema(): string | null {
+    for (const t of TABS) {
+      if (tabsConProblemas.has(t.id)) return t.id;
+    }
+    return null;
+  }
+
+  /** Marca un campo como tocado para que sus errores empiecen a mostrarse. */
+  function tocar(campo: string) {
+    setTocados((prev) => {
+      if (prev.has(campo)) return prev;
+      const next = new Set(prev);
+      next.add(campo);
+      return next;
+    });
+  }
   // `Valid()` es un método de Go y no cruza el puente: se deriva de los
   // problemas, que sí vienen.
-  const valid = problems.size === 0;
   const warnings = view.warnings ?? [];
   const envInfo = ENVIRONMENTS.find((e) => e.value === conn.environment) ?? ENVIRONMENTS[0]!;
 
@@ -136,15 +183,26 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
   // esto habría que reconstruir el objeto entero en cada tecla.
   function setSSH<K extends keyof Connection["ssh"]>(key: K, value: Connection["ssh"][K]) {
     setConn((c) => ({ ...c, ssh: { ...c.ssh, [key]: value } }));
+    tocar(`ssh.${String(key)}`);
     setTest(null);
   }
 
   function set<K extends keyof Connection>(key: K, value: Connection[K]) {
     setConn((c) => ({ ...c, [key]: value }));
+    tocar(String(key));
     setTest(null);
   }
 
   async function runTest() {
+    setIntentado(true);
+    // Si falta algo, se salta a la pestaña donde está en vez de mostrar un
+    // error que menciona campos que no se ven. Con dos «host» en dos pestañas
+    // distintas, un mensaje sin destino manda a buscar al lugar equivocado.
+    const falta = primerTabConProblema();
+    if (falta) {
+      setTab(falta);
+      return;
+    }
     setTesting(true);
     setTest(null);
     try {
@@ -165,6 +223,12 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
   }
 
   async function save(connect: boolean) {
+    setIntentado(true);
+    const falta = primerTabConProblema();
+    if (falta) {
+      setTab(falta);
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -258,6 +322,13 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
               onClick={() => setTab(t.id)}
             >
               {t.label}
+              {/* El punto marca la pestaña donde falta algo. Sin él, un error
+                  que menciona un campo de otra pestaña obliga a abrirlas todas
+                  a ver dónde está. Solo aparece después de intentar guardar o
+                  probar: antes sería el mismo rojo prematuro, movido de lugar. */}
+              {intentado && tabsConProblemas.has(t.id) ? (
+                <span className={styles.tabAviso} aria-label="tiene campos sin completar" />
+              ) : null}
             </button>
           ))}
         </div>
@@ -626,12 +697,18 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
           <Button variant="ghost" onClick={onCancel}>
             Cancelar
           </Button>
-          <Button disabled={!valid || saving} onClick={() => void save(false)}>
+          {/* Guardar NO se deshabilita cuando falta algo.
+            *
+            * Un botón apagado no dice qué falta ni dónde, y con cinco pestañas
+            * el campo que falta puede estar en una que no se abrió nunca.
+            * Apretarlo señala los campos y lleva a la pestaña donde están, que
+            * es lo que alguien necesita para poder terminar. */}
+          <Button disabled={saving} onClick={() => void save(false)}>
             Guardar
           </Button>
           <Button
             variant={conn.environment === Environment.Production ? "danger" : "primary"}
-            disabled={!valid || saving}
+            disabled={saving}
             onClick={() => void save(true)}
           >
             Guardar y conectar

@@ -53,7 +53,7 @@ func sesionDePrueba(t *testing.T) (*Session, *Connections, string) {
 	// la sesión lo necesita para poder abrirlo si alguna lo usara.
 	sesion := NewSession(st, kr, tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")))
 	t.Cleanup(sesion.Disconnect)
-	return sesion, &Connections{store: st, keyring: kr}, c.ID
+	return sesion, &Connections{store: st, keyring: kr, known: tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "kh"))}, c.ID
 }
 
 // saltearSinBase saltea el test si no hay Postgres, con el mismo criterio que

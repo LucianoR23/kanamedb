@@ -175,13 +175,13 @@ func (c Connection) connectErrors() []FieldError {
 	}
 
 	if c.Host == "" {
-		add("host", "El host es obligatorio.")
+		add("host", "El host de la base es obligatorio.")
 	}
 	if c.Port < 1 || c.Port > 65535 {
 		add("port", "El puerto tiene que estar entre 1 y 65535.")
 	}
 	if c.User == "" {
-		add("user", "El usuario es obligatorio.")
+		add("user", "El usuario de la base es obligatorio.")
 	}
 	if c.SSLMode != "" && !c.SSLMode.Known() {
 		add("sslMode", fmt.Sprintf("Modo SSL desconocido: %q.", c.SSLMode))

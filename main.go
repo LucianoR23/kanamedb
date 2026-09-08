@@ -42,7 +42,7 @@ func main() {
 
 		Services: []application.Service{
 			application.NewService(appinfo.New()),
-			application.NewService(service.NewConnections(connections, keyring)),
+			application.NewService(service.NewConnections(connections, keyring, known)),
 			application.NewService(sesion),
 			application.NewService(service.NewQueries(sesion)),
 			application.NewService(service.NewHosts(known)),

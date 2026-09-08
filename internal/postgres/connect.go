@@ -75,11 +75,40 @@ func (s ServerInfo) Supported() bool { return s.VersionNum >= MinServerVersion }
 //
 // `desc` es la descripción segura de la conexión, para los mensajes de error.
 func Probe(ctx context.Context, dsn, desc string) (*ServerInfo, *Failure) {
+	return ProbeThrough(ctx, dsn, desc, nil)
+}
+
+// ProbeThrough prueba la conexión discando por la función que se le pase.
+//
+// Existe para que "probar conexión" pase por el túnel cuando la conexión usa
+// uno. Sin esto, probar una conexión con bastión intentaba llegar directo a la
+// base y fallaba con un error de red que no mencionaba el túnel — o peor,
+// funcionaba desde una red donde la base sí era alcanzable y daba por buena una
+// configuración que en otra máquina no iba a andar.
+func ProbeThrough(ctx context.Context, dsn, desc string, dial pgconn.DialFunc) (*ServerInfo, *Failure) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultConnectTimeout)
 	defer cancel()
 
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		// El error de parseo puede citar el DSN, que lleva la contraseña.
+		return nil, &Failure{
+			Kind:    FailureOther,
+			Message: "La cadena de conexión de " + desc + " no es válida.",
+		}
+	}
+	if dial != nil {
+		cfg.DialFunc = dial
+		// Y la resolución del nombre pasa al otro lado del túnel, por lo mismo
+		// que en Connect: el host de la base suele resolver solo desde el
+		// bastión.
+		cfg.LookupFunc = func(_ context.Context, host string) ([]string, error) {
+			return []string{host}, nil
+		}
+	}
+
 	inicio := time.Now()
-	conn, err := pgx.Connect(ctx, dsn)
+	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, Classify(err, desc)
 	}

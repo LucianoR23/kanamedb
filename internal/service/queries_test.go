@@ -9,6 +9,8 @@ import (
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/postgres"
+
+	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
 // Dos valores por defecto con el mismo número en paquetes distintos se separan
@@ -169,5 +171,45 @@ func crear(t *testing.T, q *Queries, sql string) {
 	t.Helper()
 	if res := q.Run(context.Background(), "ddl", sql); !res.OK {
 		t.Fatalf("no se pudo preparar con %q: %+v", sql, res.Failure)
+	}
+}
+
+// Probar una conexión con túnel tiene que pasar por el túnel.
+//
+// Sin esto, la prueba intentaba llegar directo a la base: daba un error de red
+// que no menciona el bastión, o —peor— funcionaba desde una red donde la base
+// es alcanzable y daba por buena una configuración que en otra máquina no anda.
+//
+// Y si la clave del bastión no está aceptada, lo dice: es una condición previa
+// y no un error de SSH cualquiera.
+func TestProbarConTunelSinClaveAceptadaLoDice(t *testing.T) {
+	sesion, conns, id := sesionDePrueba(t)
+	_ = sesion
+
+	c, err := conns.store.Get(id)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	c.SSH = tunnel.Config{
+		Enabled: true,
+		Host:    "127.0.0.1",
+		Port:    52222,
+		User:    "kaname",
+		Auth:    tunnel.AuthPassword,
+	}
+
+	res := conns.Test(context.Background(), c, PasswordKeep, "")
+	if res.OK {
+		t.Fatal("probó con éxito una conexión cuyo bastión no está verificado")
+	}
+	if res.Failure == nil {
+		t.Fatal("no vino el fallo")
+	}
+	if res.Failure.Kind != postgres.FailureTunnel {
+		t.Errorf("Kind = %q, se esperaba %q", res.Failure.Kind, postgres.FailureTunnel)
+	}
+	// El mensaje tiene que decir qué hacer, no solo qué pasó.
+	if !strings.Contains(res.Failure.Hint, "conectá") && !strings.Contains(res.Failure.Hint, "Revisá") {
+		t.Errorf("el fallo no dice qué hacer: %+v", res.Failure)
 	}
 }
