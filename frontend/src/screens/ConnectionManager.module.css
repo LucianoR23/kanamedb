@@ -231,3 +231,23 @@
 }
 .statusLink { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
 .statusLink:hover { color: var(--accent-hover); text-decoration: underline; }
+
+/* Cuando la fila es un interruptor de verdad, se comporta como tal: hover,
+ * foco visible y área de clic completa. */
+.safetyRowButton {
+  width: 100%;
+  border: 0;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.safetyRowButton:hover {
+  background: var(--bg-hover);
+}
+.safetyRowButton:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}

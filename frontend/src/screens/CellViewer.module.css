@@ -1,0 +1,243 @@
+/* S09 Cell viewer. El diálogo del diseño mide 960x660; acá se fija el ancho y
+ * se deja que el alto lo ponga el contenido con un tope, para que un valor
+ * corto no abra un panel casi vacío de 660px. */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.path {
+  font: 400 12px var(--font-mono);
+  color: var(--text-2);
+}
+.typeChip {
+  white-space: nowrap;
+  padding: 0 5px;
+  border-radius: 2px;
+  font: 500 10.5px var(--font-mono);
+  background: var(--bg-active);
+  color: var(--text-2);
+}
+.rowNo {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  width: 900px;
+  max-width: 78vw;
+  height: 460px;
+  max-height: 62vh;
+  min-height: 0;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.sideLabel {
+  padding: 9px 11px 6px;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.sideList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sideItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.sideItem:hover {
+  background: var(--bg-hover);
+}
+/* La franja del borde izquierdo marca la celda abierta sin mover el texto, que
+ * es lo que pasaría con un borde real. */
+.sideItemOn {
+  background: var(--bg-sel);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sideTag {
+  flex: none;
+  font: 700 8px var(--font-mono);
+  color: var(--text-dim);
+}
+.sideItemOn .sideTag {
+  color: var(--accent);
+}
+.sideName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-2);
+}
+.sideItemOn .sideName {
+  color: var(--text-1);
+}
+
+.meta {
+  margin: 0;
+  padding: 10px 11px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.metaKey {
+  font: 400 10.5px var(--font-ui);
+  color: var(--text-3);
+}
+.metaValue {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-1);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.modes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.mode {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  font: 500 11.5px var(--font-ui);
+  cursor: pointer;
+}
+.modeOn {
+  background: var(--bg-active);
+  color: var(--text-1);
+}
+.viewMeta {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.link {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+.link:hover:not(:disabled) {
+  color: var(--text-1);
+}
+.link:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-inset);
+  padding: 14px 16px;
+}
+
+.pre,
+.text {
+  margin: 0;
+  font: 400 12.5px/1.75 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hex {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hexLine {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 14px;
+  font: 400 12px/20px var(--font-mono);
+}
+.hexOff {
+  color: var(--text-dim);
+}
+.hexBytes {
+  color: var(--text-1);
+}
+
+.nullBox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+.nullTag {
+  font: 400 13px var(--font-mono);
+  font-style: italic;
+  color: var(--cell-null);
+  padding: 10px 13px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.nullNote {
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-3);
+}
+.nullExplain {
+  margin: 0;
+  max-width: 52ch;
+  font: 400 12px/1.6 var(--font-ui);
+  color: var(--text-2);
+}
+.nullExplain code {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-1);
+}
+
+.footHint {
+  font: 400 11px var(--font-ui);
+  color: var(--text-dim);
+}
+.grow {
+  flex: 1;
+}

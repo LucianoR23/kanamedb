@@ -92,6 +92,10 @@ export function TabStrip({
 export interface PillItem {
   id: string;
   label: string;
+  /** Deshabilita la pestaña. Para secciones que existen en el diseño y todavía
+   *  no se construyeron: se ven, no se pueden elegir, y `title` explica por qué. */
+  disabled?: boolean;
+  title?: string;
 }
 
 export function PillTabs({
@@ -113,6 +117,8 @@ export function PillTabs({
           type="button"
           role="tab"
           aria-selected={it.id === activeId}
+          disabled={it.disabled ?? false}
+          {...(it.title ? { title: it.title } : {})}
           className={cx(styles.pill, it.id === activeId && styles.pillActive)}
           onClick={() => onSelect(it.id)}
         >

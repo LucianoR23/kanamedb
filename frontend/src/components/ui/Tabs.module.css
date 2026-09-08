@@ -76,3 +76,7 @@
 }
 .pill:hover { background: var(--bg-hover); color: var(--text-1); }
 .pillActive { background: var(--bg-active); color: var(--text-1); font-weight: 500; }
+/* Deshabilitada: apagada y sin respuesta al hover, para que no prometa un clic
+   que no hace nada. */
+.pill:disabled { color: var(--text-dim); cursor: default; }
+.pill:disabled:hover { background: transparent; color: var(--text-dim); }

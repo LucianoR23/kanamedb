@@ -26,6 +26,13 @@ interface Props {
   connections: readonly ConnectionView[];
   onNew: () => void;
   onEdit: (view: ConnectionView) => void;
+  /** Cambia el modo de solo lectura de una conexión.
+   *
+   *  Es el único interruptor de protecciones que se adelantó a esta
+   *  iteración. Lo primero que puede escribir en la base es el editor SQL,
+   *  que llega ahora; la tab Safety completa recién está en la 5, y hasta
+   *  entonces la única forma de activarlo era editar connections.toml. */
+  onToggleReadOnly: (view: ConnectionView, readOnly: boolean) => void;
   onConnect: (view: ConnectionView) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -38,6 +45,7 @@ export function ConnectionManager({
   connections,
   onNew,
   onEdit,
+  onToggleReadOnly,
   onConnect,
   onDuplicate,
   onDelete,
@@ -225,6 +233,7 @@ export function ConnectionManager({
           {selected ? (
             <Detail
               view={selected}
+              onToggleReadOnly={onToggleReadOnly}
               onEdit={() => onEdit(selected)}
               onConnect={() => onConnect(selected)}
               onMenu={(e) => setMenu({ x: e.clientX, y: e.clientY })}
@@ -279,11 +288,13 @@ export function ConnectionManager({
 
 function Detail({
   view,
+  onToggleReadOnly,
   onEdit,
   onConnect,
   onMenu,
 }: {
   view: ConnectionView;
+  onToggleReadOnly: (view: ConnectionView, readOnly: boolean) => void;
   onEdit: () => void;
   onConnect: () => void;
   onMenu: (e: React.MouseEvent) => void;
@@ -375,7 +386,11 @@ function Detail({
         <section>
           <h2 className={styles.sectionLabel}>Protecciones</h2>
           <ul className={styles.safety}>
-            <SafetyRow on={c.safety.readOnly} label="Abrir en solo lectura" />
+            <SafetyRow
+              on={c.safety.readOnly}
+              label="Abrir en solo lectura"
+              onToggle={(v) => onToggleReadOnly(view, v)}
+            />
             <SafetyRow
               on={!c.safety.allowApplyWithoutPreview}
               label="Exigir preview de SQL antes de aplicar"
@@ -388,9 +403,9 @@ function Detail({
             <SafetyRow on={c.safety.blockDropTruncate} label="Bloquear DROP y TRUNCATE" />
           </ul>
           <p className={styles.safetyNote}>
-            Acá se miran, no se tocan. Se configuran en la tab Safety del editor, que
-            llega en la Iteración 5; hasta entonces se editan en connections.toml y los
-            valores ya se guardan y se respetan.
+            Solo lectura se cambia acá. Las otras tres se configuran en la tab Safety del
+            editor, que llega en la Iteración 5; hasta entonces se editan en
+            connections.toml, y los valores ya se guardan y se respetan.
           </p>
         </section>
       </div>
@@ -407,21 +422,47 @@ function Row({ label, value, muted = false }: { label: string; value: string; mu
   );
 }
 
+/**
+ * Una protección.
+ *
+ * Con `onToggle` es un interruptor de verdad; sin él, un punto de estado. La
+ * distinción es deliberada: un switch dibujado que no responde al clic se lee
+ * como una app rota, no como una función pendiente. La forma del control es una
+ * promesa, y no se hace ninguna que no se pueda cumplir.
+ */
 function SafetyRow({
   on,
   label,
   locked = false,
+  onToggle,
 }: {
   on: boolean;
   label: string;
   locked?: boolean;
+  onToggle?: (value: boolean) => void;
 }) {
-  return (
-    <li className={styles.safetyRow}>
+  const cuerpo = (
+    <>
       <span className={cx(styles.safetyDot, on && styles.safetyDotOn)} aria-hidden="true" />
       <span className={cx(styles.safetyLabel, !on && styles.safetyLabelOff)}>{label}</span>
       <span className={styles.srOnly}>{on ? "activa" : "inactiva"}</span>
       {locked ? <span className={styles.safetyLocked}>no se puede apagar</span> : null}
+    </>
+  );
+  if (!onToggle || locked) {
+    return <li className={styles.safetyRow}>{cuerpo}</li>;
+  }
+  return (
+    <li>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        className={cx(styles.safetyRow, styles.safetyRowButton)}
+        onClick={() => onToggle(!on)}
+      >
+        {cuerpo}
+      </button>
     </li>
   );
 }

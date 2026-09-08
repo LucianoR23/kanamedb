@@ -6,6 +6,8 @@ import { Splitter } from "../components/Splitter";
 import { Badge, Button, EnvBadge, PillTabs, SearchInput, ShortcutChip, TabStrip } from "../components/ui";
 import type { TabItem } from "../components/ui";
 import { SchemaTree } from "./SchemaTree";
+import { SqlEditorScreen } from "./SqlEditorScreen";
+import { TableDataScreen } from "./TableDataScreen";
 import { cx } from "../lib/cx";
 import styles from "./Shell.module.css";
 
@@ -75,11 +77,31 @@ export function Shell({
   );
 
   function openTable(schema: string, table: string) {
-    const id = `${schema}.${table}`;
-    setSelected(id);
-    setTabs((prev) => (prev.some((t) => t.id === id) ? prev : [...prev, { id, label: table, kind: "table" }]));
+    const id = `tabla:${schema}.${table}`;
+    setSelected(`${schema}.${table}`);
+    setTabs((prev) =>
+      prev.some((t) => t.id === id) ? prev : [...prev, { id, label: table, kind: "table" }],
+    );
     setActiveTab(id);
   }
+
+  // Cada consulta nueva es su propia pestaña con su propio identificador de
+  // ejecución, para que cancelar en una no corte la de otra.
+  function openQuery() {
+    const n = tabs.filter((t) => t.id.startsWith("sql:")).length + 1;
+    const id = `sql:${Date.now().toString(36)}`;
+    setTabs((prev) => [...prev, { id, label: `Consulta ${n}`, kind: "query" }]);
+    setActiveTab(id);
+  }
+
+  // De dónde salen los props de la pestaña activa. Se deriva del id en vez de
+  // guardarlo aparte: dos fuentes para el mismo dato se desincronizan.
+  const activa = tabs.find((t) => t.id === activeTab) ?? null;
+  const esTabla = activa?.id.startsWith("tabla:") ?? false;
+  const objeto = esTabla ? (activa?.id.slice("tabla:".length) ?? "") : "";
+  const punto = objeto.indexOf(".");
+  const esquemaActivo = punto >= 0 ? objeto.slice(0, punto) : "";
+  const tablaActiva = punto >= 0 ? objeto.slice(punto + 1) : "";
 
   return (
     <div className={cx(styles.shell, envClass)}>
@@ -98,8 +120,8 @@ export function Shell({
         )}
         <span className={styles.spacer} />
         {session?.readOnly ? <Badge tone="neutral">Solo lectura</Badge> : null}
-        <Button size="sm" disabled title="Llega en la Iteración 2">
-          New query
+        <Button size="sm" onClick={openQuery} disabled={!session?.connected}>
+          Nueva consulta
         </Button>
         <Button size="sm" onClick={() => void load(true)} loading={loading}>
           Refrescar
@@ -174,22 +196,39 @@ export function Shell({
             activeId={activeTab}
             {...(env ? { env: env as "local" | "dev" | "staging" | "production" } : {})}
             onSelect={setActiveTab}
+            onNew={openQuery}
             onClose={(id) => {
               setTabs((prev) => prev.filter((t) => t.id !== id));
               setActiveTab((prev) => (prev === id ? null : prev));
             }}
           />
           <div className={styles.mainBody}>
-            <div className={styles.empty}>
-              <p className={styles.emptyTitle}>
-                {activeTab ?? "Ninguna tabla abierta"}
-              </p>
-              <p className={styles.emptyHint}>
-                {activeTab
-                  ? "La grilla de datos llega en la Iteración 2. Por ahora, el árbol lee el esquema real."
-                  : "Elegí una tabla del árbol. La grilla de datos llega en la Iteración 2."}
-              </p>
-            </div>
+            {!activa ? (
+              <div className={styles.empty}>
+                <p className={styles.emptyTitle}>Nada abierto</p>
+                <p className={styles.emptyHint}>
+                  Elegí una tabla del árbol, o abrí una consulta con «Nueva consulta».
+                </p>
+              </div>
+            ) : esTabla ? (
+              <TableDataScreen
+                key={activa.id}
+                tabId={activa.id}
+                schema={esquemaActivo}
+                table={tablaActiva}
+                readOnly={session?.readOnly ?? false}
+              />
+            ) : (
+              <SqlEditorScreen
+                key={activa.id}
+                tabId={activa.id}
+                snapshot={snapshot}
+                readOnly={session?.readOnly ?? false}
+                statementTimeoutSeconds={session?.statementTimeoutSeconds ?? 0}
+                rowLimit={session?.rowLimit ?? 0}
+                connectionLabel={session?.describe ?? ""}
+              />
+            )}
           </div>
         </main>
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Service as AppInfo } from "../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
 import * as Connections from "../bindings/github.com/LucianoR23/kanamedb/internal/service/connections";
 import * as SessionSvc from "../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
+import { PasswordAction } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { ConnectionView } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { About } from "./screens/About";
 import { ConnectionEditor } from "./screens/ConnectionEditor";
@@ -150,6 +151,15 @@ export default function App() {
           onNew={() => void openNew()}
           onEdit={(view) => setEditor({ view, isNew: false })}
           onConnect={(view) => void connect(view)}
+          onToggleReadOnly={(view, readOnly) =>
+            void run(() =>
+              Connections.Save(
+                { ...view.connection, safety: { ...view.connection.safety, readOnly } },
+                PasswordAction.PasswordKeep,
+                "",
+              ),
+            )
+          }
           onDuplicate={(id) => void run(() => Connections.Duplicate(id))}
           onDelete={(id) => void run(() => Connections.Delete(id))}
           onAbout={() => setScreen("about")}

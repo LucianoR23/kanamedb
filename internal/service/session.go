@@ -58,6 +58,13 @@ type SessionView struct {
 
 	Server *postgres.ServerInfo `json:"server,omitempty"`
 
+	// RowLimit y StatementTimeoutSeconds son los efectivos de esta conexión, ya
+	// resueltos: el cero de la configuración significa "usá el default", y la
+	// interfaz no tiene por qué conocer esa convención para poder mostrar
+	// "se traen hasta 1.000 filas" o "el servidor corta a los 30 s".
+	RowLimit                int `json:"rowLimit"`
+	StatementTimeoutSeconds int `json:"statementTimeoutSeconds"`
+
 	// OpenedAt permite mostrar hace cuánto está abierta.
 	OpenedAt string `json:"openedAt,omitempty"`
 }
@@ -207,6 +214,9 @@ func (s *Session) viewLocked() SessionView {
 		Environment:  c.Environment,
 		Server:       s.current.server,
 		OpenedAt:     s.current.openedAt.Format(time.RFC3339),
+
+		RowLimit:                c.Safety.EffectiveRowLimit(),
+		StatementTimeoutSeconds: int(c.Safety.StatementTimeout() / time.Second),
 	}
 
 	// La conexión puede ser de solo lectura por tres motivos distintos, y el
