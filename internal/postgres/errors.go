@@ -46,6 +46,14 @@ type Failure struct {
 	// SQLState es el código del motor, cuando lo hubo. Sirve para buscar y para
 	// pegar en un ticket.
 	SQLState string `json:"sqlState,omitempty"`
+
+	// Detail es el mensaje original, redactado.
+	//
+	// Message dice qué pasó en castellano; esto dice qué dijo el motor. Los dos
+	// hacen falta: el primero para entender, el segundo para buscar en Google o
+	// pegar en un ticket. Interpretar y descartar el original deja al usuario
+	// sin la única frase que otro va a reconocer.
+	Detail string `json:"detail,omitempty"`
 }
 
 func (f *Failure) Error() string { return f.Message }
@@ -71,6 +79,14 @@ func Classify(err error, desc string) *Failure {
 	if err == nil {
 		return nil
 	}
+	f := classify(err, desc)
+	if f.Detail == "" {
+		f.Detail = Redact(err.Error())
+	}
+	return f
+}
+
+func classify(err error, desc string) *Failure {
 
 	// El contexto vencido gana sobre cualquier otra interpretación: si el
 	// usuario canceló o se acabó el tiempo, lo demás es ruido.
@@ -133,12 +149,11 @@ func Classify(err error, desc string) *Failure {
 		}
 	}
 
-	// Un fallo sin clasificar igual tiene que decir algo: si no, el usuario ve
-	// siempre el mismo texto vacío de contenido y el reporte de bug tampoco
-	// sirve. Redact lo hace seguro de mostrar.
+	// Un fallo sin clasificar igual tiene que decir algo. El texto original va
+	// en Detail, que Classify completa para todos los casos.
 	return &Failure{
 		Kind:    FailureOther,
-		Message: "No se pudo conectar con " + desc + ": " + Redact(err.Error()),
+		Message: "No se pudo conectar con " + desc + ".",
 	}
 }
 
@@ -167,11 +182,12 @@ func fromSQLState(pgErr *pgconn.PgError, desc string) *Failure {
 		f.Hint = "Probá de nuevo en unos segundos."
 	default:
 		f.Kind = FailureOther
-		// El mensaje del motor tiene información de diagnóstico que vale la
-		// pena conservar, pero no se puede confiar en que no cite una cadena de
-		// conexión: pasa por Redact antes de mostrarse.
-		f.Message = "El servidor rechazó la conexión con " + desc + ": " + Redact(pgErr.Message)
+		f.Message = "El servidor rechazó la conexión con " + desc + "."
 	}
+	// El mensaje del motor tiene información de diagnóstico que vale la pena
+	// conservar, pero no se puede confiar en que no cite una cadena de conexión:
+	// pasa por Redact antes de mostrarse.
+	f.Detail = Redact(pgErr.Message)
 	return f
 }
 

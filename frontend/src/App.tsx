@@ -67,8 +67,27 @@ export default function App() {
   async function connect(view: ConnectionView) {
     setError(null);
     setFailure(null);
+    // El tiempo se mide acá y no en Go: un rechazo inmediato y un timeout de
+    // diez segundos se ven distinto, y eso ya dice algo antes de leer nada.
+    const inicio = performance.now();
     try {
-      await SessionSvc.Connect(view.connection.id);
+      // El fallo no es un error de Go: la promesa se resuelve igual. Por eso
+      // Connect devuelve un resultado con `ok` en vez de un par, que se podía
+      // ignorar a medias.
+      const res = await SessionSvc.Connect(view.connection.id);
+      if (!res.ok) {
+        const f = res.failure;
+        setFailure({
+          connection: view,
+          kind: f?.kind ?? "other",
+          message: f?.message ?? "No se pudo conectar.",
+          hint: f?.hint ?? "",
+          detail: f?.detail ?? "",
+          sqlState: f?.sqlState ?? "",
+          elapsedMs: Math.round(performance.now() - inicio),
+        });
+        return;
+      }
       setScreen("shell");
     } catch (err) {
       // El servicio devuelve el fallo ya interpretado; si el puente falla, se
@@ -79,7 +98,9 @@ export default function App() {
         kind: f?.kind ?? "other",
         message: f?.message ?? (err instanceof Error ? err.message : String(err)),
         hint: f?.hint ?? "",
+        detail: f?.detail ?? "",
         sqlState: f?.sqlState ?? "",
+        elapsedMs: Math.round(performance.now() - inicio),
       });
     }
   }
@@ -106,7 +127,12 @@ export default function App() {
   }
 
   if (screen === "shell") {
-    return <Shell onOpenAbout={() => setScreen("about")} />;
+    return (
+      <Shell
+        onOpenAbout={() => setScreen("about")}
+        onDisconnect={() => setScreen(connections.length === 0 ? "welcome" : "manager")}
+      />
+    );
   }
 
   return (
@@ -150,6 +176,11 @@ export default function App() {
         <ConnectionError
           failure={failure}
           onClose={() => setFailure(null)}
+          onRetry={() => {
+            const view = failure.connection;
+            setFailure(null);
+            void connect(view);
+          }}
           onEdit={() => {
             const view = failure.connection;
             setFailure(null);

@@ -1,0 +1,9 @@
+.group { padding-bottom: 2px; }
+
+.empty {
+  margin: 0;
+  padding: 18px 14px;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}

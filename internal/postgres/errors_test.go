@@ -184,3 +184,56 @@ func TestRedactConservaElUsuario(t *testing.T) {
 		t.Errorf("Redact() dejó la contraseña: %q", got)
 	}
 }
+
+// Message dice qué pasó en castellano; Detail dice qué dijo el motor. Los dos
+// hacen falta: el primero para entender, el segundo para buscar o pegar en un
+// ticket. Interpretar y descartar el original deja al usuario sin la única
+// frase que otro va a reconocer.
+func TestTodoFailureConservaElMensajeOriginal(t *testing.T) {
+	casos := map[string]error{
+		"sqlstate conocido":    &pgconn.PgError{Code: sqlStateInvalidPassword, Message: `password authentication failed for user "app_rw"`},
+		"sqlstate desconocido": &pgconn.PgError{Code: "XX000", Message: "internal error, oh no"},
+		"red":                  errors.New("dial tcp 10.4.2.19:5432: connect: connection refused"),
+		"tls":                  errors.New("tls: failed to verify certificate"),
+		"dns":                  &net.DNSError{Err: "no such host", Name: "dev-db.internal"},
+		"timeout":              context.DeadlineExceeded,
+		"desconocido":          errors.New("algo muy raro"),
+	}
+	for nombre, err := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			got := Classify(err, desc)
+			if got.Detail == "" {
+				t.Errorf("Detail vacío; el mensaje original se perdió (Message = %q)", got.Message)
+			}
+		})
+	}
+}
+
+// Y ese detalle tampoco puede filtrar la contraseña.
+func TestElDetalleTambienSeRedacta(t *testing.T) {
+	const pw = "ContraseñaSecreta123"
+	err := &pgconn.PgError{
+		Code:    "XX000",
+		Message: "failed on postgres://app_rw:" + pw + "@h:5432/db",
+	}
+	got := Classify(err, desc)
+	if strings.Contains(got.Detail, pw) {
+		t.Errorf("Detail filtra la contraseña: %q", got.Detail)
+	}
+	if !strings.Contains(got.Detail, "app_rw") {
+		t.Errorf("Detail perdió el usuario, que sirve para diagnosticar: %q", got.Detail)
+	}
+}
+
+// El mensaje del motor es lo que otro va a reconocer, así que tiene que llegar
+// entero al detalle aunque el Message sea nuestro.
+func TestElDetalleTraeElTextoDelMotor(t *testing.T) {
+	const original = `password authentication failed for user "app_rw"`
+	got := Classify(&pgconn.PgError{Code: sqlStateInvalidPassword, Message: original}, desc)
+	if got.Detail != original {
+		t.Errorf("Detail = %q, se esperaba %q", got.Detail, original)
+	}
+	if got.Message == original {
+		t.Error("Message debería ser la explicación en castellano, no el texto del motor")
+	}
+}

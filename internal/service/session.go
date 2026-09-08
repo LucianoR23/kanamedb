@@ -62,6 +62,22 @@ type SessionView struct {
 	OpenedAt string `json:"openedAt,omitempty"`
 }
 
+// ConnectResult es el resultado de intentar conectar.
+//
+// Es un struct con nombre y no un par (vista, fallo) por una razón concreta: un
+// par se puede ignorar a medias. El frontend hacía `await Connect(id)` y seguía
+// al workspace sin mirar el segundo valor, así que una conexión fallida
+// terminaba en una pantalla vacía sin explicación. Con `ok` hay que mirarlo.
+//
+// Devolver un `error` de Go tampoco servía: Wails lo serializa como texto y se
+// perderían la causa, la sugerencia y el SQLSTATE, que es justo lo que S24
+// necesita para decir qué hay que arreglar.
+type ConnectResult struct {
+	OK      bool              `json:"ok"`
+	Session SessionView       `json:"session"`
+	Failure *postgres.Failure `json:"failure,omitempty"`
+}
+
 // ErrNotConnected lo devuelven las operaciones que necesitan una sesión abierta.
 var ErrNotConnected = errors.New("no hay ninguna conexión abierta")
 
@@ -70,34 +86,34 @@ var ErrNotConnected = errors.New("no hay ninguna conexión abierta")
 // Cerrar la anterior es parte de conectar: dos pools abiertos contra bases
 // distintas sin que la interfaz lo muestre es la receta para aplicar un cambio
 // donde no era.
-func (s *Session) Connect(ctx context.Context, id string) (SessionView, *postgres.Failure) {
+func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 	c, err := s.store.Get(id)
 	if err != nil {
-		return SessionView{}, &postgres.Failure{
+		return failed(&postgres.Failure{
 			Kind:    postgres.FailureOther,
 			Message: err.Error(),
-		}
+		})
 	}
 
 	password, err := s.keyring.Get(id)
 	if err != nil && !errors.Is(err, secrets.ErrNotFound) {
-		return SessionView{}, &postgres.Failure{
+		return failed(&postgres.Failure{
 			Kind:    postgres.FailureOther,
 			Message: "No se pudo leer la contraseña del keychain.",
-		}
+		})
 	}
 
 	dsn, err := c.DSN(password)
 	if err != nil {
-		return SessionView{}, &postgres.Failure{
+		return failed(&postgres.Failure{
 			Kind:    postgres.FailureOther,
 			Message: err.Error(),
-		}
+		})
 	}
 
 	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), poolSize(c))
 	if failure != nil {
-		return SessionView{}, failure
+		return failed(failure)
 	}
 
 	s.mu.Lock()
@@ -116,7 +132,11 @@ func (s *Session) Connect(ctx context.Context, id string) (SessionView, *postgre
 	if anterior != nil {
 		anterior.pool.Close()
 	}
-	return vista, nil
+	return ConnectResult{OK: true, Session: vista}
+}
+
+func failed(f *postgres.Failure) ConnectResult {
+	return ConnectResult{Failure: f}
 }
 
 // Disconnect cierra la conexión abierta. Sin sesión no es un error: el

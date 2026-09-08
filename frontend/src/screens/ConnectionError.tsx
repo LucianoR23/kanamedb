@@ -1,17 +1,25 @@
+import { useState } from "react";
 import type { ConnectionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { Badge, Button, Dialog } from "../components/ui";
 import styles from "./ConnectionError.module.css";
 
-/** Un fallo de conexión ya interpretado, más la conexión que lo produjo. */
+/** Un fallo de conexión ya interpretado, más el contexto para mostrarlo. */
 export interface ConnectionFailure {
   connection: ConnectionView;
   kind: string;
+  /** Qué pasó, en castellano. */
   message: string;
+  /** Qué hacer al respecto. Vacío si no hay nada útil que decir. */
   hint: string;
+  /** Lo que dijo el motor, redactado. Es la frase que otro va a reconocer. */
+  detail: string;
   sqlState: string;
+  /** Cuánto tardó en fallar. Un timeout de 10 s se ve distinto de un rechazo
+   *  inmediato, y eso ya dice algo. */
+  elapsedMs: number;
 }
 
-/** Qué campo del editor hay que arreglar según la causa. */
+/** Qué hay que revisar según la causa. Cada una se arregla en un lugar distinto. */
 const CULPRIT: Record<string, string> = {
   auth: "el usuario y la contraseña",
   database: "el nombre de la base",
@@ -24,21 +32,39 @@ const CULPRIT: Record<string, string> = {
 /**
  * S24, variante "connection error".
  *
- * Existe para que el trabajo de clasificar el fallo no termine en un toast
- * genérico: un host mal escrito, una contraseña vieja y un firewall se arreglan
- * en lugares distintos, y el diálogo lleva directo al que corresponde.
+ * Sigue el orden del diseño: primero lo que dijo el motor, después qué
+ * significa, después qué hacer. El texto crudo va arriba y en mono porque es la
+ * única frase que alguien más va a reconocer, y la que se pega en un ticket.
  */
 export function ConnectionError({
   failure,
   onClose,
+  onRetry,
   onEdit,
 }: {
   failure: ConnectionFailure;
   onClose: () => void;
+  onRetry: () => void;
   onEdit: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
   const culprit = CULPRIT[failure.kind];
-  const arreglable = failure.kind !== "other";
+
+  function copyDetails() {
+    const texto = [
+      failure.connection.connection.name,
+      failure.connection.uri,
+      failure.sqlState ? `SQLSTATE ${failure.sqlState}` : "",
+      failure.detail,
+      failure.message,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    void navigator.clipboard.writeText(texto).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   return (
     <Dialog
@@ -47,9 +73,13 @@ export function ConnectionError({
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>Cerrar</Button>
-          <Button variant="primary" onClick={onEdit}>
-            {arreglable ? "Editar la conexión" : "Abrir el editor"}
+          <Button variant="ghost" onClick={copyDetails}>
+            {copied ? "Copiado" : "Copiar detalles"}
+          </Button>
+          <span style={{ flex: 1 }} />
+          <Button onClick={onEdit}>Editar la conexión</Button>
+          <Button variant="primary" onClick={onRetry}>
+            Reintentar
           </Button>
         </>
       }
@@ -57,7 +87,14 @@ export function ConnectionError({
       <div className={styles.target}>
         <span className={styles.name}>{failure.connection.connection.name}</span>
         <span className={styles.describe}>{failure.connection.uri}</span>
+        <span className={styles.elapsed}>
+          falló tras {(failure.elapsedMs / 1000).toFixed(1)} s
+          {failure.sqlState ? " · " : ""}
+          {failure.sqlState ? <Badge tone="danger">{failure.sqlState}</Badge> : null}
+        </span>
       </div>
+
+      {failure.detail ? <div className={styles.detail}>{failure.detail}</div> : null}
 
       <p className={styles.message}>{failure.message}</p>
 
@@ -67,13 +104,6 @@ export function ConnectionError({
         <p className={styles.culprit}>
           Lo que hay que revisar es <strong>{culprit}</strong>.
         </p>
-      ) : null}
-
-      {failure.sqlState ? (
-        <div className={styles.code}>
-          <span className={styles.codeLabel}>Código del motor</span>
-          <Badge tone="danger">{failure.sqlState}</Badge>
-        </div>
       ) : null}
     </Dialog>
   );

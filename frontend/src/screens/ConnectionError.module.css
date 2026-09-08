@@ -17,6 +17,29 @@
   word-break: break-all;
   user-select: text;
 }
+.elapsed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* Lo que dijo el motor va arriba, en mono y seleccionable: es la frase que
+   alguien más va a reconocer y la que se pega en un ticket. */
+.detail {
+  padding: 9px 11px;
+  margin-bottom: 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--danger);
+  border-radius: var(--r-sm);
+  font: 400 12px/1.6 var(--font-mono);
+  color: var(--text-1);
+  word-break: break-word;
+  user-select: text;
+}
 
 .message { margin: 0 0 8px; font: 500 13px/1.5 var(--font-ui); color: var(--text-1); }
 .hint { margin: 0 0 8px; font: 400 12.5px/1.55 var(--font-ui); color: var(--text-2); text-wrap: pretty; }

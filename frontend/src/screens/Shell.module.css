@@ -29,18 +29,16 @@
 .divider { flex: none; width: 1px; height: 14px; background: var(--border); }
 .spacer { flex: 1; }
 
-/* Sin conexión: el selector de base es un estado, no un menú. */
-.disconnected {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  font: 400 12.5px var(--font-ui);
-  color: var(--text-3);
-}
-.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+/* El color del entorno viaja como variable: lo usan el punto del titlebar, la
+   línea del tab strip y el borde de la barra de estado, desde una sola fuente. */
+.env_local      { --env-color: var(--env-local); }
+.env_dev        { --env-color: var(--env-dev); }
+.env_staging    { --env-color: var(--env-stage); }
+.env_production { --env-color: var(--env-prod); }
+
+.envDot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--env-color, var(--border-strong)); }
+.dbName { font: 500 12.5px var(--font-mono); color: var(--text-1); }
+.describe { white-space: nowrap; font: 400 11px var(--font-mono); color: var(--text-dim); }
 
 /* Cuerpo: sidebar | main | rail */
 .body { flex: 1; display: flex; min-height: 0; }
@@ -107,8 +105,16 @@
   background: var(--bg-app);
   border-top: 1px solid var(--border-subtle);
   font: 400 10.5px var(--font-mono);
-  color: var(--text-dim);
+  color: var(--text-2);
+  box-shadow: inset 2px 0 0 var(--env-color, transparent);
 }
+.statusDot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--env-color, var(--border-strong)); }
+.statusDim { color: var(--text-dim); }
+
+/* Producción late. Es el único lugar de la app con animación permanente, y
+   está ahí para que no se pueda olvidar contra qué estás trabajando. */
+.env_production .statusDot { animation: kn-pulse 2.4s ease-in-out infinite; }
+.env_production.statusbar { background: rgba(240,85,75,.08); }
 .statusLink { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
 .statusLink:hover { color: var(--accent-hover); text-decoration: underline; }
 
@@ -130,5 +136,30 @@
   text-align: center;
   font: 400 11.5px/1.6 var(--font-ui);
   color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+.info { margin: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+.infoRow { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.infoKey { font: 400 11px var(--font-ui); color: var(--text-3); }
+.infoValue {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-1);
+  user-select: text;
+}
+
+.readOnlyNote {
+  margin: 4px 10px 10px;
+  padding: 9px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--text-dim);
+  border-radius: var(--r-sm);
+  font: 400 11px/1.5 var(--font-ui);
+  color: var(--text-2);
   text-wrap: pretty;
 }
