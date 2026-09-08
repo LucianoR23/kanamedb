@@ -37,8 +37,11 @@ type Info struct {
 // Deliberadamente no hay ninguna ruta para credenciales: las contraseñas viven
 // en el keychain del sistema operativo y nunca tocan el disco. Ver CLAUDE.md.
 type Paths struct {
-	// Config es el archivo de conexiones y preferencias. Sin secretos: es
-	// sincronizable entre máquinas.
+	// Connections es la libreta de conexiones. Sin secretos: es el archivo que
+	// tiene sentido sincronizar entre máquinas.
+	Connections string `json:"connections"`
+
+	// Config son las preferencias de la aplicación. Sin secretos.
 	Config string `json:"config"`
 	// State es el historial, las posiciones del ERD y el resto del estado
 	// local. SQLite. Sin secretos.
@@ -107,8 +110,9 @@ func resolvePaths() (Paths, error) {
 	}
 
 	return Paths{
-		Config: filepath.Join(base, "config.toml"),
-		State:  state,
-		Logs:   filepath.Join(state, "logs"),
+		Connections: filepath.Join(base, "connections.toml"),
+		Config:      filepath.Join(base, "config.toml"),
+		State:       state,
+		Logs:        filepath.Join(state, "logs"),
 	}, nil
 }

@@ -1,0 +1,219 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/LucianoR23/kanamedb/internal/connection"
+	"github.com/LucianoR23/kanamedb/internal/postgres"
+	"github.com/LucianoR23/kanamedb/internal/schema"
+	"github.com/LucianoR23/kanamedb/internal/secrets"
+	"github.com/LucianoR23/kanamedb/internal/store"
+)
+
+// Session es la conexión abierta. La Iteración 1 sostiene una sola: el
+// workspace de S05 trabaja contra una base por vez.
+type Session struct {
+	store   *store.Store
+	keyring *secrets.Keyring
+
+	mu      sync.RWMutex
+	current *openSession
+}
+
+type openSession struct {
+	conn     connection.Connection
+	pool     *pgxpool.Pool
+	server   *postgres.ServerInfo
+	openedAt time.Time
+	snapshot *schema.Snapshot
+}
+
+// NewSession arma el servicio.
+func NewSession(st *store.Store, kr *secrets.Keyring) *Session {
+	return &Session{store: st, keyring: kr}
+}
+
+// SessionView es el estado de la conexión tal como lo ve la interfaz.
+type SessionView struct {
+	Connected bool `json:"connected"`
+
+	// ConnectionID es la conexión abierta, vacío si no hay ninguna.
+	ConnectionID string `json:"connectionId"`
+	Name         string `json:"name"`
+	// Describe es usuario@host:puerto/base, seguro para mostrar y loguear.
+	Describe    string                 `json:"describe"`
+	Environment connection.Environment `json:"environment"`
+
+	// ReadOnly junta la configuración de la conexión con lo que dice el
+	// servidor: una réplica es de solo lectura aunque la conexión no lo diga.
+	ReadOnly bool `json:"readOnly"`
+	// ReadOnlyReason explica por qué, para que la UI no tenga que adivinar.
+	ReadOnlyReason string `json:"readOnlyReason,omitempty"`
+
+	Server *postgres.ServerInfo `json:"server,omitempty"`
+
+	// OpenedAt permite mostrar hace cuánto está abierta.
+	OpenedAt string `json:"openedAt,omitempty"`
+}
+
+// ErrNotConnected lo devuelven las operaciones que necesitan una sesión abierta.
+var ErrNotConnected = errors.New("no hay ninguna conexión abierta")
+
+// Connect abre la conexión y deja el pool listo.
+//
+// Cerrar la anterior es parte de conectar: dos pools abiertos contra bases
+// distintas sin que la interfaz lo muestre es la receta para aplicar un cambio
+// donde no era.
+func (s *Session) Connect(ctx context.Context, id string) (SessionView, *postgres.Failure) {
+	c, err := s.store.Get(id)
+	if err != nil {
+		return SessionView{}, &postgres.Failure{
+			Kind:    postgres.FailureOther,
+			Message: err.Error(),
+		}
+	}
+
+	password, err := s.keyring.Get(id)
+	if err != nil && !errors.Is(err, secrets.ErrNotFound) {
+		return SessionView{}, &postgres.Failure{
+			Kind:    postgres.FailureOther,
+			Message: "No se pudo leer la contraseña del keychain.",
+		}
+	}
+
+	dsn, err := c.DSN(password)
+	if err != nil {
+		return SessionView{}, &postgres.Failure{
+			Kind:    postgres.FailureOther,
+			Message: err.Error(),
+		}
+	}
+
+	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), poolSize(c))
+	if failure != nil {
+		return SessionView{}, failure
+	}
+
+	s.mu.Lock()
+	anterior := s.current
+	s.current = &openSession{
+		conn:     c,
+		pool:     pool,
+		server:   info,
+		openedAt: time.Now(),
+	}
+	vista := s.viewLocked()
+	s.mu.Unlock()
+
+	// El cierre va fuera del lock: puede tardar y no hay razón para bloquear a
+	// quien pregunte el estado mientras tanto.
+	if anterior != nil {
+		anterior.pool.Close()
+	}
+	return vista, nil
+}
+
+// Disconnect cierra la conexión abierta. Sin sesión no es un error: el
+// resultado buscado ya se cumple.
+func (s *Session) Disconnect() {
+	s.mu.Lock()
+	anterior := s.current
+	s.current = nil
+	s.mu.Unlock()
+
+	if anterior != nil {
+		anterior.pool.Close()
+	}
+}
+
+// Current devuelve el estado de la sesión.
+func (s *Session) Current() SessionView {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.viewLocked()
+}
+
+// Schema devuelve el esquema de la base conectada.
+//
+// El resultado se guarda: el árbol se arma una vez y se refresca cuando el
+// usuario lo pide o cuando algo cambia. Re-inspeccionar en cada render sería
+// una consulta al catálogo por cada clic.
+func (s *Session) Schema(ctx context.Context, refresh bool) (*schema.Snapshot, error) {
+	s.mu.RLock()
+	sesion := s.current
+	if sesion != nil && sesion.snapshot != nil && !refresh {
+		snap := sesion.snapshot
+		s.mu.RUnlock()
+		return snap, nil
+	}
+	s.mu.RUnlock()
+
+	if sesion == nil {
+		return nil, ErrNotConnected
+	}
+
+	snap, err := postgres.Introspect(ctx, sesion.pool)
+	if err != nil {
+		return nil, fmt.Errorf("leer el esquema de %s: %w", sesion.conn.Describe(), err)
+	}
+
+	s.mu.Lock()
+	// Puede haberse desconectado o reconectado mientras se leía: solo se guarda
+	// si la sesión sigue siendo la misma.
+	if s.current == sesion {
+		s.current.snapshot = snap
+	}
+	s.mu.Unlock()
+	return snap, nil
+}
+
+// viewLocked arma la vista. Quien llama tiene el lock.
+func (s *Session) viewLocked() SessionView {
+	if s.current == nil {
+		return SessionView{}
+	}
+	c := s.current.conn
+	v := SessionView{
+		Connected:    true,
+		ConnectionID: c.ID,
+		Name:         c.Name,
+		Describe:     c.Describe(),
+		Environment:  c.Environment,
+		Server:       s.current.server,
+		OpenedAt:     s.current.openedAt.Format(time.RFC3339),
+	}
+
+	// La conexión puede ser de solo lectura por tres motivos distintos, y el
+	// usuario merece saber cuál: no es lo mismo haberlo elegido que descubrir
+	// que estás apuntando a una réplica.
+	switch {
+	case c.Safety.ReadOnly:
+		v.ReadOnly = true
+		v.ReadOnlyReason = "La conexión está configurada como solo lectura."
+	case s.current.server != nil && s.current.server.InRecovery:
+		v.ReadOnly = true
+		v.ReadOnlyReason = "El servidor es una réplica y no acepta escrituras."
+	case s.current.server != nil && s.current.server.DefaultReadOnly:
+		v.ReadOnly = true
+		v.ReadOnlyReason = "El servidor fuerza transacciones de solo lectura."
+	}
+	return v
+}
+
+// poolSize decide cuántas conexiones abrir.
+//
+// Cancelar una consulta necesita una segunda conexión, así que el mínimo útil
+// es dos. Cuatro deja margen para el árbol y una pestaña consultando a la vez
+// sin sorprender a quien administra el servidor con una avalancha de sesiones.
+func poolSize(c connection.Connection) int32 {
+	if c.Safety.ReadOnly {
+		return 2
+	}
+	return 4
+}

@@ -11,6 +11,9 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/LucianoR23/kanamedb/internal/appinfo"
+	"github.com/LucianoR23/kanamedb/internal/secrets"
+	"github.com/LucianoR23/kanamedb/internal/service"
+	"github.com/LucianoR23/kanamedb/internal/store"
 )
 
 // Los assets del frontend se embeben en el binario: no hay archivos sueltos que
@@ -20,14 +23,24 @@ import (
 var assets embed.FS
 
 func main() {
+	info, err := appinfo.New().Get()
+	if err != nil {
+		// Sin saber dónde guardar la configuración no hay nada que hacer, y
+		// arrancar igual dejaría la libreta de conexiones en cualquier lado.
+		log.Fatalf("no se pudo ubicar el directorio de la aplicación: %v", err)
+	}
+
+	connections := store.New(info.Paths.Connections)
+	keyring := secrets.New()
+
 	app := application.New(application.Options{
 		Name:        "Kaname",
 		Description: "Gestor de bases de datos con diagrama ERD editable",
 
-		// Los servicios expuestos al frontend se registran acá. Cada iteración
-		// define su contrato antes de la UI (ver kaname-plan.md).
 		Services: []application.Service{
 			application.NewService(appinfo.New()),
+			application.NewService(service.NewConnections(connections, keyring)),
+			application.NewService(service.NewSession(connections, keyring)),
 		},
 
 		Assets: application.AssetOptions{

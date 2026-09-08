@@ -39,9 +39,10 @@ func TestGetDevuelveRutasAbsolutas(t *testing.T) {
 	}
 
 	rutas := map[string]string{
-		"Config": got.Paths.Config,
-		"State":  got.Paths.State,
-		"Logs":   got.Paths.Logs,
+		"Connections": got.Paths.Connections,
+		"Config":      got.Paths.Config,
+		"State":       got.Paths.State,
+		"Logs":        got.Paths.Logs,
 	}
 	for nombre, ruta := range rutas {
 		if ruta == "" {
@@ -67,7 +68,7 @@ func TestPathsNoExponeNingunaRutaDeSecretos(t *testing.T) {
 	}
 
 	prohibidas := []string{"password", "secret", "credential", "keychain", "token"}
-	rutas := []string{got.Paths.Config, got.Paths.State, got.Paths.Logs}
+	rutas := []string{got.Paths.Connections, got.Paths.Config, got.Paths.State, got.Paths.Logs}
 	for _, ruta := range rutas {
 		bajo := strings.ToLower(ruta)
 		for _, p := range prohibidas {
@@ -88,5 +89,20 @@ func TestConfigCuelgaDelDirectorioDeLaApp(t *testing.T) {
 	}
 	if dir := filepath.Base(filepath.Dir(got.Paths.Config)); dir != appDirName {
 		t.Errorf("Paths.Config cuelga de %q, se esperaba %q", dir, appDirName)
+	}
+}
+
+func TestLaLibretaDeConexionesTieneSuPropioArchivo(t *testing.T) {
+	got, err := New().Get()
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if filepath.Base(got.Paths.Connections) != "connections.toml" {
+		t.Errorf("Paths.Connections = %q", got.Paths.Connections)
+	}
+	// Separada de las preferencias: la libreta se sincroniza entre máquinas y
+	// las preferencias pueden ser propias de cada una.
+	if got.Paths.Connections == got.Paths.Config {
+		t.Error("la libreta y las preferencias comparten archivo")
 	}
 }

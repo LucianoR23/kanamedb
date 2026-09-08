@@ -132,19 +132,19 @@ func (s SSLMode) Verifies() bool {
 // No tiene campo de contraseña, y no debe tenerlo nunca: el archivo de
 // conexiones está pensado para sincronizarse entre máquinas.
 type Connection struct {
-	ID          string      `toml:"id"`
-	Name        string      `toml:"name"`
-	Engine      Engine      `toml:"engine"`
-	Host        string      `toml:"host"`
-	Port        int         `toml:"port"`
-	Database    string      `toml:"database"`
-	User        string      `toml:"user"`
-	Environment Environment `toml:"environment"`
+	ID          string      `toml:"id" json:"id"`
+	Name        string      `toml:"name" json:"name"`
+	Engine      Engine      `toml:"engine" json:"engine"`
+	Host        string      `toml:"host" json:"host"`
+	Port        int         `toml:"port" json:"port"`
+	Database    string      `toml:"database" json:"database"`
+	User        string      `toml:"user" json:"user"`
+	Environment Environment `toml:"environment" json:"environment"`
 
 	// SSLMode aplica a Postgres, MySQL y MariaDB. SQLite lo ignora.
-	SSLMode SSLMode `toml:"ssl_mode"`
+	SSLMode SSLMode `toml:"ssl_mode" json:"sslMode"`
 
-	Safety Safety `toml:"safety"`
+	Safety Safety `toml:"safety" json:"safety"`
 }
 
 // Safety son las protecciones por conexión.
@@ -162,35 +162,35 @@ type Safety struct {
 	// ReadOnly bloquea toda escritura desde la app, sin importar los permisos
 	// que tenga el usuario en el motor. Cero: la conexión permite escribir, que
 	// es lo que el usuario espera al crear una conexión común.
-	ReadOnly bool `toml:"read_only"`
+	ReadOnly bool `toml:"read_only" json:"readOnly"`
 
 	// AllowApplyWithoutPreview deja aplicar cambios sin abrir el preview de SQL.
 	// Cero: el changeset siempre se abre para revisar.
-	AllowApplyWithoutPreview bool `toml:"allow_apply_without_preview"`
+	AllowApplyWithoutPreview bool `toml:"allow_apply_without_preview" json:"allowApplyWithoutPreview"`
 
 	// AllowWriteWithoutConfirmation saltea la confirmación por nombre de base.
 	// Cero: hay que tipear el nombre. En producción se ignora: ver
 	// RequiresWriteConfirmation.
-	AllowWriteWithoutConfirmation bool `toml:"allow_write_without_confirmation"`
+	AllowWriteWithoutConfirmation bool `toml:"allow_write_without_confirmation" json:"allowWriteWithoutConfirmation"`
 
 	// BlockDropTruncate hace que aplicar se niegue a ejecutar DROP y TRUNCATE.
 	// Las sentencias igual se generan y se muestran; lo que no se hace es
 	// correrlas. Cero: no se bloquean, que es el default del diseño.
-	BlockDropTruncate bool `toml:"block_drop_truncate"`
+	BlockDropTruncate bool `toml:"block_drop_truncate" json:"blockDropTruncate"`
 
 	// StatementTimeoutSeconds corta una consulta que se cuelga.
 	// Cero significa "usar el default", no "sin límite": un archivo al que le
 	// falta la clave tiene que quedar protegido, no desprotegido. Para sacar el
 	// límite hay que pedirlo con -1.
-	StatementTimeoutSeconds int `toml:"statement_timeout_seconds"`
+	StatementTimeoutSeconds int `toml:"statement_timeout_seconds" json:"statementTimeoutSeconds"`
 
 	// RowLimit es cuántas filas trae una consulta antes de "cargar más".
 	// Cero es el default; -1 es sin límite.
-	RowLimit int `toml:"row_limit"`
+	RowLimit int `toml:"row_limit" json:"rowLimit"`
 
 	// IdleDisconnectMinutes cierra la conexión tras ese tiempo sin actividad.
 	// Cero es el default; -1 es nunca desconectar.
-	IdleDisconnectMinutes int `toml:"idle_disconnect_minutes"`
+	IdleDisconnectMinutes int `toml:"idle_disconnect_minutes" json:"idleDisconnectMinutes"`
 }
 
 // Defaults de las protecciones, tomados de S03.
