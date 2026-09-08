@@ -62,6 +62,34 @@ reflexionar sobre el tipo.
 - **pnpm**, no npm. Nunca generar `package-lock.json`.
 - Versiones pineadas exactas en dependencias críticas (Atlas, drivers, Wails).
 
+### Versiones y actualizaciones
+
+**Todo está pineado, y eso no es una decisión pendiente: es el estado.** En Go no
+existe "latest" en el build — la versión de `go.mod` es exactamente la que se
+compila y `go.sum` guarda el hash del contenido. En el frontend, las 20
+dependencias están en versión exacta y `pnpm-lock.yaml` fija el árbol transitivo.
+
+Lo que hay que cuidar entonces no es el pineo sino **cómo se sube**:
+
+- **Nunca `go get @latest` ni `pnpm update` sueltos.** Suben lo que pediste y de
+  arrastre lo que no. Pasó una vez: agregar `x/crypto` movió `x/sync`, `x/sys` y
+  `x/text` sin que nadie lo pidiera.
+- Se sube **una dependencia por vez**, con versión explícita, leyendo el
+  changelog, en su propio commit. Si arrastra transitivas, se dice en el mensaje.
+- El riesgo de pinear no es pinear: es **pinear y no mirar nunca más**.
+  "Pineado" se vuelve "viejo" sin que nadie lo note. Por eso CI tiene dos
+  señales, que responden preguntas distintas:
+  - **`govulncheck`** — rompe el build. Dice "esto hay que arreglarlo". Solo
+    reporta vulnerabilidades *alcanzables* desde nuestro código. En su primera
+    corrida encontró 19, todas de la biblioteca estándar por tener el toolchain
+    en 1.26.0.
+  - **Job `deps`** — no bloquea. Dice "esto se puede mejorar": correcciones de
+    bugs, rendimiento, versiones que quedaron atrás. Escribe un informe en el
+    resumen de la corrida, filtrado a dependencias directas.
+
+Una versión nueva no es un motivo para subir. Un CVE sí. Un bug que nos afecta,
+también. El informe es para decidir, no para obedecer.
+
 ### Eficiencia
 
 - No introducir dependencias que no ganen algo concreto. Cada `pnpm add` y cada

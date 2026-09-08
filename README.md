@@ -78,8 +78,14 @@ El binario queda en `bin/kaname.exe` (~14 MB con la Iteración 1: pgx, Atlas y e
 gofmt -l .                         # formato de Go
 go vet ./...                       # análisis estático
 go test ./...                      # tests
+govulncheck ./...                  # CVEs alcanzables desde nuestro código
 cd frontend && pnpm run typecheck  # tipos de TypeScript
 ```
+
+`govulncheck` se instala con
+`go install golang.org/x/vuln/cmd/govulncheck@v1.7.0`. Consulta `vuln.go.dev` al
+correr; es una herramienta de desarrollo, la aplicación no hace ninguna llamada
+de red por su cuenta.
 
 Es lo mismo que corre CI en cada push.
 

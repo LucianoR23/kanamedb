@@ -59,6 +59,21 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Lo único que avisa de un CVE en una dependencia. Sin esto, "pineado"
+      # se convierte en "viejo" sin que nadie se entere: el lockfile y go.sum
+      # garantizan que se compila siempre lo mismo, no que ese "lo mismo" siga
+      # siendo seguro.
+      #
+      # Solo reporta vulnerabilidades ALCANZABLES desde nuestro código, así que
+      # un CVE en una función que no llamamos no rompe el build por nada.
+      #
+      # Consulta vuln.go.dev desde CI. La aplicación sigue sin hacer ninguna
+      # llamada de red por su cuenta: esto corre en el runner, no en el binario.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
+
       # El detector de carreras no existe en windows/arm64, que es la máquina de
       # desarrollo. Este job corre en amd64: es el único lugar donde se puede
       # verificar el código concurrente (el Store lo usan varias goroutines).
@@ -80,6 +95,73 @@ jobs:
       - name: Typecheck del frontend
         working-directory: frontend
         run: pnpm run typecheck
+
+  # Qué se podría subir de versión. NO bloquea: que exista una versión nueva no
+  # es un error, es información para decidir.
+  #
+  # Va aparte de govulncheck porque responden preguntas distintas. govulncheck
+  # dice "esto hay que arreglarlo" y rompe el build. Esto dice "esto se puede
+  # mejorar" y solo escribe un informe: correcciones de bugs, mejoras de
+  # rendimiento, versiones que quedaron atrás. Sin este job, pinear todo
+  # significa quedarse en la versión del día que se agregó la dependencia y no
+  # enterarse nunca de nada que no sea un CVE.
+  deps:
+    name: Versiones disponibles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # El informe va al resumen de la corrida y no a la consola: en la consola
+      # se pierde entre miles de líneas, y en el resumen se lee de un vistazo
+      # desde la página del run.
+      - name: Módulos de Go con versión nueva
+        shell: bash
+        run: |
+          echo '## Go' >> "$GITHUB_STEP_SUMMARY"
+          # Solo las directas: `all` trae el grafo entero, incluidas las
+          # dependencias del CLI de Wails que ni siquiera se linkean en el
+          # binario. Doce líneas de ruido antes de la primera accionable hacen
+          # que el informe no se lea. Subir una directa arrastra sus
+          # transitivas de todos modos.
+          pendientes="$(go list -m -u -f '{{if and .Update (not .Indirect)}}- `{{.Path}}` {{.Version}} → **{{.Update.Version}}**{{end}}' all | grep . || true)"
+          if [ -z "$pendientes" ]; then
+            echo 'Todo al día.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$pendientes" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Instalar deps del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Paquetes del frontend con versión nueva
+        shell: bash
+        working-directory: frontend
+        run: |
+          echo '## Frontend' >> "$GITHUB_STEP_SUMMARY"
+          # pnpm outdated sale con código distinto de cero cuando encuentra
+          # algo, que es justamente el caso normal. No es un fallo.
+          salida="$(pnpm outdated --no-table 2>/dev/null || true)"
+          if [ -z "$salida" ]; then
+            echo 'Todo al día.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '```\n%s\n```\n' "$salida" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # Los tests de integración corren en Linux: los servicios de contenedor de
   # GitHub Actions no funcionan en los runners de Windows, y las capas de datos

@@ -169,6 +169,12 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 - **S03** — tabs TLS y Advanced.
 - **S24** — variante "unsaved changes on tab close".
 - Tema claro de S05, S06, S12 y S15 — al final, no al principio.
+- **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
+  (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
+  abren PRs solos; son funciones de la plataforma, no telemetría de la app, así
+  que no chocan con la regla de no phone-home. **Buscar en el momento si hay una
+  alternativa mejor**: para cuando lleguemos, el panorama puede haber cambiado y
+  elegir hoy una herramienta para dentro de seis iteraciones es elegir a ciegas.
 
 ---
 
@@ -332,6 +338,34 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 3 — 2026-09-08
+
+**CI tiene dos señales de dependencias, y responden preguntas distintas.**
+`govulncheck` rompe el build: dice "esto hay que arreglarlo", y solo cuenta las
+vulnerabilidades alcanzables desde nuestro código, así que un CVE en una función
+que no llamamos no rompe nada por gusto. El job `deps` no bloquea: dice "esto se
+puede mejorar" —bugs, rendimiento, versiones atrasadas— y escribe un informe en
+el resumen de la corrida.
+
+Hacían falta las dos. Pinear todo, que es lo que este proyecto hace, deja de ser
+prudente y pasa a ser negligente si nadie mira nunca si lo pineado envejeció. El
+caret del frontend no resolvía eso: con lockfile commiteado y `--frozen-lockfile`
+en CI, un caret no actualiza nada hasta que alguien corre `pnpm update` a mano.
+Daba la ilusión de actualización automática sin darla.
+
+**El toolchain de Go sube a 1.26.8.** En su primera corrida, `govulncheck`
+encontró 19 vulnerabilidades alcanzables y las 19 eran de la biblioteca estándar
+por estar en 1.26.0. Se sube dentro de la línea 1.26 —los parches son solo
+correcciones— y no a 1.27, que es un cambio de lenguaje que merece su propia
+decisión. Después del bump: cero.
+
+El informe de versiones se filtra a dependencias **directas**. Con `all`, el
+grafo entero trae las dependencias del CLI de Wails, que ni siquiera se linkean
+en el binario: doce líneas de ruido antes de la primera accionable, y un informe
+que no se lee no sirve de nada.
+
+---
 
 ### Iteración 2 — 2026-09-08
 
