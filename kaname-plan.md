@@ -325,6 +325,36 @@ bundle. Consecuencia práctica: no se usan `useMemo`, `useCallback` ni
 Nada de `Co-Authored-By` ni enlaces de sesión en los mensajes de commit ni en
 las descripciones de PR. Anotado también en `CLAUDE.md`.
 
+**Sin licencia por ahora. El repo no se publica hasta estar probado y seguro.**
+Sin archivo `LICENSE`, el default legal es "todos los derechos reservados", que
+es lo correcto para código privado. Las dependencias no condicionan la elección:
+Atlas es Apache 2.0, Wails y pgx MIT, `modernc.org/sqlite` BSD-3 — todas
+permisivas, ninguna copyleft. Cuando se decida publicar, la recomendación es
+Apache 2.0: concesión explícita de patentes (pesa en una herramienta que planifica
+migraciones) y cláusula de marcas que preserva el nombre "Kaname" ante un fork.
+
+Consecuencia que aplica desde hoy: **si el repo se publica, se publica el
+historial completo.** Un secreto commiteado ahora sigue en el historial aunque se
+borre en el commit siguiente. La regla de no commitear credenciales, rutas de
+claves ni datos de conexiones reales no es higiene: es irreversible.
+
+### Checklist de pre-publicación
+
+No es una lista para "algún día": es la condición para que el repo pase a
+público. Nada se marca por confianza, todo con evidencia.
+
+- [ ] Auditoría del historial completo en busca de secretos, no solo del árbol
+      actual (`gitleaks detect --log-opts=--all`, como job de CI).
+- [ ] Verificar que ningún log, mensaje de error ni evento hacia el frontend
+      contenga credenciales, connection strings ni valores de filas.
+- [ ] Confirmar que los secretos viven solo en el keychain y que el SQLite de
+      estado local y el archivo de config no tienen ninguno.
+- [ ] Confirmar que la app no abre ningún socket en ninguna configuración.
+- [ ] Revisar que `known_hosts` haga TOFU real y que no exista ninguna ruta con
+      `InsecureIgnoreHostKey`.
+- [ ] Tests de integración de los cuatro motores en verde.
+- [ ] Elegir y agregar la licencia.
+
 ---
 
 ## Cómo ejecutar cada iteración
