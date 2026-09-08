@@ -41,13 +41,24 @@ Manager de conexiones, keychain, conectar a Postgres, árbol de esquema.
   quedan como placeholders deshabilitados.
 - ✅ **S24 Confirmation dialogs** — variante "connection error", que lleva al
   campo que hay que arreglar según la causa del fallo.
-- ⏳ **S05** — árbol de esquema con tablas de Postgres únicamente. La
-  introspección está; falta poblar el árbol.
+- ✅ **S05** — árbol de esquema con tablas de Postgres únicamente.
 
-Fuera de alcance por ahora, aunque el diseño de S01 y S02 las muestre: la
-detección de motores locales, el import de conexiones, las carpetas y el panel
-de "última sesión". Las tres primeras no las pide el plan; la última necesita el
-estado local de la Iteración 9.
+**Postergado a la Iteración 9**, aunque el diseño de S01, S02 y S05 lo muestre.
+Todo lo de abajo necesita el mismo pedazo que todavía no existe: el estado local
+en SQLite de `%APPDATA%`, que es lo que guarda qué pasó en esta máquina y no se
+sincroniza con la libreta de conexiones.
+
+| Qué | Dónde | Por qué espera |
+|---|---|---|
+| Lista de recientes | S01, S02 | Necesita registrar la última apertura por conexión. Va al estado local, no al archivo sincronizado: cuándo abriste algo es de esta máquina |
+| Panel "última sesión" | S02 | Ídem: versión del servidor y sentencias aplicadas de la vez anterior |
+| "Abrir una base" | S02 | Lista las bases del servidor de la última conexión. Sin estado local hay que conectarse antes, y entonces la lista deja de tener sentido ahí |
+| Historial y consultas guardadas | S05 | Las dos pestañas del sidebar. Es literalmente la S21 |
+
+**Fuera de alcance sin fecha**, porque no las pide el plan y no se pierde nada:
+la detección de motores locales de S01 —escanear puertos, aunque sea en
+localhost, es alcance que nadie pidió—, el import de conexiones y las carpetas
+de S02.
 
 ### Iteración 2 — SQL básico
 
