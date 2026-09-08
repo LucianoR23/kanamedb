@@ -5,7 +5,12 @@
 # MariaDB y SQLite se suman en la Iteración 6.
 #
 #   docker compose -f docker-compose.test.yml up -d
-#   go test ./...
+#   go test -count=1 ./...
+#
+# El -count=1 no es opcional al cambiar de versión de motor: la caché de go test
+# no sabe qué base está escuchando, así que sin él una corrida contra Postgres 16
+# puede devolver el resultado cacheado de la corrida anterior contra la 18. Es
+# una verificación falsa que parece verdadera.
 #
 # Los tests de integración se saltean solos, con un mensaje que explica esto, si
 # no hay una base escuchando. No hay build tag: así el código de test siempre
@@ -33,7 +38,13 @@ services:
     tmpfs:
       # Todo en memoria: los tests recrean el esquema en cada corrida y nada de
       # esto debe sobrevivir a un reinicio.
-      - /var/lib/postgresql/data
+      #
+      # El punto de montaje es /var/lib/postgresql y no .../data: desde la 18 la
+      # imagen guarda los datos en un subdirectorio por versión mayor, y un
+      # montaje en .../data la hace abortar al arrancar. Montar el padre sirve
+      # para 18+ y también para las versiones anteriores, donde PGDATA queda
+      # adentro igual.
+      - /var/lib/postgresql
     command: >
       postgres
       -c fsync=off

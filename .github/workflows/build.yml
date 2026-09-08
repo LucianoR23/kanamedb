@@ -72,6 +72,46 @@ jobs:
         working-directory: frontend
         run: pnpm run typecheck
 
+  # Los tests de integración corren en Linux: los servicios de contenedor de
+  # GitHub Actions no funcionan en los runners de Windows, y las capas de datos
+  # de este proyecto son Go puro e independientes del sistema operativo. Lo
+  # específico de Windows —el keychain— se prueba en el job de arriba.
+  integration:
+    name: Integración · PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # La estable actual, más las anteriores que se declaran soportadas.
+        postgres: ["18", "17", "16", "14"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}-alpine
+        env:
+          POSTGRES_USER: kaname
+          POSTGRES_PASSWORD: kaname
+          POSTGRES_DB: kaname_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U kaname -d kaname_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # -count=1 obligatorio: la caché de go test no sabe contra qué versión de
+      # motor está corriendo, así que sin él una corrida contra la 16 podría
+      # devolver el resultado cacheado de la corrida contra la 18.
+      - name: Tests de integración
+        run: go test -count=1 ./...
+
   build:
     name: Build ${{ matrix.arch }}
     needs: check
