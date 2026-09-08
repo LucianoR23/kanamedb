@@ -426,3 +426,39 @@ func TestIntrospectTraeLasColumnasConSusClaves(t *testing.T) {
 		}
 	}
 }
+
+// Leer el esquema mientras otra sesión borra tablas no puede romper la lectura.
+//
+// has_table_privilege devuelve NULL —no false— cuando el OID ya no existe, y
+// entre que pg_class lista una tabla y se evalúa su permiso, otra sesión puede
+// haberla borrado. Escanear eso a bool hacía fallar la introspección entera con
+// "cannot scan NULL into *bool", que no se parece en nada a lo que pasó.
+//
+// Es una carrera, así que el test la fuerza repitiéndola. Con el escaneo a bool
+// falla en pocas vueltas; con el arreglo, no falla.
+func TestIntrospectSobreviveAQueBorrenTablasMientrasLee(t *testing.T) {
+	pool, esquema := conectar(t)
+
+	listo := make(chan struct{})
+	defer close(listo)
+
+	// Una goroutine crea y borra tablas sin parar.
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-listo:
+				return
+			default:
+			}
+			nombre := fmt.Sprintf(`"%s"."efimera_%d"`, esquema, i%8)
+			_, _ = pool.Exec(context.Background(), "create table if not exists "+nombre+" (id int)")
+			_, _ = pool.Exec(context.Background(), "drop table if exists "+nombre)
+		}
+	}()
+
+	for i := 0; i < 60; i++ {
+		if _, err := Introspect(context.Background(), pool); err != nil {
+			t.Fatalf("vuelta %d: Introspect() falló mientras se borraban tablas: %v", i, err)
+		}
+	}
+}

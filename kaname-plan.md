@@ -341,6 +341,20 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 3 — 2026-09-08
 
+**Leer el esquema tolera que borren tablas mientras lee.**
+`has_table_privilege` devuelve NULL —no `false`— cuando el OID ya no existe, y
+entre que `pg_class` lista una tabla y se evalúa su permiso, otra sesión puede
+haberla borrado. Escanear eso a `bool` hacía fallar la introspección entera con
+`cannot scan NULL into *bool`, un mensaje que no se parece en nada a "alguien
+borró una tabla". Ahora se escanea a puntero y la fila se omite: un fantasma en
+el árbol es peor que una tabla de menos, porque al hacerle clic da un error que
+no explica nada.
+
+Lo encontraron los tests de integración corriendo en paralelo contra la misma
+base, no un test escrito para eso. Vale anotarlo: la paralelización de `go test`
+entre paquetes no es solo velocidad — es el único lugar del proyecto donde algo
+concurrente golpea la base al mismo tiempo que otra cosa.
+
 **CI tiene dos señales de dependencias, y responden preguntas distintas.**
 `govulncheck` rompe el build: dice "esto hay que arreglarlo", y solo cuenta las
 vulnerabilidades alcanzables desde nuestro código, así que un CVE en una función

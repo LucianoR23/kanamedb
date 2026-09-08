@@ -124,12 +124,30 @@ func readTables(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*sc
 	for rows.Next() {
 		var nsp string
 		var t schema.Table
+		// Readable se escanea como puntero porque has_table_privilege devuelve
+		// NULL, no false, cuando el OID ya no existe.
+		//
+		// Y eso pasa de verdad: entre que pg_class lista la tabla y que se
+		// evalúa el permiso, otra sesión puede haberla borrado. Escanear a bool
+		// hacía fallar la lectura del esquema entera con "cannot scan NULL into
+		// *bool" — un mensaje que no se parece en nada a "alguien borró una
+		// tabla". Lo encontraron los tests de integración corriendo en paralelo
+		// contra la misma base.
+		var legible *bool
 		if err := rows.Scan(
 			&nsp, &t.Name, &t.Partitioned, &t.Comment, &t.RowEstimate, &t.HasPrimaryKey,
-			&t.Readable,
+			&legible,
 		); err != nil {
 			return fmt.Errorf("leer una tabla: %w", err)
 		}
+		if legible == nil {
+			// La tabla dejó de existir mientras leíamos. Se omite en vez de
+			// mostrarla como no legible: un fantasma en el árbol es peor que
+			// una tabla de menos, porque al hacerle clic da un error que no
+			// explica nada.
+			continue
+		}
+		t.Readable = *legible
 		// Una tabla cuyo esquema no está en el mapa significa que el catálogo
 		// cambió entre las dos consultas. Es raro, pero descartarla en silencio
 		// es mejor que dejar el snapshot inconsistente.
