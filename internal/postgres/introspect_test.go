@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
 // conectar abre un pool contra la base de pruebas y crea un esquema propio del
@@ -225,7 +228,10 @@ func TestDosLecturasSeguidasDanElMismoResultado(t *testing.T) {
 		t.Fatalf("cantidad distinta de tablas: %d vs %d", len(a.Tables), len(b.Tables))
 	}
 	for i := range a.Tables {
-		if a.Tables[i] != b.Tables[i] {
+		// DeepEqual y no !=: Table lleva sus columnas en un slice, y comparar
+		// structs con slices no compila. De paso el test se hizo más fuerte,
+		// porque ahora también compara las columnas.
+		if !reflect.DeepEqual(a.Tables[i], b.Tables[i]) {
 			t.Errorf("la tabla %d difiere:\n %+v\n %+v", i, a.Tables[i], b.Tables[i])
 		}
 	}
@@ -344,5 +350,79 @@ func TestIntrospectMarcaLasTablasQueNoSePuedenLeer(t *testing.T) {
 	}
 	if porNombre["prohibida"] {
 		t.Error("prohibida no tiene SELECT y quedó marcada como legible")
+	}
+}
+
+// El autocompletado del editor SQL y las etiquetas PK/FK del encabezado salen
+// de acá. PK y FK vienen del catálogo y no del nombre: una columna llamada `id`
+// no es necesariamente clave, y una clave puede llamarse cualquier cosa.
+func TestIntrospectTraeLasColumnasConSusClaves(t *testing.T) {
+	pool, esquema := conectar(t)
+	ejecutar(t, pool, fmt.Sprintf(
+		`create table %s.padre (codigo bigint primary key)`, esquema))
+	ejecutar(t, pool, fmt.Sprintf(`create table %s.hijo (
+			id           bigint primary key,
+			padre_codigo bigint not null references %s.padre(codigo),
+			nombre       varchar(255),
+			creado       timestamptz not null default now()
+		)`, esquema, esquema))
+
+	snap, err := Introspect(context.Background(), pool)
+	if err != nil {
+		t.Fatalf("Introspect() error: %v", err)
+	}
+
+	var hijo *schema.Table
+	for _, e := range snap.Schemas {
+		if e.Name != esquema {
+			continue
+		}
+		for i := range e.Tables {
+			if e.Tables[i].Name == "hijo" {
+				hijo = &e.Tables[i]
+			}
+		}
+	}
+	if hijo == nil {
+		t.Fatalf("no se encontró la tabla hijo en el esquema %s", esquema)
+	}
+
+	quiere := []struct {
+		nombre   string
+		tipo     string
+		nullable bool
+		defecto  bool
+		pk       bool
+		fk       bool
+	}{
+		{"id", "bigint", false, false, true, false},
+		{"padre_codigo", "bigint", false, false, false, true},
+		{"nombre", "character varying(255)", true, false, false, false},
+		{"creado", "timestamp with time zone", false, true, false, false},
+	}
+	if len(hijo.Columns) != len(quiere) {
+		t.Fatalf("columnas = %d, se esperaban %d: %+v", len(hijo.Columns), len(quiere), hijo.Columns)
+	}
+	for i, q := range quiere {
+		got := hijo.Columns[i]
+		// El orden es attnum, o sea el de declaración, no el alfabético.
+		if got.Name != q.nombre {
+			t.Errorf("columna %d = %q, se esperaba %q (¿se perdió el orden de attnum?)", i, got.Name, q.nombre)
+		}
+		if got.DataType != q.tipo {
+			t.Errorf("%s: DataType = %q, se esperaba %q", q.nombre, got.DataType, q.tipo)
+		}
+		if got.Nullable != q.nullable {
+			t.Errorf("%s: Nullable = %v, se esperaba %v", q.nombre, got.Nullable, q.nullable)
+		}
+		if got.HasDefault != q.defecto {
+			t.Errorf("%s: HasDefault = %v, se esperaba %v", q.nombre, got.HasDefault, q.defecto)
+		}
+		if got.PrimaryKey != q.pk {
+			t.Errorf("%s: PrimaryKey = %v, se esperaba %v", q.nombre, got.PrimaryKey, q.pk)
+		}
+		if got.ForeignKey != q.fk {
+			t.Errorf("%s: ForeignKey = %v, se esperaba %v", q.nombre, got.ForeignKey, q.fk)
+		}
 	}
 }

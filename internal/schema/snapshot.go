@@ -81,6 +81,37 @@ type Table struct {
 	//
 	// Es -1 cuando la tabla nunca fue analizada y no hay estimación.
 	RowEstimate int64 `json:"rowEstimate"`
+
+	// Columns son las columnas de la tabla.
+	//
+	// Se traen junto con el esquema y no por tabla a demanda porque el
+	// autocompletado del editor SQL las necesita todas a la vez: pedirlas al
+	// escribir haría que la primera sugerencia de cada tabla llegue tarde, que
+	// es como se siente un autocompletado roto.
+	Columns []Column `json:"columns,omitempty"`
+}
+
+// Column es una columna de una tabla.
+type Column struct {
+	Name string `json:"name"`
+
+	// DataType es el tipo tal como lo escribe el motor, con modificadores:
+	// "bigint", "character varying(255)", "numeric(10,2)". Es el texto que va
+	// en el panel de esquema y en el autocompletado.
+	DataType string `json:"dataType"`
+
+	Nullable   bool `json:"nullable"`
+	HasDefault bool `json:"hasDefault"`
+
+	// PrimaryKey y ForeignKey alimentan las etiquetas PK y FK del encabezado de
+	// la grilla. Son del catálogo, no deducidas del nombre: una columna que se
+	// llama `id` no es necesariamente clave, y una clave puede llamarse
+	// cualquier cosa.
+	PrimaryKey bool `json:"primaryKey"`
+	ForeignKey bool `json:"foreignKey"`
+
+	// Position es attnum: el orden en que las declara la tabla.
+	Position int `json:"position"`
 }
 
 // HasRowEstimate dice si RowEstimate tiene un valor utilizable.

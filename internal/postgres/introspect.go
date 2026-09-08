@@ -28,6 +28,9 @@ func Introspect(ctx context.Context, pool *pgxpool.Pool) (*schema.Snapshot, erro
 	if err := readTables(ctx, pool, esquemas); err != nil {
 		return nil, err
 	}
+	if err := readColumns(ctx, pool, esquemas); err != nil {
+		return nil, err
+	}
 
 	snap := &schema.Snapshot{
 		Database:   database,
@@ -136,6 +139,83 @@ func readTables(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*sc
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("recorrer las tablas: %w", err)
+	}
+	return nil
+}
+
+// columnsQuery trae las columnas de todas las tablas visibles de una vez.
+//
+// Es una consulta más y no una por tabla: con doscientas tablas, una por tabla
+// serían doscientos viajes para armar el autocompletado. Los LATERAL resuelven
+// PK y FK sin multiplicar filas, que es lo que pasaría con JOINs directos
+// contra pg_index y pg_constraint cuando una columna está en varias claves.
+const columnsQuery = `
+	SELECT n.nspname,
+	       c.relname,
+	       a.attname,
+	       pg_catalog.format_type(a.atttypid, a.atttypmod),
+	       NOT a.attnotnull,
+	       a.atthasdef,
+	       a.attnum,
+	       coalesce(pk.si, false),
+	       coalesce(fk.si, false)
+	FROM pg_catalog.pg_attribute a
+	JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+	LEFT JOIN LATERAL (
+	    SELECT true AS si
+	    FROM pg_catalog.pg_index i
+	    WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+	    LIMIT 1
+	) pk ON true
+	LEFT JOIN LATERAL (
+	    SELECT true AS si
+	    FROM pg_catalog.pg_constraint k
+	    WHERE k.conrelid = c.oid AND k.contype = 'f' AND a.attnum = ANY(k.conkey)
+	    LIMIT 1
+	) fk ON true
+	WHERE a.attnum > 0
+	  AND NOT a.attisdropped
+	  AND c.relkind IN ('r', 'p')
+	  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+	  AND n.nspname NOT LIKE 'pg\_toast%'
+	  AND n.nspname NOT LIKE 'pg\_temp%'
+	  AND pg_catalog.has_schema_privilege(n.oid, 'USAGE')
+	ORDER BY n.nspname, c.relname, a.attnum`
+
+func readColumns(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*schema.Schema) error {
+	rows, err := pool.Query(ctx, columnsQuery)
+	if err != nil {
+		return fmt.Errorf("listar las columnas: %w", err)
+	}
+	defer rows.Close()
+
+	// Índice por esquema.tabla para no recorrer el slice de tablas en cada fila:
+	// con doscientas tablas por veinte columnas eso son ochocientas mil
+	// comparaciones para armar algo que ya viene ordenado.
+	porTabla := map[string]*schema.Table{}
+	for _, esq := range esquemas {
+		for i := range esq.Tables {
+			porTabla[esq.Name+"."+esq.Tables[i].Name] = &esq.Tables[i]
+		}
+	}
+
+	for rows.Next() {
+		var nsp, tabla string
+		var col schema.Column
+		if err := rows.Scan(&nsp, &tabla, &col.Name, &col.DataType,
+			&col.Nullable, &col.HasDefault, &col.Position,
+			&col.PrimaryKey, &col.ForeignKey); err != nil {
+			return fmt.Errorf("leer una columna: %w", err)
+		}
+		// Las particiones no están en el mapa —el árbol no las muestra— así que
+		// sus columnas se descartan acá sin ruido.
+		if t, ok := porTabla[nsp+"."+tabla]; ok {
+			t.Columns = append(t.Columns, col)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("recorrer las columnas: %w", err)
 	}
 	return nil
 }
