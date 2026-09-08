@@ -5,9 +5,12 @@ export { Badge, EnvBadge } from "./Badge";
 export type { BadgeTone, Environment } from "./Badge";
 
 export { ContextMenu } from "./ContextMenu";
+
+export { CopyButton } from "./CopyButton";
 export type { MenuAction, MenuAnchor, MenuEntry, MenuLabel, MenuSeparator } from "./ContextMenu";
 
 export { Dialog } from "./Dialog";
+export type { DialogSize } from "./Dialog";
 
 export { Glyph } from "./Glyph";
 

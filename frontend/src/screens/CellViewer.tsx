@@ -46,6 +46,7 @@ export function CellViewer({
     <Dialog
       open={open}
       title="Visor de celda"
+      size="xl"
       onClose={onClose}
       footer={
         <>

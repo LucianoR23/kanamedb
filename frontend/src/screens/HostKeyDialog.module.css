@@ -3,8 +3,6 @@
   display: flex;
   flex-direction: column;
   gap: 13px;
-  width: 520px;
-  max-width: 76vw;
 }
 
 .intro {
@@ -126,6 +124,36 @@
 .comoNota {
   color: var(--text-3) !important;
 }
+/* Aclaración de qué identifica la huella. Va primero porque es la confusión
+   más común: la clave es del servidor, no de la base ni del panel. */
+.comoAclara {
+  color: var(--text-1) !important;
+}
+
+.opcion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-subtle);
+}
+.opcionTitulo {
+  font: 500 11.5px var(--font-ui);
+  color: var(--text-1);
+}
+
+/* El comando y su botón de copiar en la misma fila: copiar a mano un comando
+   que se compara carácter por carácter es justo donde se cuelan los errores. */
+.comandoFila {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.comandoFila .comando {
+  flex: 1;
+  min-width: 0;
+}
+
 .comando {
   padding: 8px 10px;
   background: var(--bg-inset);

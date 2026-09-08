@@ -1,0 +1,19 @@
+.boton {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-elev);
+  color: var(--text-1);
+  white-space: nowrap;
+  font: 500 11px var(--font-ui);
+  cursor: pointer;
+}
+.boton:hover {
+  background: var(--bg-active);
+}
+.boton:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}

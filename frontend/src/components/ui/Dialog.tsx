@@ -4,11 +4,25 @@ import { EnvBadge } from "./Badge";
 import { cx } from "../../lib/cx";
 import styles from "./Dialog.module.css";
 
+/** Cuánto espacio necesita el contenido.
+ *
+ * Existe porque los diálogos de este proyecto no son todos del mismo tamaño: el
+ * de verificar una clave de host tiene que mostrar una huella completa sin
+ * cortarla, y el visor de celda muestra un JSON entero. Sin esto, el contenido
+ * pedía más ancho del que el diálogo permitía y aparecía una barra de scroll
+ * horizontal — que en una huella que se compara carácter por carácter no es una
+ * molestia, es un impedimento.
+ *
+ * Los tres se topan contra el ancho de la ventana: en una angosta el diálogo se
+ * achica en vez de desbordar. */
+export type DialogSize = "md" | "lg" | "xl";
+
 interface DialogProps {
   open: boolean;
   title: string;
   /** Marca el diálogo como escritura en producción: franja roja y etiqueta. */
   production?: boolean;
+  size?: DialogSize;
   /** Sin `onClose` el diálogo no se puede descartar — para confirmaciones que
    *  exigen una respuesta explícita. */
   onClose?: () => void;
@@ -20,6 +34,7 @@ export function Dialog({
   open,
   title,
   production = false,
+  size = "md",
   onClose,
   footer,
   children,
@@ -51,7 +66,7 @@ export function Dialog({
       }}
     >
       <div
-        className={cx(styles.dialog, production && styles.production)}
+        className={cx(styles.dialog, production && styles.production, styles[`size_${size}`])}
         onClick={(e) => e.stopPropagation()}
       >
         {production ? <div className={styles.prodStripe} /> : null}

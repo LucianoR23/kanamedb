@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Verdict } from "../../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { Inspection } from "../../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
-import { Button, Checkbox, Dialog } from "../components/ui";
+import { Button, Checkbox, CopyButton, Dialog } from "../components/ui";
 import { cx } from "../lib/cx";
 import styles from "./HostKeyDialog.module.css";
 
@@ -37,6 +37,15 @@ export function HostKeyDialog({
 
   const anterior = inspection.known;
 
+  // Los dos caminos para verificar, ya armados con el host y el tipo de clave
+  // reales. Se arman acá y no en el JSX para poder pasárselos al botón de
+  // copiar sin repetirlos: un comando que se muestra distinto del que se copia
+  // es peor que no tener botón.
+  const comandoLocal = `ssh-keygen -lF ${hostSolo(inspection.address)}`;
+  const comandoRemoto = `ssh-keygen -lf /etc/ssh/ssh_host_${tipoCorto(
+    inspection.presented.algorithm,
+  )}_key.pub`;
+
   return (
     <Dialog
       open
@@ -45,6 +54,7 @@ export function HostKeyDialog({
           ? `La clave de ${inspection.address} cambió`
           : `Verificá la clave de ${inspection.address}`
       }
+      size="lg"
       production={cambiada}
       onClose={onCancel}
       footer={
@@ -113,12 +123,46 @@ export function HostKeyDialog({
           </button>
           {comoVerificar ? (
             <div className={styles.comoCuerpo}>
-              <p>Corré esto en el host, o pedísela a quien lo administra:</p>
-              <code className={styles.comando}>
-                ssh-keygen -lf /etc/ssh/ssh_host_{tipoCorto(inspection.presented.algorithm)}_key.pub
-              </code>
+              <p className={styles.comoAclara}>
+                La huella identifica a <strong>la máquina a la que entrás por SSH</strong> — el
+                servidor —, no a la base de datos ni al panel que corra encima. Si en ese servidor
+                hay varias bases, o contenedores, o un panel de administración, la clave es una
+                sola y es la del sistema operativo.
+              </p>
+
+              <div className={styles.opcion}>
+                <div className={styles.opcionTitulo}>
+                  Si ya te conectaste antes a este servidor desde esta máquina
+                </div>
+                <p>
+                  Es lo más rápido: tu propio OpenSSH ya anotó su clave la primera vez. Corré esto
+                  <strong> acá</strong>, en tu terminal:
+                </p>
+                <div className={styles.comandoFila}>
+                  <code className={styles.comando}>{comandoLocal}</code>
+                  <CopyButton text={comandoLocal} />
+                </div>
+                <p className={styles.comoNota}>
+                  Si imprime una huella y coincide con la de arriba, es el mismo servidor de
+                  siempre. Si no imprime nada, nunca te conectaste desde acá y hay que usar la
+                  opción de abajo.
+                </p>
+              </div>
+
+              <div className={styles.opcion}>
+                <div className={styles.opcionTitulo}>Si es la primera vez</div>
+                <p>
+                  Corré esto <strong>en el servidor</strong>, entrando por la consola que te dé tu
+                  proveedor — o pedíselo a quien lo administra:
+                </p>
+                <div className={styles.comandoFila}>
+                  <code className={styles.comando}>{comandoRemoto}</code>
+                  <CopyButton text={comandoRemoto} />
+                </div>
+              </div>
+
               <p className={styles.comoNota}>
-                El valor SHA256 que imprime tiene que coincidir con el de arriba, carácter por
+                El valor SHA256 que imprima tiene que coincidir con el de arriba, carácter por
                 carácter. Kaname guarda las claves aceptadas en{" "}
                 <code className={styles.ruta}>{knownHostsPath}</code>.
               </p>
@@ -169,6 +213,17 @@ function Huella({
       </div>
     </div>
   );
+}
+
+/** `bastion.interna:2222` → `bastion.interna`.
+ *
+ * `ssh-keygen -F` busca por host, y con un puerto no estándar OpenSSH guarda la
+ * entrada como `[host]:puerto`. Se pasa el host solo porque es lo que acierta en
+ * el caso común; si el puerto no es el 22 la búsqueda puede no encontrarla, y
+ * para eso está la segunda opción. */
+function hostSolo(address: string): string {
+  const i = address.lastIndexOf(":");
+  return i > 0 ? address.slice(0, i) : address;
 }
 
 /** `ssh-ed25519` → `ed25519`, para armar la ruta del archivo en el host. */

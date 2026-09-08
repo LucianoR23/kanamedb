@@ -17,7 +17,8 @@
 
 .dialog {
   width: 100%;
-  max-width: 520px;
+  /* El ancho lo pone la variante; 520 es el default. */
+  max-width: var(--dialog-max, 520px);
   max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
@@ -75,3 +76,9 @@
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
 }
+
+/* Tamaños. Se topan contra el viewport para que en una ventana angosta el
+   diálogo se achique en vez de desbordar. */
+.size_md { --dialog-max: 520px; }
+.size_lg { --dialog-max: min(720px, calc(100vw - 48px)); }
+.size_xl { --dialog-max: min(980px, calc(100vw - 48px)); }

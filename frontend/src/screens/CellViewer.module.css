@@ -29,8 +29,6 @@
 .body {
   display: grid;
   grid-template-columns: 196px minmax(0, 1fr);
-  width: 900px;
-  max-width: 78vw;
   height: 460px;
   max-height: 62vh;
   min-height: 0;
