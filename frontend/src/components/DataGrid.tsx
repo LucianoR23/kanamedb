@@ -133,6 +133,14 @@ export function DataGrid({
 
   const table = useTable({
     features,
+    // El ancho se aplica mientras se arrastra, no al soltar.
+    //
+    // El default de TanStack es "onEnd", que evita recalcular en cada píxel.
+    // Acá no hace falta ese cuidado: el ancho vive en una sola cadena de
+    // grid-template-columns y moverlo es un reflow de la grilla, no volver a
+    // renderizar las filas. Y ajustar una columna a ojo sin ver el resultado
+    // hasta soltar significa soltar, mirar, y volver a agarrar.
+    columnResizeMode: "onChange",
     data: rows,
     columns: columns.map((c, i) => ({
       id: `${i}:${c.name}`,
