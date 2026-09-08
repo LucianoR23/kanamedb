@@ -15,12 +15,15 @@ diseño (`design/Sxx-*`).
 
 Wails v3 + React/Vite, assets embebidos, CI que compila win-x64 y win-arm64.
 
-- **S00 Foundations** — tokens CSS (dark + light, acentos de entorno), tipografía,
+- ✅ **Scaffold** — Wails v3.0.0-beta.17 + React 19 + TypeScript 7 + Vite 8, assets
+  embebidos, sin sockets. Ventana verificada. Commit `d63f04f`.
+- ✅ **CI** — GitHub Actions, matriz win-x64 / win-arm64. Pendiente de remote.
+- ⏳ **S00 Foundations** — tokens CSS (dark + light, acentos de entorno), tipografía,
   espaciado y componentes base: botones, inputs, tabs, badges, tree row, celda de
   grilla, dialog, toast, context menu.
-- **S05 Main workspace shell** — shell vacío: sidebar, tab strip, status bar, panes
+- ⏳ **S05 Main workspace shell** — shell vacío: sidebar, tab strip, status bar, panes
   redimensionables. Sin contenido real.
-- **S25 About** — completa.
+- ⏳ **S25 About** — completa.
 
 ### Iteración 1 — Conexiones
 
@@ -125,24 +128,44 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 
 ## 2. Stack
 
-- **Core:** Go 1.25+, un solo módulo
-- **Ventana nativa:** Wails v3 (bindings Go↔JS, sin servidor HTTP)
-- **Introspección / diff / plan:** `ariga.io/atlas` (`sql/schema`, `sql/postgres`,
-  `sql/mysql`, `sql/sqlite`), versión pineada
-- **Drivers:** `pgx/v5` (vía `stdlib` para Atlas), `go-sql-driver/mysql`,
-  `modernc.org/sqlite`
+Versiones marcadas con ✅ están instaladas y verificadas en la máquina de
+desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
+
+### Instalado
+
+| Pieza | Versión | Nota |
+|---|---|---|
+| Go | ✅ 1.26.0 | Un solo módulo. `CGO_ENABLED=0`, sin gcc |
+| Wails | ✅ v3.0.0-beta.17 | Bindings Go↔JS, sin servidor HTTP |
+| React | ✅ 19.2.8 | Con React Compiler 1.0.0, verificado activo |
+| TypeScript | ✅ 7.0.2 | Puerto nativo en Go, es el `latest` de npm |
+| Vite | ✅ 8.2.2 | `@vitejs/plugin-react` 6.1.1 |
+| pnpm | ✅ 10.33.2 | No npm. Lockfile commiteado |
+
+### Pendiente por iteración
+
+- **Introspección / diff / plan:** `ariga.io/atlas` v1.3.0 (`sql/schema`,
+  `sql/postgres`, `sql/mysql`, `sql/sqlite`), pineada. Verificado que no arrastra
+  `cloud/` ni `cmd/`.
+- **Drivers:** `pgx/v5` v5.11.0 (vía `stdlib` para Atlas),
+  `go-sql-driver/mysql`, `modernc.org/sqlite` v1.58.0 (verificado en arm64).
 - **SSH:** `golang.org/x/crypto/ssh` + `ssh/knownhosts`; `go-winio` para el pipe
-  del agente de OpenSSH en Windows
-- **Keychain:** `zalando/go-keyring` (MIT)
+  del agente de OpenSSH en Windows.
+- **Keychain:** `zalando/go-keyring` (MIT).
 - **Estado local** (historial, posiciones del ERD, config): SQLite en `%APPDATA%`,
-  sin secretos
-- **Frontend:** React 19 + TypeScript + Vite
-- **Canvas ERD:** `@xyflow/react`
-- **Layout:** `@dagrejs/dagre`; ELK solo si dagre no alcanza
-- **Grilla:** `glide-data-grid`
-- **Editor:** CodeMirror 6 + `@codemirror/lang-sql`
-- **Estado UI:** Zustand
-- **CI:** GitHub Actions, matriz windows/linux/macos, `goreleaser` o script propio
+  sin secretos.
+- **Canvas ERD:** `@xyflow/react`.
+- **Layout:** `@dagrejs/dagre`; ELK solo si dagre no alcanza.
+- **Grilla:** `glide-data-grid`.
+- **Editor:** CodeMirror 6 + `@codemirror/lang-sql`.
+- **Estado UI:** Zustand.
+
+### CI
+
+GitHub Actions. Hoy: matriz win-x64 (`windows-latest`) y win-arm64
+(`windows-11-arm`), más un job de gofmt + vet + test + typecheck. Linux y macOS
+se suman en la Iteración 9. El build usa el pipeline de `wails3 task`, no
+`go build` a mano — ver el registro de decisiones.
 
 ---
 
@@ -191,14 +214,24 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 
 ### Auditoría de dependencias
 
-- Atlas CLI hace update check; la librería no. No importes `cmd/` ni paquetes de
-  cloud.
+- ✅ **Atlas no arrastra `cloud/` ni `cmd/`.** Verificado con `go list -deps` sobre
+  Atlas v1.3.0 importando los cuatro paquetes que necesitamos: linkea únicamente
+  `sql/schema`, `sql/postgres`, `sql/mysql`, `sql/sqlite`, `schemahcl`,
+  `sql/migrate`, `sql/sqlclient` y sus internos. Cero update-check.
+- ✅ **`modernc.org/sqlite` v1.58.0 anda en windows/arm64.** No solo compila:
+  corre (SQLite 3.53.4), sin cgo, y cross-compila a amd64. Riesgo descartado.
+- ✅ **Sin sockets.** Se removió del template de Wails el modo servidor HTTP
+  (`build:server`, `run:server`, `build:docker`). Ver registro de decisiones.
 - WebView2 (Windows) se actualiza y reporta a Microsoft por su cuenta, y no lo
   controlás desde la app. Es el precio de no embeber Chromium.
 - El resto (xyflow, CodeMirror, glide-data-grid, Wails, pgx) no hace phone-home.
-- Verificá que `modernc.org/sqlite` compile en windows/arm64 con tu versión antes
-  de comprometerte.
-- Mirá la actividad del repo de glide-data-grid: bajó bastante.
+- Mirá la actividad del repo de glide-data-grid: bajó bastante. **Pendiente de
+  revisar antes de la Iteración 2.**
+- **`minimum-release-age` de 7 días** activo en `frontend/.npmrc`: pnpm rechaza
+  paquetes publicados hace menos de una semana. Es defensa contra supply chain y
+  no se desactiva. Cuando bloquee una versión, se baja a la anterior elegible; si
+  de verdad hace falta la nueva, se agrega una excepción puntual y justificada en
+  el mismo archivo.
 
 ---
 
@@ -243,6 +276,57 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 ---
 
+## 6. Registro de decisiones
+
+Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
+Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 0 — 2026-09-07
+
+**Nombre del repo: `kanamedb`; producto: Kaname.**
+`kaname` solo es inbuscable (colisiona con la palabra japonesa y con personajes
+de anime). El guión de `kaname-db` lo hace sonar a componente de otra cosa. La
+categoría entera usa un solo token: chartdb, dbeaver, duckdb, surrealdb. El
+título de ventana, el binario y `build/config.yml` siguen diciendo "Kaname".
+
+**Fuera el modo servidor HTTP del template de Wails.**
+Wails v3 trae de fábrica `build:server`, `run:server` y `build:docker`, que
+levantan la app como servidor HTTP sin GUI. Es exactamente el agujero descrito
+en la sección 3. Se borraron las tareas y `build/docker/`. También se removió el
+scaffolding de Android e iOS: no es plataforma objetivo y es superficie muerta.
+
+**El build de producción va por `wails3 task build`, no por `go build`.**
+`go build` a mano omite dos cosas que importan: el tag `production` —sin él el
+webview queda en modo desarrollo— y el `.syso` con ícono, manifest de DPI y
+metadata de versión. El comando real es
+`wails3 task build ARCH=amd64|arm64`, que encadena tidy, frontend, iconos, syso
+y `go build -tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"`.
+Salida siempre en `bin/kaname.exe`; CI la renombra por arquitectura.
+
+**TypeScript 7.0.2, no 5.x.**
+El puerto nativo en Go es el `latest` de npm desde julio de 2026 y trae binario
+para `win32-arm64`. Mismas semánticas de lenguaje, chequeo mucho más rápido.
+`tsc --noEmit` para typecheck; el transpilado lo hace esbuild vía Vite.
+
+**pnpm con `minimum-release-age=10080`, y una sola excepción.**
+El filtro rechaza paquetes publicados hace menos de 7 días. Obligó a usar
+`@types/react-dom` 19.2.5 en vez de 19.2.7, que es el precio correcto a pagar.
+La única exclusión es `@wailsio/runtime`: su versión tiene que coincidir exacto
+con la del módulo Go `github.com/wailsapp/wails/v3` o los bindings generados no
+matchean el runtime. Está anotada y justificada en `frontend/.npmrc`.
+
+**React Compiler verificado, no asumido.**
+`babel-plugin-react-compiler` 1.0.0 activo en `vite.config.ts`. Se comprobó
+compilando un componente memoizable y confirmando que aparece `_c()` en el
+bundle. Consecuencia práctica: no se usan `useMemo`, `useCallback` ni
+`React.memo` por defecto.
+
+**Commits sin atribución de herramienta.**
+Nada de `Co-Authored-By` ni enlaces de sesión en los mensajes de commit ni en
+las descripciones de PR. Anotado también en `CLAUDE.md`.
+
+---
+
 ## Cómo ejecutar cada iteración
 
 1. Pasarle a Claude Code solo los `design/Sxx-*` de esa iteración, diciendo
@@ -253,3 +337,11 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 3. Recién después, implementar la pantalla contra ese binding, con datos reales.
 4. La iteración cierra cuando la usás con una base tuya, no cuando "se ve igual al
    diseño".
+
+Dos reglas que aplican a todas:
+
+- **El plan se actualiza en el momento.** Cada decisión técnica va al registro de
+  la sección 6 apenas se toma, y el estado de las pantallas se marca en la
+  sección 1. Un plan desactualizado miente peor que no tener plan.
+- **El README acompaña.** Lo que cambie en cómo se instala, se corre o se
+  construye el proyecto se refleja en `README.md` en el mismo commit.

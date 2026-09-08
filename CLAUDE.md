@@ -8,6 +8,18 @@ arquitectura o cambiar el orden de las iteraciones.
 
 ## Reglas de trabajo
 
+### Documentación viva — no es opcional
+
+Dos archivos se mantienen actualizados **en el mismo commit** que el cambio que
+los afecta, no después:
+
+- **`kaname-plan.md`** — toda decisión técnica que no se deduzca del código va al
+  registro de la sección 6, con fecha y motivo. El estado de cada pantalla se
+  marca en la sección 1 (✅ hecho / ⏳ pendiente). Un plan desactualizado miente
+  peor que no tener plan.
+- **`README.md`** — cualquier cambio en cómo se instala, se corre, se verifica o
+  se construye el proyecto se refleja ahí.
+
 ### Commits
 
 - **Nunca** agregar `Co-Authored-By` ni `Claude-Session` a los mensajes de commit
