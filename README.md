@@ -5,10 +5,10 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 1 — conexiones.** Se conecta a PostgreSQL, guarda la libreta
-> de conexiones, deja las contraseñas en el keychain del sistema operativo y lista
-> las tablas reales en el árbol de esquema. La grilla de datos y el editor SQL
-> llegan en la Iteración 2.
+> **Estado: Iteración 2 — SQL básico.** Se conecta a PostgreSQL, guarda la libreta
+> de conexiones con las contraseñas en el keychain del sistema operativo, lista el
+> esquema real, y trae editor SQL con autocompletado, grilla de resultados y datos
+> de tabla con paginado. Solo lectura. El diagrama ERD llega en la Iteración 4.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---

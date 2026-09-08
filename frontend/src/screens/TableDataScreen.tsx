@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/postgres";
+import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Button, PillTabs } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef, SortState } from "../components/DataGrid";
@@ -23,11 +24,13 @@ export function TableDataScreen({
   schema,
   table,
   readOnly,
+  snapshot,
 }: {
   tabId: string;
   schema: string;
   table: string;
   readOnly: boolean;
+  snapshot: Snapshot | null;
 }) {
   const [result, setResult] = useState<Result | null>(null);
   const [filas, setFilas] = useState<(string | null)[][]>([]);
@@ -95,6 +98,20 @@ export function TableDataScreen({
   // las filas acumuladas por "cargar más".
   const acumulado: Result | null = result ? { ...result, rows: filas } : null;
 
+  // Las claves salen del esquema ya introspectado, no de otra consulta: acá se
+  // sabe qué tabla se está mirando, así que la información ya está en memoria.
+  const claves: Record<string, "pk" | "fk"> = {};
+  for (const esq of snapshot?.schemas ?? []) {
+    if (esq.name !== schema) continue;
+    for (const t of esq.tables ?? []) {
+      if (t.name !== table) continue;
+      for (const c of t.columns ?? []) {
+        if (c.primaryKey) claves[c.name] = "pk";
+        else if (c.foreignKey) claves[c.name] = "fk";
+      }
+    }
+  }
+
   return (
     <div className={styles.screen}>
       <div className={styles.subtabs}>
@@ -142,6 +159,7 @@ export function TableDataScreen({
             onOpenCell={setVisor}
             sort={orden}
             onSort={ordenarPor}
+            keys={claves}
           />
           <div className={styles.foot}>
             {hayMas ? (

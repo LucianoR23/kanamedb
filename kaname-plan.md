@@ -62,15 +62,26 @@ de S02.
 
 ### Iteración 2 — SQL básico
 
-CodeMirror con autocompletado de esquema, ejecución con streaming y cancelación,
-grilla solo lectura.
+CodeMirror con autocompletado de esquema, ejecución con cancelación, grilla solo
+lectura.
 
-- **S06 SQL editor** — completa, incluyendo estado de streaming y cancelación.
-- **S07 Results grid** — solo lectura: NULL vs string vacío, íconos de tipo,
-  barra de sort/filter. Sin modo edición.
-- **S09 Cell viewer** — completa.
-- **S10 Table data tab** — con "Load more" y conteo de filas. Sin filter builder
-  avanzado.
+- ✅ **Contrato de Go** — `query` (resultado independiente del motor),
+  `postgres.Run` con lote completo, `postgres.TableData`/`TableCount`/
+  `PrimaryKeyColumns`, y el servicio `Queries` con cancelación por `runID`.
+  Solo lectura y `statement_timeout` los hace cumplir el servidor.
+- ✅ **S06 SQL editor** — editor, autocompletado contra el esquema real,
+  ejecución y cancelación, estados corriendo/listo/error, pestaña Mensajes con
+  el tag de cada sentencia. Sin Explain, Format, guardar consulta ni envolver en
+  transacción: son de iteraciones posteriores y están deshabilitados.
+- ✅ **S07 Results grid** — solo lectura, con NULL contra cadena vacía, etiquetas
+  de tipo y de clave, orden contra el servidor. Sin modo edición.
+- ⏳ **S09 Cell viewer** — modos por tipo: JSON formateado, hex para bytea, texto
+  y el caso null. Falta el modo "Items" de arrays, que necesita un parser de
+  literales de Postgres y va en Go cuando la Iteración 7 lo use para editar.
+- ✅ **S10 Table data tab** — grilla, orden, "cargar más", conteo exacto y aviso
+  cuando la tabla no tiene clave primaria.
+- ✅ **Solo lectura** — el interruptor se adelantó desde la Iteración 5. Ver el
+  registro de decisiones.
 
 ### Iteración 3 — SSH
 
@@ -323,6 +334,27 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 2 — 2026-09-08
+
+**El interruptor de solo lectura se adelanta de la Iteración 5 a la 2.**
+El plan ponía toda la tab Safety en la 5, junto con el ERD que escribe. Pero lo
+primero que puede escribir en la base es el editor SQL, que es de esta
+iteración: eran tres iteraciones con la protección existiendo y sin forma de
+activarla salvo editando `connections.toml` a mano. Se adelantó solo ese
+interruptor, no la tab entera.
+
+**La etiqueta de clave sale del esquema, no del resultado.**
+El encabezado del diseño distingue PK y FK. Un resultado de consulta no puede
+saberlo —`select 1 as id` devuelve un entero que no es clave de nada—, así que
+la grilla recibe las claves de afuera y solo cuando se está mirando una tabla
+concreta. En el editor SQL las columnas se etiquetan por tipo, que es todo lo
+que ahí se puede afirmar con certeza.
+
+**El visor de celda no descompone arrays todavía.**
+Partir `{a,"b,c",NULL}` en elementos tiene casos borde con comillas y escapes.
+Escribirlo en TypeScript sería lógica sin pruebas, que es exactamente el error
+que este proyecto ya cometió una vez hoy. El array se muestra crudo hasta que la
+Iteración 7 necesite editarlo elemento por elemento, y ahí el parseo va en Go
+con sus tests. Mostrar el literal es correcto; mostrarlo mal partido, no.
 
 **Solo lectura y statement_timeout los hace cumplir el servidor, no nosotros.**
 Van como parámetros del paquete de arranque de cada conexión del pool

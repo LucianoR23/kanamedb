@@ -106,6 +106,7 @@ export function DataGrid({
   sort,
   onSort,
   onColumnMenu,
+  keys,
 }: {
   result: Result;
   selection: CellRef | null;
@@ -114,6 +115,13 @@ export function DataGrid({
   sort?: SortState | null;
   onSort?: (column: string) => void;
   onColumnMenu?: (column: string, index: number, e: React.MouseEvent) => void;
+  /** Qué columnas son clave, por nombre.
+   *
+   *  El resultado de una consulta no lo sabe: `select 1 as id` devuelve un
+   *  entero que no es clave de nada. Lo sabe el esquema, y solo cuando se está
+   *  mirando una tabla concreta — por eso viene de afuera y es opcional, en vez
+   *  de deducirse del nombre de la columna. */
+  keys?: Readonly<Record<string, "pk" | "fk">>;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -184,7 +192,13 @@ export function DataGrid({
                   }
                 : {})}
             >
-              <span className={styles.tag}>{TAG[meta.class] ?? "···"}</span>
+              <span className={cx(styles.tag, keys?.[meta.name] && styles[`tag_${keys[meta.name]}`])}>
+                {keys?.[meta.name] === "pk"
+                  ? "PK"
+                  : keys?.[meta.name] === "fk"
+                    ? "FK"
+                    : (TAG[meta.class] ?? "···")}
+              </span>
               <span className={styles.headName}>{meta.name}</span>
               <span className={styles.spacer} />
               {ordenada ? (

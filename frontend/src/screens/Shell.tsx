@@ -217,6 +217,7 @@ export function Shell({
                 schema={esquemaActivo}
                 table={tablaActiva}
                 readOnly={session?.readOnly ?? false}
+                snapshot={snapshot}
               />
             ) : (
               <SqlEditorScreen
