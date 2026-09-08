@@ -17,16 +17,13 @@ Wails v3 + React/Vite, assets embebidos, CI que compila win-x64 y win-arm64.
 
 - ✅ **Scaffold** — Wails v3.0.0-beta.17 + React 19 + TypeScript 7 + Vite 8, assets
   embebidos, sin sockets. Ventana verificada. Commit `d63f04f`.
-- ✅ **CI** — GitHub Actions, matriz win-x64 / win-arm64. Pendiente de remote.
+- ✅ **CI** — GitHub Actions, matriz win-x64 / win-arm64.
 - ✅ **S00 Foundations** — tokens CSS (dark + light, acentos de entorno), tipografía,
   espaciado y componentes base: botones, inputs, tabs, badges, tree row, celda de
   grilla, dialog, toast, context menu.
 - ✅ **S05 Main workspace shell** — shell vacío: sidebar, tab strip, status bar, panes
   redimensionables. Sin contenido real.
 - ✅ **S25 About** — completa, con el servicio `appinfo` como contrato.
-- 🔴 **Bloqueante** — la ventana recorta ~20 % de la UI con escalado de pantalla
-  distinto de 100 %. Es un bug de Wails, no del layout. Ver el registro de
-  decisiones. La iteración no cierra hasta resolverlo.
 
 El diseño vive en Claude Design, proyecto
 `025e0714-d352-4c71-a783-68c91cdc66e8`. Se baja con `DesignSync` a `design/`,
@@ -290,23 +287,21 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 0 — 2026-09-07
 
-**🔴 Wails v3 recorta la UI con escalado de pantalla distinto de 100 %.**
-En una pantalla al 125 %, el webview reporta un viewport CSS igual al área
-cliente en píxeles **físicos** (1426 CSS para un cliente de 1425 físicos) pero
-rasteriza a `devicePixelRatio` 1.25. El contenido se dibuja 1.25× más grande que
-el viewport para el que se maquetó, así que el 20 % inferior y derecho queda
-fuera de la ventana: desaparecen la barra de estado y el pane derecho.
+**No se puede verificar la UI capturando la ventana desde un script.**
+La superficie del WebView2 se compone por GPU: `CopyFromScreen` devuelve negro, y
+`PrintWindow` con `PW_RENDERFULLCONTENT` sí devuelve píxeles pero **sin escalar**.
+Peor: un script de PowerShell no es consciente de DPI, así que `GetWindowRect`
+devuelve coordenadas virtualizadas —1440×900 en vez de los 1800×1125 reales a
+125 %— y el bitmap sale con el tamaño equivocado. El contenido real se vuelca 1:1
+en un lienzo un 20 % más chico y parece que la app recorta la interfaz. No
+recorta nada.
 
-Verificado que **no es nuestro código**: el mismo layout mide correcto en Chrome
-(2 asides, 1 footer, 2 separadores) tanto en dev como en el build de producción,
-y el bug reproduce en el template limpio de Wails sin una línea propia. Tampoco
-es una regresión: pasa igual en beta.16 y en beta.17. El manifest declara
-`permonitorv2` y `WebView2CompositionHosting` está en `false`, así que Wails sí
-pide `BOUNDS_MODE_USE_RAW_PIXELS`.
-
-Pendiente: reportarlo upstream y decidir si se aplica una compensación en la app
-mientras tanto. **La Iteración 0 no cierra hasta que esto esté resuelto** — el
-criterio del plan es usarla, y hoy no se puede en una pantalla escalada.
+Si hace falta medir la ventana desde un script, primero
+`SetThreadDpiAwarenessContext(-4)`. Y para verificar la UI, dos caminos que sí
+sirven: medir el DOM en Chrome contra el `dist` de producción
+(`pnpm preview` + `getBoundingClientRect`), y preguntarle al humano qué ve. Los
+números cierran: cliente real 1782 px físicos ÷ 1.25 = 1426, exactamente el
+viewport CSS que reporta el webview.
 
 **Fuentes autohospedadas, no Google Fonts.**
 Los artboards cargan Inter y JetBrains Mono desde `fonts.googleapis.com`, pero el

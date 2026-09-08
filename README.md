@@ -8,10 +8,6 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > **Estado: Iteración 0 — esqueleto.** Compila, abre ventana, tiene el sistema de
 > componentes y CI, pero todavía no se conecta a ninguna base.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
->
-> ⚠️ **Bug abierto:** con escalado de pantalla distinto de 100 %, la ventana
-> recorta cerca del 20 % de la UI. Es de Wails, no del layout, y reproduce en su
-> template limpio. Detalle en el registro de decisiones.
 
 ---
 
