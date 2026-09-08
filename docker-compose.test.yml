@@ -55,3 +55,30 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # Servidor SSH para los tests del túnel de la Iteración 3.
+  #
+  # Sin esto no se puede verificar lo único que importa de verdad acá: que el
+  # TOFU sea real, que una clave cambiada se rechace, y que el reenvío llegue a
+  # Postgres. Son las tres cosas que no se pueden dar por sentadas.
+  #
+  # PASSWORD_ACCESS con credenciales de juguete: la prueba de autenticación por
+  # clave usa una que generan los tests, no una guardada en el repo.
+  sshd:
+    build:
+      context: ./docker/sshd
+    ports:
+      - "52222:2222"
+    # El túnel necesita AllowTcpForwarding. La imagen lo trae habilitado, pero
+    # de eso no hay garantía escrita en ningún lado: si un cambio de default lo
+    # apagara, los tests del túnel fallarían con un error de reenvío y no con
+    # "la configuración cambió". El test lo comprueba explícitamente.
+    healthcheck:
+      # netstat y no `nc -z`: el nc de busybox no soporta -z y sale con 1
+      # aunque el puerto esté escuchando. El healthcheck daba "unhealthy" con el
+      # servidor perfectamente sano, y en CI eso rompe el job sin que nada esté
+      # roto de verdad.
+      test: ["CMD-SHELL", "netstat -ltn | grep -q ':2222 '"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

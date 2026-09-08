@@ -1,0 +1,35 @@
+# Configuración del servidor SSH de pruebas. Todo acá es para tests.
+
+Port 2222
+AddressFamily any
+ListenAddress 0.0.0.0
+
+# Lo que hace falta para el túnel. La imagen que se probó primero lo tenía en
+# `no`, y sin esto el reenvío falla con un error que no dice que está prohibido.
+AllowTcpForwarding yes
+
+# Que el túnel no pueda escuchar en interfaces públicas del contenedor. No lo
+# necesitamos —el reenvío va del cliente al servidor, no al revés— y dejarlo
+# abierto convertiría el servidor de pruebas en un proxy.
+GatewayPorts no
+
+PasswordAuthentication yes
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+
+PermitRootLogin no
+PermitEmptyPasswords no
+
+# OpenSSH 9.8 penaliza a quien se conecta sin intentar autenticarse, y eso es
+# exactamente lo que hace la inspección de la clave del host. En un servidor de
+# verdad la penalización es correcta y hay que convivir con ella —por eso el
+# primer contacto usa UNA sola conexión sin autenticar y no dos—, pero acá los
+# tests hacen decenas seguidas y el servidor terminaría rechazándolas.
+PerSourcePenalties no
+
+# Sin reenvío de X11 ni de agente: los tests no los usan y son superficie de más.
+X11Forwarding no
+AllowAgentForwarding no
+
+Subsystem sftp /usr/lib/ssh/sftp-server
+LogLevel INFO

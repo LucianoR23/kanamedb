@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -141,6 +142,17 @@ type ConnectOptions struct {
 	// StatementTimeout corta del lado del servidor. Cancelar desde el cliente
 	// depende de que el cliente siga vivo; esto no.
 	StatementTimeout time.Duration
+
+	// DialFunc reemplaza cómo se abre el socket hacia la base.
+	//
+	// Es lo que hace posible el túnel SSH sin abrir ningún puerto local. Un
+	// túnel se implementa habitualmente escuchando en 127.0.0.1 y reenviando,
+	// pero un puerto en loopback es alcanzable desde cualquier pestaña del
+	// navegador — la misma razón por la que esta aplicación no tiene servidor
+	// HTTP. Con esto, la conexión existe solo dentro del proceso.
+	//
+	// Nil usa el discado normal de pgx.
+	DialFunc pgconn.DialFunc
 }
 
 func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpool.Pool, *ServerInfo, *Failure) {
@@ -164,6 +176,22 @@ func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpo
 	if opts.StatementTimeout > 0 {
 		cfg.ConnConfig.RuntimeParams["statement_timeout"] =
 			strconv.FormatInt(opts.StatementTimeout.Milliseconds(), 10)
+	}
+	if opts.DialFunc != nil {
+		cfg.ConnConfig.DialFunc = opts.DialFunc
+		// Y la resolución de nombres pasa a hacerse del otro lado del túnel.
+		//
+		// pgx resuelve el host ANTES de llamar a DialFunc y le pasa una IP. Con
+		// un túnel eso es al revés de lo que hace falta: el nombre de la base
+		// —`db.interna`, o el nombre de un servicio— suele resolver solo desde
+		// el bastión, no desde esta máquina. Sin esto, conectar por túnel falla
+		// con "no such host" aunque el túnel esté perfecto.
+		//
+		// Va acá y no como opción aparte a propósito: quien ponga DialFunc sin
+		// esto se come ese error, y el error no se parece en nada a la causa.
+		cfg.ConnConfig.LookupFunc = func(_ context.Context, host string) ([]string, error) {
+			return []string{host}, nil
+		}
 	}
 	// Solo si el DSN no trajo el suyo: un connect_timeout explícito en la cadena
 	// de conexión es una decisión del usuario, y pisarla hacía que Connect y

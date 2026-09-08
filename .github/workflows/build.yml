@@ -175,20 +175,6 @@ jobs:
       matrix:
         # La estable actual, más las anteriores que se declaran soportadas.
         postgres: ["18", "17", "16", "14"]
-    services:
-      postgres:
-        image: postgres:${{ matrix.postgres }}-alpine
-        env:
-          POSTGRES_USER: kaname
-          POSTGRES_PASSWORD: kaname
-          POSTGRES_DB: kaname_test
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U kaname -d kaname_test"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 30
     steps:
       - uses: actions/checkout@v5
 
@@ -197,13 +183,26 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Se levanta con el mismo compose que se usa localmente, y no con los
+      # `services:` de Actions, por una razón concreta: el servidor SSH de
+      # pruebas se construye desde un Dockerfile propio —hizo falta para poder
+      # habilitar AllowTcpForwarding— y `services:` solo acepta imágenes ya
+      # publicadas.
+      #
+      # De paso, CI y la máquina de desarrollo levantan exactamente lo mismo, y
+      # un test que pasa en una tiene motivos para pasar en la otra.
+      - name: Levantar los motores de prueba
+        env:
+          PG_VERSION: ${{ matrix.postgres }}
+        run: docker compose -f docker-compose.test.yml up -d --wait
+
       # -count=1 obligatorio: la caché de go test no sabe contra qué versión de
       # motor está corriendo, así que sin él una corrida contra la 16 podría
       # devolver el resultado cacheado de la corrida contra la 18.
       #
-      # KANAME_REQUIRE_POSTGRES convierte el "saltear" en "fallar": si el mapeo
-      # de puertos o el tag de la imagen se rompen, este job tiene que ponerse
-      # rojo y no verde sin haber probado nada.
+      # KANAME_REQUIRE_POSTGRES y KANAME_REQUIRE_SSH convierten el "saltear" en
+      # "fallar": si el mapeo de puertos o el tag de la imagen se rompen, este
+      # job tiene que ponerse rojo y no verde sin haber probado nada.
       #
       # KANAME_EXPECT_PG_MAJOR verifica que esta pata esté hablando con la
       # versión que dice, y no cuatro veces con el mismo servidor.
@@ -215,8 +214,15 @@ jobs:
       - name: Tests de integración
         env:
           KANAME_REQUIRE_POSTGRES: "1"
+          KANAME_REQUIRE_SSH: "1"
           KANAME_EXPECT_PG_MAJOR: ${{ matrix.postgres }}
         run: go test -count=1 ./internal/...
+
+      # Si un test de SSH falla, el motivo suele estar del lado del servidor y
+      # no del cliente. Sin esto habría que adivinar.
+      - name: Logs de los motores si algo falló
+        if: failure()
+        run: docker compose -f docker-compose.test.yml logs --tail 60
 
   build:
     name: Build ${{ matrix.arch }}
