@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -122,6 +123,28 @@ func ParseURI(raw string) (Parsed, error) {
 		c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(modo)))
 	}
 
+	// El DSN se rearma desde los campos de la conexión, así que todo parámetro
+	// que no tenga campo propio se pierde al guardar. Perderlo está bien;
+	// perderlo en silencio no: quien pega la cadena que le dio su proveedor
+	// asume que se respeta entera, y acá se respeta solo sslmode.
+	if ignorados := paramsIgnorados(u.Query()); len(ignorados) > 0 {
+		out.Notices = append(out.Notices,
+			"Kaname no guarda estos parámetros de la cadena y se descartaron: "+
+				strings.Join(ignorados, ", ")+".")
+	}
+
+	// channel_binding merece su propia frase porque es el único descartado que
+	// cambia la seguridad de la conexión, y es el default de varios proveedores
+	// alojados. pgx igual lo negocia cuando el servidor lo ofrece —su default
+	// es "prefer"—; lo que se pierde es fallar cuando no lo ofrece, que es la
+	// defensa contra un intermediario que lo saque de la lista.
+	if strings.EqualFold(u.Query().Get("channel_binding"), "require") {
+		out.Notices = append(out.Notices,
+			"channel_binding=require se descartó: la conexión lo sigue usando si el servidor lo ofrece, "+
+				"pero ya no falla si no lo ofrece. Con un sslmode que verifica el certificado da lo mismo; "+
+				"con sslmode=require, no.")
+	}
+
 	// Una secuencia %XX en la contraseña es ambigua y no se puede resolver:
 	// `%20` puede ser un espacio escapado o un por ciento seguido de "20". El
 	// estándar dice que es lo primero, así que se interpreta así y se avisa.
@@ -135,6 +158,24 @@ func ParseURI(raw string) (Parsed, error) {
 	}
 
 	return out, nil
+}
+
+// paramsIgnorados devuelve, ordenados, los parámetros de la cadena que no
+// sobreviven a guardar la conexión. sslmode es el único con campo propio.
+//
+// Se ordenan para que el aviso sea el mismo siempre: el recorrido de un map en
+// Go no tiene orden, y un mensaje que cambia de orden entre corridas parece un
+// error distinto cada vez.
+func paramsIgnorados(q url.Values) []string {
+	nombres := make([]string, 0, len(q))
+	for k := range q {
+		if strings.EqualFold(k, "sslmode") {
+			continue
+		}
+		nombres = append(nombres, k)
+	}
+	slices.Sort(nombres)
+	return nombres
 }
 
 // rawUserinfo devuelve la parte usuario:contraseña de la cadena, tal como venía.

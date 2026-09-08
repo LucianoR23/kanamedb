@@ -259,3 +259,51 @@ func TestElErrorDeUnPorcientoSueltoExplicaQueHacer(t *testing.T) {
 		t.Errorf("el mensaje no ofrece la salida simple: %v", err)
 	}
 }
+
+// Kaname rearma el DSN desde los campos, así que lo que no tiene campo se
+// pierde. La cadena que dan los proveedores alojados trae varios de esos, y
+// perderlos callado hace que la conexión sea distinta de la que el usuario
+// pegó sin que nada se lo diga.
+func TestParseURIAvisaQueDescartaParametros(t *testing.T) {
+	// Tal cual la entrega Neon, más un par para verificar el orden.
+	raw := "postgres://usuario:secreto@ep-abc-123.us-east-2.aws.neon.tech/neondb" +
+		"?sslmode=require&channel_binding=require&connect_timeout=10&application_name=psql"
+
+	got, err := ParseURI(raw)
+	if err != nil {
+		t.Fatalf("ParseURI() error: %v", err)
+	}
+
+	// sslmode sí tiene campo: ese no se descarta.
+	if got.Connection.SSLMode != SSLRequire {
+		t.Errorf("SSLMode = %q, se esperaba require", got.Connection.SSLMode)
+	}
+
+	juntos := strings.Join(got.Notices, "\n")
+	if !strings.Contains(juntos, "channel_binding") {
+		t.Errorf("ningún aviso menciona channel_binding.\nAvisos:\n%s", juntos)
+	}
+	// El orden tiene que ser estable: el recorrido de un map no lo es.
+	const esperado = "application_name, channel_binding, connect_timeout"
+	if !strings.Contains(juntos, esperado) {
+		t.Errorf("la lista de descartados no es %q.\nAvisos:\n%s", esperado, juntos)
+	}
+	// sslmode no se descartó, así que no puede figurar en esa lista.
+	if strings.Contains(juntos, "sslmode,") || strings.Contains(juntos, ", sslmode") {
+		t.Errorf("sslmode figura como descartado y sí se guarda.\nAvisos:\n%s", juntos)
+	}
+}
+
+// Sin parámetros de más no hay nada que avisar: un aviso que aparece siempre
+// deja de leerse.
+func TestParseURINoAvisaCuandoNoDescartaNada(t *testing.T) {
+	got, err := ParseURI("postgres://u:p@host:5432/db?sslmode=verify-full")
+	if err != nil {
+		t.Fatalf("ParseURI() error: %v", err)
+	}
+	for _, n := range got.Notices {
+		if strings.Contains(n, "descartaron") || strings.Contains(n, "channel_binding") {
+			t.Errorf("avisó de descartes sin haber descartado nada: %q", n)
+		}
+	}
+}

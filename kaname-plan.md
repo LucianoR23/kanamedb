@@ -358,6 +358,18 @@ Con tag, el código de test no compila en el día a día y un error ahí se
 descubre tarde. Sin tag, siempre pasa por `vet` y se saltea con un mensaje que
 dice cómo levantar la base.
 
+**Pegar una URI avisa qué parámetros se descartan.**
+El DSN se rearma desde los campos de la conexión, así que de la cadena pegada
+solo sobrevive `sslmode`. `channel_binding`, `connect_timeout`, `options` y
+compañía se perdían en silencio, y la cadena que entregan los proveedores
+alojados los trae de fábrica. `channel_binding=require` tiene aviso propio
+porque es el único descarte que cambia la seguridad: pgx lo sigue negociando
+—su default es `prefer`—, lo que se pierde es *fallar* cuando el servidor no lo
+ofrece, que es justamente la defensa contra un intermediario que lo saque de la
+lista anunciada. Guardarlos como campos propios queda pendiente; el aviso es lo
+que impide que la conexión guardada sea distinta de la que el usuario pegó sin
+que nada se lo diga.
+
 **CI crea `frontend/dist` antes de tocar Go; el marcador no se commitea.**
 El primer push puso los cinco jobs en rojo con `pattern all:frontend/dist: no
 matching files found`. El paquete `main` embebe el frontend construido, y
