@@ -115,5 +115,14 @@ function metaTabla(t: Table): string {
   if (!t.readable) return "sin permiso";
   if (t.rowEstimate < 0) return "sin analizar";
   if (t.rowEstimate === 0) return "vacía";
-  return "~" + t.rowEstimate.toLocaleString("es");
+  return "~" + agrupar(t.rowEstimate);
+}
+
+/** Formatea con separador de miles SIEMPRE.
+ *
+ *  `toLocaleString("es")` no agrupa cuatro cifras, que es lo correcto
+ *  tipográficamente en español pero deja `4182` al lado de `12.481` en la misma
+ *  columna. Estos números se comparan de un vistazo: la consistencia gana. */
+function agrupar(n: number): string {
+  return n.toLocaleString("es", { useGrouping: true, minimumFractionDigits: 0 });
 }
