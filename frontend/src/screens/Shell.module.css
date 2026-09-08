@@ -67,7 +67,10 @@
 }
 
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.mainBody { flex: 1; min-height: 0; overflow: auto; background: var(--bg-inset); }
+/* Contenedor de posicionamiento de las pestañas, que se apilan encima.
+ * Sin overflow propio: cada pantalla maneja su propio desplazamiento, y dos
+ * niveles de scroll anidados hacen que la rueda mueva el equivocado. */
+.mainBody { position: relative; flex: 1; min-height: 0; background: var(--bg-inset); }
 
 .rail {
   flex: none;
@@ -162,4 +165,17 @@
   font: 400 11px/1.5 var(--font-ui);
   color: var(--text-2);
   text-wrap: pretty;
+}
+
+/* Cada pestaña ocupa el panel entero; las inactivas se esconden en vez de
+ * desmontarse, para que conserven su estado. */
+.pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.paneHidden {
+  display: none;
 }

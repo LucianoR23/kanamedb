@@ -31,6 +31,7 @@ const PANEL = { min: 220, max: 520, initial: 300 };
  */
 export function SqlEditorScreen({
   tabId,
+  active,
   snapshot,
   readOnly,
   statementTimeoutSeconds,
@@ -38,6 +39,9 @@ export function SqlEditorScreen({
   connectionLabel,
 }: {
   tabId: string;
+  /** La pestaña está a la vista. CodeMirror necesita saberlo para volver a
+   *  medirse: mientras estuvo escondida su alto era cero. */
+  active: boolean;
   snapshot: Snapshot | null;
   readOnly: boolean;
   statementTimeoutSeconds: number;
@@ -148,6 +152,7 @@ export function SqlEditorScreen({
           value={sql}
           onChange={setSql}
           snapshot={snapshot}
+          active={active}
           onRun={() => void ejecutar()}
           onCursor={(linea, columna) => setCursor({ linea, columna })}
         />

@@ -94,14 +94,15 @@ export function Shell({
     setActiveTab(id);
   }
 
-  // De dónde salen los props de la pestaña activa. Se deriva del id en vez de
+  // Qué objeto representa el id de una pestaña. Se deriva del id en vez de
   // guardarlo aparte: dos fuentes para el mismo dato se desincronizan.
-  const activa = tabs.find((t) => t.id === activeTab) ?? null;
-  const esTabla = activa?.id.startsWith("tabla:") ?? false;
-  const objeto = esTabla ? (activa?.id.slice("tabla:".length) ?? "") : "";
-  const punto = objeto.indexOf(".");
-  const esquemaActivo = punto >= 0 ? objeto.slice(0, punto) : "";
-  const tablaActiva = punto >= 0 ? objeto.slice(punto + 1) : "";
+  function objetoDe(id: string): { schema: string; table: string } | null {
+    if (!id.startsWith("tabla:")) return null;
+    const resto = id.slice("tabla:".length);
+    const punto = resto.indexOf(".");
+    if (punto < 0) return null;
+    return { schema: resto.slice(0, punto), table: resto.slice(punto + 1) };
+  }
 
   return (
     <div className={cx(styles.shell, envClass)}>
@@ -202,34 +203,55 @@ export function Shell({
               setActiveTab((prev) => (prev === id ? null : prev));
             }}
           />
+          {/* Se montan TODAS las pestañas y se esconden las inactivas.
+           *
+           * Antes se montaba solo la activa, así que cambiar de pestaña
+           * desmontaba la anterior y se perdía lo que hubiera escrito en el
+           * editor. Perder texto tipeado por navegar es de lo peor que puede
+           * hacer una aplicación: no hay deshacer que lo recupere.
+           *
+           * El costo es tener varios editores y varias grillas vivas a la vez.
+           * Es aceptable para un puñado de pestañas y es el precio de que una
+           * pestaña conserve su estado —texto, resultado, scroll, deshacer—
+           * como lo conserva en cualquier editor. */}
           <div className={styles.mainBody}>
-            {!activa ? (
+            {tabs.length === 0 ? (
               <div className={styles.empty}>
                 <p className={styles.emptyTitle}>Nada abierto</p>
                 <p className={styles.emptyHint}>
                   Elegí una tabla del árbol, o abrí una consulta con «Nueva consulta».
                 </p>
               </div>
-            ) : esTabla ? (
-              <TableDataScreen
-                key={activa.id}
-                tabId={activa.id}
-                schema={esquemaActivo}
-                table={tablaActiva}
-                readOnly={session?.readOnly ?? false}
-                snapshot={snapshot}
-              />
-            ) : (
-              <SqlEditorScreen
-                key={activa.id}
-                tabId={activa.id}
-                snapshot={snapshot}
-                readOnly={session?.readOnly ?? false}
-                statementTimeoutSeconds={session?.statementTimeoutSeconds ?? 0}
-                rowLimit={session?.rowLimit ?? 0}
-                connectionLabel={session?.describe ?? ""}
-              />
-            )}
+            ) : null}
+            {tabs.map((t) => {
+              const obj = objetoDe(t.id);
+              return (
+                <div
+                  key={t.id}
+                  className={cx(styles.pane, t.id !== activeTab && styles.paneHidden)}
+                >
+                  {obj ? (
+                    <TableDataScreen
+                      tabId={t.id}
+                      schema={obj.schema}
+                      table={obj.table}
+                      readOnly={session?.readOnly ?? false}
+                      snapshot={snapshot}
+                    />
+                  ) : (
+                    <SqlEditorScreen
+                      tabId={t.id}
+                      active={t.id === activeTab}
+                      snapshot={snapshot}
+                      readOnly={session?.readOnly ?? false}
+                      statementTimeoutSeconds={session?.statementTimeoutSeconds ?? 0}
+                      rowLimit={session?.rowLimit ?? 0}
+                      connectionLabel={session?.describe ?? ""}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </main>
 

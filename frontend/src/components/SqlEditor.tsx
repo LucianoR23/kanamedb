@@ -105,6 +105,7 @@ export function SqlEditor({
   onRun,
   onCursor,
   readOnly = false,
+  active = true,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -112,6 +113,8 @@ export function SqlEditor({
   onRun: () => void;
   onCursor?: (line: number, col: number) => void;
   readOnly?: boolean;
+  /** El editor está a la vista. Ver el efecto de abajo. */
+  active?: boolean;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -190,6 +193,13 @@ export function SqlEditor({
       ),
     });
   }, [snapshot]);
+
+  // Mientras la pestaña está escondida el editor mide cero, y al reaparecer
+  // CodeMirror no se entera solo: queda con el alto viejo y el texto cortado o
+  // invisible. requestMeasure se lo dice.
+  useEffect(() => {
+    if (active) view.current?.requestMeasure();
+  }, [active]);
 
   // Sincroniza el documento cuando el valor viene de afuera —cambiar de pestaña,
   // cargar una consulta guardada—. Se compara antes de despachar: sin eso,
