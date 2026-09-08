@@ -49,6 +49,14 @@ type ServerInfo struct {
 	// lectura, otra causa de escrituras que fallan sin explicación obvia.
 	DefaultReadOnly bool `json:"defaultReadOnly"`
 
+	// VisibleTables es cuántas tablas ve el usuario en esta base.
+	//
+	// Dice algo que la versión del servidor no dice: que las credenciales no
+	// solo entran, sino que además alcanzan para ver algo. Conectar bien y ver
+	// cero tablas casi siempre significa que faltan permisos o que la base no
+	// es la que el usuario cree.
+	VisibleTables int `json:"visibleTables"`
+
 	// Latency es lo que tardó el ida y vuelta de la verificación.
 	Latency time.Duration `json:"-"`
 	// LatencyMS es lo mismo, en milisegundos, para el frontend.
@@ -202,5 +210,25 @@ func readServerInfo(ctx context.Context, conn *pgx.Conn) (*ServerInfo, error) {
 		return nil, fmt.Errorf("leer la información del servidor: %w", err)
 	}
 	info.Display = "PostgreSQL " + short
+
+	// Conteo aparte porque puede fallar por permisos sin que eso invalide la
+	// conexión: si no se puede contar, queda en cero y la UI lo muestra como
+	// "sin tablas visibles", que es exactamente lo que pasa.
+	if err := conn.QueryRow(ctx, visibleTablesQuery).Scan(&info.VisibleTables); err != nil {
+		info.VisibleTables = 0
+	}
 	return &info, nil
 }
+
+// visibleTablesQuery cuenta las tablas que el usuario puede ver, con los mismos
+// filtros que usa la introspección para que los dos números coincidan.
+const visibleTablesQuery = `
+	SELECT count(*)
+	FROM pg_catalog.pg_class c
+	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+	WHERE c.relkind IN ('r', 'p')
+	  AND NOT c.relispartition
+	  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+	  AND n.nspname NOT LIKE 'pg\_toast%'
+	  AND n.nspname NOT LIKE 'pg\_temp%'
+	  AND pg_catalog.has_schema_privilege(n.oid, 'USAGE')`

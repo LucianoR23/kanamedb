@@ -28,30 +28,30 @@ func TestURIUsaElEsquemaQueLaGenteReconoce(t *testing.T) {
 }
 
 func TestParseURICompletaLosCampos(t *testing.T) {
-	c, pw, err := ParseURI("postgresql://app_rw:s3cr3t@stg-db.internal:6432/shop_stg?sslmode=verify-full")
+	got, err := ParseURI("postgresql://app_rw:s3cr3t@stg-db.internal:6432/shop_stg?sslmode=verify-full")
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if c.Engine != Postgres {
-		t.Errorf("Engine = %q", c.Engine)
+	if got.Connection.Engine != Postgres {
+		t.Errorf("Engine = %q", got.Connection.Engine)
 	}
-	if c.Host != "stg-db.internal" {
-		t.Errorf("Host = %q", c.Host)
+	if got.Connection.Host != "stg-db.internal" {
+		t.Errorf("Host = %q", got.Connection.Host)
 	}
-	if c.Port != 6432 {
-		t.Errorf("Port = %d", c.Port)
+	if got.Connection.Port != 6432 {
+		t.Errorf("Port = %d", got.Connection.Port)
 	}
-	if c.Database != "shop_stg" {
-		t.Errorf("Database = %q", c.Database)
+	if got.Connection.Database != "shop_stg" {
+		t.Errorf("Database = %q", got.Connection.Database)
 	}
-	if c.User != "app_rw" {
-		t.Errorf("User = %q", c.User)
+	if got.Connection.User != "app_rw" {
+		t.Errorf("User = %q", got.Connection.User)
 	}
-	if c.SSLMode != SSLVerifyFull {
-		t.Errorf("SSLMode = %q", c.SSLMode)
+	if got.Connection.SSLMode != SSLVerifyFull {
+		t.Errorf("SSLMode = %q", got.Connection.SSLMode)
 	}
-	if pw != "s3cr3t" {
-		t.Errorf("la contraseña no se devolvió aparte: %q", pw)
+	if got.Password != "s3cr3t" {
+		t.Errorf("la contraseña no se devolvió aparte: %q", got.Password)
 	}
 }
 
@@ -59,15 +59,15 @@ func TestParseURICompletaLosCampos(t *testing.T) {
 // que se serializa a disco.
 func TestParseURINoDejaLaContrasenaEnLaConexion(t *testing.T) {
 	const pw = "ContraseñaQueNoDebeQuedar"
-	c, devuelta, err := ParseURI("postgresql://u:" + pw + "@h:5432/db")
+	got, err := ParseURI("postgresql://u:" + pw + "@h:5432/db")
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if devuelta != pw {
-		t.Errorf("la contraseña devuelta = %q", devuelta)
+	if got.Password != pw {
+		t.Errorf("la contraseña devuelta = %q", got.Password)
 	}
 	// Ninguna representación de la conexión puede contenerla.
-	for _, s := range []string{c.URI(), c.Describe(), c.String()} {
+	for _, s := range []string{got.Connection.URI(), got.Connection.Describe(), got.Connection.String()} {
 		if strings.Contains(s, pw) {
 			t.Errorf("la contraseña quedó en %q", s)
 		}
@@ -75,12 +75,12 @@ func TestParseURINoDejaLaContrasenaEnLaConexion(t *testing.T) {
 }
 
 func TestParseURIUsaElPuertoPorDefectoSiFalta(t *testing.T) {
-	c, _, err := ParseURI("postgres://u@h/db")
+	got, err := ParseURI("postgres://u@h/db")
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if c.Port != 5432 {
-		t.Errorf("Port = %d, se esperaba el default 5432", c.Port)
+	if got.Connection.Port != 5432 {
+		t.Errorf("Port = %d, se esperaba el default 5432", got.Connection.Port)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestParseURIRechazaLoQueNoPuedeInterpretar(t *testing.T) {
 	}
 	for nombre, entrada := range casos {
 		t.Run(nombre, func(t *testing.T) {
-			if _, _, err := ParseURI(entrada); err == nil {
+			if _, err := ParseURI(entrada); err == nil {
 				t.Errorf("ParseURI(%q) no falló", entrada)
 			}
 		})
@@ -105,7 +105,7 @@ func TestParseURIRechazaLoQueNoPuedeInterpretar(t *testing.T) {
 // el mensaje la filtraría a un toast o a un log.
 func TestElErrorDeParseNoFiltraLaContrasena(t *testing.T) {
 	const pw = "SecretoQueNoDebeSalir"
-	_, _, err := ParseURI("postgres://u:" + pw + "@h:99999999999999999999/db")
+	_, err := ParseURI("postgres://u:" + pw + "@h:99999999999999999999/db")
 	if err == nil {
 		t.Skip("esta URI resultó válida; el caso no aplica")
 	}
@@ -118,23 +118,23 @@ func TestElErrorDeParseNoFiltraLaContrasena(t *testing.T) {
 // lo que hace útil el par Copy / Paste to fill fields de S03.
 func TestURIYParseURISonInversas(t *testing.T) {
 	original := valid()
-	vuelta, pw, err := ParseURI(original.URI())
+	got, err := ParseURI(original.URI())
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if pw != "" {
-		t.Errorf("la URI mostrada no debería traer contraseña, trajo %q", pw)
+	if got.Password != "" {
+		t.Errorf("la URI mostrada no debería traer contraseña, trajo %q", got.Password)
 	}
 	for _, campo := range []struct {
 		nombre    string
 		got, want any
 	}{
-		{"Engine", vuelta.Engine, original.Engine},
-		{"Host", vuelta.Host, original.Host},
-		{"Port", vuelta.Port, original.Port},
-		{"Database", vuelta.Database, original.Database},
-		{"User", vuelta.User, original.User},
-		{"SSLMode", vuelta.SSLMode, original.SSLMode},
+		{"Engine", got.Connection.Engine, original.Engine},
+		{"Host", got.Connection.Host, original.Host},
+		{"Port", got.Connection.Port, original.Port},
+		{"Database", got.Connection.Database, original.Database},
+		{"User", got.Connection.User, original.User},
+		{"SSLMode", got.Connection.SSLMode, original.SSLMode},
 	} {
 		if campo.got != campo.want {
 			t.Errorf("%s = %v, se esperaba %v", campo.nombre, campo.got, campo.want)
@@ -145,18 +145,18 @@ func TestURIYParseURISonInversas(t *testing.T) {
 // ParseURI llena solo lo que la cadena trae: el resto queda en cero para que
 // quien llama decida si conserva lo que ya tenía en el formulario.
 func TestParseURINoInventaCampos(t *testing.T) {
-	c, _, err := ParseURI("postgres://h:5432/db")
+	got, err := ParseURI("postgres://h:5432/db")
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if c.Name != "" {
-		t.Errorf("Name = %q, la URI no lo trae", c.Name)
+	if got.Connection.Name != "" {
+		t.Errorf("Name = %q, la URI no lo trae", got.Connection.Name)
 	}
-	if c.ID != "" {
-		t.Errorf("ID = %q, la URI no lo trae", c.ID)
+	if got.Connection.ID != "" {
+		t.Errorf("ID = %q, la URI no lo trae", got.Connection.ID)
 	}
-	if c.Environment != "" {
-		t.Errorf("Environment = %q: la URI no dice el entorno, y adivinarlo sería peligroso", c.Environment)
+	if got.Connection.Environment != "" {
+		t.Errorf("Environment = %q: la URI no dice el entorno, y adivinarlo sería peligroso", got.Connection.Environment)
 	}
 }
 
@@ -172,18 +172,18 @@ func TestParseURIAceptaContrasenasConAcentos(t *testing.T) {
 	}
 	for nombre, pw := range casos {
 		t.Run(nombre, func(t *testing.T) {
-			c, devuelta, err := ParseURI("postgresql://app_rw:" + pw + "@h:5432/db")
+			got, err := ParseURI("postgresql://app_rw:" + pw + "@h:5432/db")
 			if err != nil {
 				t.Fatalf("ParseURI() con contraseña %q falló: %v", pw, err)
 			}
-			if devuelta != pw {
-				t.Errorf("la contraseña no sobrevivió: %q != %q", devuelta, pw)
+			if got.Password != pw {
+				t.Errorf("la contraseña no sobrevivió: %q != %q", got.Password, pw)
 			}
-			if c.User != "app_rw" {
-				t.Errorf("User = %q", c.User)
+			if got.Connection.User != "app_rw" {
+				t.Errorf("User = %q", got.Connection.User)
 			}
-			if c.Host != "h" {
-				t.Errorf("Host = %q", c.Host)
+			if got.Connection.Host != "h" {
+				t.Errorf("Host = %q", got.Connection.Host)
 			}
 		})
 	}
@@ -193,21 +193,69 @@ func TestParseURIAceptaContrasenasConAcentos(t *testing.T) {
 // volver igual.
 func TestParseURINoCodificaDosVeces(t *testing.T) {
 	// %40 es una arroba escapada.
-	_, pw, err := ParseURI("postgresql://u:a%40b@h:5432/db")
+	got, err := ParseURI("postgresql://u:a%40b@h:5432/db")
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if pw != "a@b" {
-		t.Errorf("la contraseña = %q, se esperaba a@b", pw)
+	if got.Password != "a@b" {
+		t.Errorf("la contraseña = %q, se esperaba a@b", got.Password)
 	}
 }
 
 func TestParseURIAceptaHostYBaseConAcentos(t *testing.T) {
-	c, _, err := ParseURI("postgresql://u@h:5432/contabilidad_españa")
+	got, err := ParseURI("postgresql://u@h:5432/contabilidad_españa")
 	if err != nil {
 		t.Fatalf("ParseURI() error: %v", err)
 	}
-	if c.Database != "contabilidad_españa" {
-		t.Errorf("Database = %q", c.Database)
+	if got.Connection.Database != "contabilidad_españa" {
+		t.Errorf("Database = %q", got.Connection.Database)
+	}
+}
+
+// Una secuencia %XX en la contraseña es ambigua y no se puede resolver: `%20`
+// puede ser un espacio escapado o un por ciento seguido de "20". Se interpreta
+// como manda el estándar y se avisa, porque si no el usuario pega, prueba la
+// conexión, recibe "credenciales rechazadas" y no tiene cómo darse cuenta: el
+// campo está enmascarado.
+func TestAvisaCuandoLaContrasenaTeniaEscapesAmbiguos(t *testing.T) {
+	got, err := ParseURI("postgresql://u:100%descuento@h:5432/db")
+	if err != nil {
+		t.Fatalf("ParseURI() error: %v", err)
+	}
+	if len(got.Notices) == 0 {
+		t.Fatalf("no avisó nada; la contraseña quedó como %q", got.Password)
+	}
+	if !strings.Contains(got.Notices[0], "%") {
+		t.Errorf("el aviso no explica el problema: %q", got.Notices[0])
+	}
+	// Y la interpretación es la del estándar: %de es el byte 0xDE.
+	if got.Password == "100%descuento" {
+		t.Error("no debería adivinar: es un escape hexadecimal válido y el estándar dice cómo se lee")
+	}
+}
+
+// Sin escapes en la contraseña, no hay nada que aclarar.
+func TestNoAvisaSiNoHayEscapes(t *testing.T) {
+	got, err := ParseURI("postgresql://u:simple123@h:5432/db")
+	if err != nil {
+		t.Fatalf("ParseURI() error: %v", err)
+	}
+	if len(got.Notices) != 0 {
+		t.Errorf("avisó sin motivo: %v", got.Notices)
+	}
+}
+
+// Un % suelto no es un escape válido y url.Parse falla. El mensaje tiene que
+// decir qué hacer, no "no se pudo interpretar".
+func TestElErrorDeUnPorcientoSueltoExplicaQueHacer(t *testing.T) {
+	_, err := ParseURI("postgresql://u:a%b@h:5432/db")
+	if err == nil {
+		t.Fatal("ParseURI() no falló con un % suelto")
+	}
+	if !strings.Contains(err.Error(), "%25") {
+		t.Errorf("el mensaje no dice cómo escribir el por ciento: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Password") {
+		t.Errorf("el mensaje no ofrece la salida simple: %v", err)
 	}
 }

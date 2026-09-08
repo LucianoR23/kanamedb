@@ -230,3 +230,37 @@ func cambiarContrasena(t *testing.T, dsn, nueva string) string {
 	u.User = url.UserPassword(usuario, nueva)
 	return u.String()
 }
+
+// "24 tables visible" en el resultado del test de conexión dice que las
+// credenciales no solo entran, sino que alcanzan para ver algo.
+func TestProbeCuentaLasTablasVisibles(t *testing.T) {
+	pool, esq := conectar(t)
+
+	antes, f := Probe(context.Background(), testDSN(t), "base de pruebas")
+	if f != nil {
+		t.Fatalf("Probe() falló: %s", f.Message)
+	}
+
+	for i := 0; i < 3; i++ {
+		ejecutar(t, pool, fmt.Sprintf("CREATE TABLE %s.t%d (id int)", esq, i))
+	}
+
+	despues, f := Probe(context.Background(), testDSN(t), "base de pruebas")
+	if f != nil {
+		t.Fatalf("Probe() falló: %s", f.Message)
+	}
+	if got := despues.VisibleTables - antes.VisibleTables; got != 3 {
+		t.Errorf("la diferencia de tablas visibles = %d, se esperaba 3 (antes %d, después %d)",
+			got, antes.VisibleTables, despues.VisibleTables)
+	}
+
+	// Y tiene que coincidir con lo que ve la introspección.
+	snap, err := Introspect(context.Background(), pool)
+	if err != nil {
+		t.Fatalf("Introspect() error: %v", err)
+	}
+	if snap.TotalTables() != despues.VisibleTables {
+		t.Errorf("Probe cuenta %d tablas y la introspección ve %d: los filtros no coinciden",
+			despues.VisibleTables, snap.TotalTables())
+	}
+}

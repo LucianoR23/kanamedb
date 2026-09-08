@@ -38,28 +38,45 @@ func (c Connection) URI() string {
 	return u.String()
 }
 
+// Parsed es el resultado de interpretar una cadena de conexión pegada.
+type Parsed struct {
+	// Connection trae solo los campos que la cadena incluía. El resto queda en
+	// cero para que quien llama decida si conserva lo que ya tenía.
+	Connection Connection `json:"connection"`
+
+	// Password sale acá y NUNCA dentro de Connection: el struct que se
+	// serializa a disco no puede tener credenciales ni de paso.
+	Password string `json:"password"`
+
+	// Notices son avisos sobre cómo se interpretó la cadena. La UI los muestra
+	// después de pegar. Vacío si no hay nada que aclarar.
+	Notices []string `json:"notices"`
+}
+
 // ParseURI llena los campos de conexión a partir de una cadena pegada.
 //
-// Está detrás de "Paste to fill fields" en S03. Devuelve solo los campos que la
-// URI trae; el resto queda en cero para que quien llama decida si conserva lo
-// que ya tenía.
-//
-// Si la URI trae contraseña, se devuelve aparte y NUNCA dentro de la Connection:
-// el struct que se serializa a disco no puede tener credenciales ni de paso.
-func ParseURI(raw string) (Connection, string, error) {
+// Está detrás de "Paste to fill fields" en S03.
+func ParseURI(raw string) (Parsed, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return Connection{}, "", fmt.Errorf("la cadena de conexión está vacía")
+		return Parsed{}, fmt.Errorf("la cadena de conexión está vacía")
 	}
 
 	u, err := url.Parse(encodeNonASCII(raw))
 	if err != nil {
 		// El error de url.Parse cita la cadena entera, que puede llevar la
-		// contraseña. No se propaga.
-		return Connection{}, "", fmt.Errorf("no se pudo interpretar la cadena de conexión")
+		// contraseña. No se propaga tal cual.
+		if strings.Contains(err.Error(), "invalid URL escape") {
+			return Parsed{}, fmt.Errorf(
+				"la cadena tiene un %% suelto. En una URI el símbolo por ciento se escribe %%25; " +
+					"si tu contraseña lleva uno, es más simple escribirla en el campo Password")
+		}
+		return Parsed{}, fmt.Errorf("no se pudo interpretar la cadena de conexión")
 	}
 
-	var c Connection
+	var out Parsed
+	c := &out.Connection
+
 	switch strings.ToLower(u.Scheme) {
 	case "postgres", "postgresql":
 		c.Engine = Postgres
@@ -70,9 +87,9 @@ func ParseURI(raw string) (Connection, string, error) {
 	case "sqlite", "sqlite3", "file":
 		c.Engine = SQLite
 	case "":
-		return Connection{}, "", fmt.Errorf("la cadena no dice qué motor es: falta el esquema, por ejemplo postgresql://")
+		return Parsed{}, fmt.Errorf("la cadena no dice qué motor es: falta el esquema, por ejemplo postgresql://")
 	default:
-		return Connection{}, "", fmt.Errorf("motor desconocido en la cadena: %q", u.Scheme)
+		return Parsed{}, fmt.Errorf("motor desconocido en la cadena: %q", u.Scheme)
 	}
 
 	if c.Engine == SQLite {
@@ -80,14 +97,14 @@ func ParseURI(raw string) (Connection, string, error) {
 		if c.Database == "" {
 			c.Database = u.Opaque
 		}
-		return c, "", nil
+		return out, nil
 	}
 
 	c.Host = u.Hostname()
 	if p := u.Port(); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 1 || n > 65535 {
-			return Connection{}, "", fmt.Errorf("el puerto %q no es válido", p)
+			return Parsed{}, fmt.Errorf("el puerto %q no es válido", p)
 		}
 		c.Port = n
 	} else {
@@ -96,17 +113,49 @@ func ParseURI(raw string) (Connection, string, error) {
 
 	c.Database = strings.TrimPrefix(u.Path, "/")
 
-	var password string
 	if u.User != nil {
 		c.User = u.User.Username()
-		password, _ = u.User.Password()
+		out.Password, _ = u.User.Password()
 	}
 
 	if modo := u.Query().Get("sslmode"); modo != "" {
 		c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(modo)))
 	}
 
-	return c, password, nil
+	// Una secuencia %XX en la contraseña es ambigua y no se puede resolver:
+	// `%20` puede ser un espacio escapado o un por ciento seguido de "20". El
+	// estándar dice que es lo primero, así que se interpreta así y se avisa.
+	//
+	// Sin este aviso, el usuario pega, prueba la conexión, recibe "credenciales
+	// rechazadas" y no tiene cómo darse cuenta: el campo está enmascarado.
+	if out.Password != "" && strings.Contains(rawUserinfo(raw), "%") {
+		out.Notices = append(out.Notices,
+			"La contraseña de la cadena tenía secuencias %XX y se interpretaron como caracteres escapados. "+
+				"Si tu contraseña lleva un % literal, escribila en el campo Password.")
+	}
+
+	return out, nil
+}
+
+// rawUserinfo devuelve la parte usuario:contraseña de la cadena, tal como venía.
+//
+// Se mira la cadena original y no lo que devolvió url.Parse porque para eso
+// justamente hay que ver los escapes antes de que se resuelvan.
+func rawUserinfo(raw string) string {
+	i := strings.Index(raw, "://")
+	if i < 0 {
+		return ""
+	}
+	resto := raw[i+3:]
+	// La autoridad termina en la primera / ? o #.
+	if j := strings.IndexAny(resto, "/?#"); j >= 0 {
+		resto = resto[:j]
+	}
+	j := strings.LastIndex(resto, "@")
+	if j < 0 {
+		return ""
+	}
+	return resto[:j]
 }
 
 // encodeNonASCII escapa los bytes no ASCII de una cadena de conexión.
