@@ -205,6 +205,11 @@ func TestRunResuelveTiposDefinidosPorElUsuario(t *testing.T) {
 	if res.Columns[0].DataType != "humor" {
 		t.Errorf("DataType = %q, se esperaba \"humor\"", res.Columns[0].DataType)
 	}
+	// La categoría del catálogo dice que es un enum, y la interfaz lo edita con
+	// un selector de valores en vez de un campo de texto libre.
+	if res.Columns[0].Class != query.ClassEnum {
+		t.Errorf("Class = %q, se esperaba %q", res.Columns[0].Class, query.ClassEnum)
+	}
 	if got := *res.Rows[0][0]; got != "bien" {
 		t.Errorf("valor = %q", got)
 	}
@@ -250,5 +255,27 @@ func TestRunClasificaLosErroresDeSQL(t *testing.T) {
 	}
 	if f.Detail == "" {
 		t.Error("el fallo llegó sin el texto del motor, que es el que se reconoce")
+	}
+}
+
+// Los arrays se muestran elemento por elemento, así que hay que distinguirlos.
+// Postgres nombra el array de un tipo incorporado con guion bajo adelante.
+func TestRunReconoceLosArrays(t *testing.T) {
+	pool, esquema := conectar(t)
+	ejecutar(t, pool, fmt.Sprintf(`create type %s.humor as enum ('bien', 'mal')`, esquema))
+
+	res := correr(t, pool, fmt.Sprintf(
+		`select array['a','b']::text[] as incorporado,
+		        array['bien']::%s.humor[] as del_usuario`, esquema), RunOptions{})
+
+	if got := res.Columns[0].Class; got != query.ClassArray {
+		t.Errorf("text[]: Class = %q, se esperaba %q", got, query.ClassArray)
+	}
+	if got := res.Columns[1].Class; got != query.ClassArray {
+		t.Errorf("humor[]: Class = %q, se esperaba %q", got, query.ClassArray)
+	}
+	// Y el valor sigue llegando como el texto que arma el servidor.
+	if got := *res.Rows[0][0]; got != "{a,b}" {
+		t.Errorf("valor = %q, se esperaba \"{a,b}\"", got)
 	}
 }

@@ -1,0 +1,138 @@
+/* Grilla de resultados de S07.
+ *
+ * El encabezado va DENTRO del contenedor con scroll y pegado arriba, no como
+ * hermano de arriba como en el mock. En el mock las columnas entran justas y no
+ * hay desplazamiento horizontal; con cuarenta columnas sí lo hay, y con el
+ * encabezado afuera se desincroniza del cuerpo al desplazarse. Pegado adentro
+ * se ve igual y el desplazamiento queda sincronizado sin código. */
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-inset);
+  position: relative;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  height: 25px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.gutterHead,
+.gutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.gutter {
+  background: var(--bg-panel);
+}
+
+.headCell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  min-width: 0;
+  border-right: 1px solid var(--border-subtle);
+  cursor: pointer;
+  background: transparent;
+}
+.headCell:hover {
+  background: var(--bg-hover);
+}
+.headCellSorted {
+  background: var(--bg-active);
+}
+
+.tag {
+  flex: none;
+  white-space: nowrap;
+  font: 700 8px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.headName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-1);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.sortGlyph {
+  flex: none;
+  white-space: nowrap;
+  font: 400 8px var(--font-mono);
+  color: var(--accent);
+}
+
+/* El cuerpo tiene la altura total de todas las filas y cada fila se posiciona
+ * dentro. Es lo que hace que la barra de desplazamiento represente el resultado
+ * entero aunque solo existan en el DOM las filas visibles. */
+.body {
+  position: relative;
+  width: 100%;
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: grid;
+  height: 25px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+}
+.rowStriped {
+  background: var(--bg-stripe);
+}
+
+.cell {
+  display: block;
+  line-height: 25px;
+  padding: 0 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-right: 1px solid var(--border-subtle);
+  cursor: cell;
+  outline-offset: -1px;
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+}
+
+.cellSelected {
+  background: var(--bg-sel);
+  outline: 1px solid var(--accent);
+}
+
+/* NULL: ausencia de valor. En itálica y apagado para que no se confunda con un
+ * texto que literalmente diga "[null]". */
+.cellNull {
+  color: var(--cell-null);
+  font-style: italic;
+}
+
+/* Cadena vacía: un dato, no una ausencia. Se dibuja como "" y apagada, porque
+ * una celda en blanco sería indistinguible de NULL — que es justamente la
+ * distinción que el resultado se toma el trabajo de preservar. */
+.cellEmpty {
+  color: var(--text-dim);
+}

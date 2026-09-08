@@ -21,9 +21,17 @@ const (
 	ClassTemporal Class = "temporal"
 	ClassJSON     Class = "json"
 	ClassBinary   Class = "binary"
-	// ClassOther es el destino de los enums, los dominios, los arrays y todo lo
-	// que el usuario haya definido. Se muestran como texto sin pretender saber
-	// más de lo que sabemos.
+
+	// ClassEnum y ClassArray están separadas de ClassOther porque la interfaz
+	// las trata distinto: un enum se edita con un selector de valores y un
+	// array se muestra elemento por elemento. Postgres ya las distingue en
+	// typcategory, así que no hay que adivinarlas.
+	ClassEnum  Class = "enum"
+	ClassArray Class = "array"
+
+	// ClassOther es el destino de los dominios y de todo lo que el usuario haya
+	// definido y no entre en las anteriores. Se muestra como texto sin
+	// pretender saber más de lo que sabemos.
 	ClassOther Class = "other"
 )
 

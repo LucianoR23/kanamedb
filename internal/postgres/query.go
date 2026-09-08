@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -138,6 +139,12 @@ func columnaDe(f pgconn.FieldDescription, tm *pgtype.Map) query.Column {
 	col := query.Column{Name: f.Name, Class: claseDeOID(f.DataTypeOID)}
 	if t, ok := tm.TypeForOID(f.DataTypeOID); ok {
 		col.DataType = t.Name
+		// Postgres nombra los arrays de un tipo incorporado con guion bajo
+		// adelante: text[] es _text. Es la única señal que da el nombre, y
+		// enumerar los OID de array de cada tipo se desactualiza solo.
+		if strings.HasPrefix(t.Name, "_") {
+			col.Class = query.ClassArray
+		}
 	}
 	return col
 }
@@ -227,6 +234,10 @@ func clasePorCategoria(c string) query.Class {
 		return query.ClassTemporal
 	case "B":
 		return query.ClassBool
+	case "E":
+		return query.ClassEnum
+	case "A":
+		return query.ClassArray
 	}
 	return query.ClassOther
 }
