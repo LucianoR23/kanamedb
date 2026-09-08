@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -278,7 +279,11 @@ func metodosDeAuth(cfg Config, sec Secrets) ([]ssh.AuthMethod, error) {
 		return []ssh.AuthMethod{ssh.Password(sec.Password)}, nil
 
 	case AuthKeyFile:
-		datos, err := os.ReadFile(cfg.KeyPath)
+		ruta, err := expandirRuta(cfg.KeyPath)
+		if err != nil {
+			return nil, err
+		}
+		datos, err := os.ReadFile(ruta)
 		if err != nil {
 			// El error de os lleva la ruta, que no es secreta. El contenido de
 			// la clave no aparece por ningún lado.
@@ -319,4 +324,28 @@ func discar(ctx context.Context, addr string) (net.Conn, error) {
 		return nil, fmt.Errorf("conectar a %s: %w", addr, err)
 	}
 	return conn, nil
+}
+
+// expandirRuta resuelve un `~` inicial al directorio del usuario.
+//
+// Se hace al USAR la ruta y no al guardarla, y esa es toda la gracia: el
+// archivo de conexiones se sincroniza entre máquinas, y `~` significa algo
+// distinto en cada una. Guardar la ruta ya expandida ataría la conexión a la
+// máquina donde se configuró — que es exactamente lo que el plan quiere evitar
+// cuando dice que las claves se referencian por path y viven en el ~/.ssh de
+// cada máquina.
+//
+// Una ruta absoluta de Windows pasa intacta: no empieza con `~`.
+func expandirRuta(ruta string) (string, error) {
+	if ruta != "~" && !strings.HasPrefix(ruta, "~/") && !strings.HasPrefix(ruta, `~\`) {
+		return ruta, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("no se pudo resolver %q: no se encontró el directorio del usuario: %w", ruta, err)
+	}
+	if ruta == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, ruta[2:]), nil
 }

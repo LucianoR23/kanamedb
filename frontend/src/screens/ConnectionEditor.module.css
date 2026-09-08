@@ -85,7 +85,8 @@
 
 .field { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: center; gap: 12px; }
 .fieldCompact { grid-template-columns: 60px 92px; }
-.label { font: 400 12px var(--font-ui); color: var(--text-2); }
+/* La etiqueta puede llevar el ícono de ayuda al lado, así que es flex. */
+.label { display: flex; align-items: center; gap: 6px; font: 400 12px var(--font-ui); color: var(--text-2); }
 .labelTop { align-self: start; padding-top: 4px; }
 .fieldBody { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fieldError { font: 400 11px var(--font-ui); color: var(--danger); }

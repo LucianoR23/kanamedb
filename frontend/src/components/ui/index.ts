@@ -10,6 +10,8 @@ export type { MenuAction, MenuAnchor, MenuEntry, MenuLabel, MenuSeparator } from
 export { Dialog } from "./Dialog";
 
 export { Glyph } from "./Glyph";
+
+export { InfoHint } from "./InfoHint";
 export type { ObjectKind } from "./Glyph";
 
 export {

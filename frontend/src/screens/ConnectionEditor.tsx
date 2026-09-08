@@ -12,6 +12,7 @@ import {
   Badge,
   Button,
   EnvBadge,
+  InfoHint,
   Input,
   PasswordField,
   Toggle,
@@ -443,7 +444,17 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                 <>
                   <div className={styles.fields}>
                     <div className={styles.hostRow}>
-                      <Field label="Host SSH" error={problems.get("ssh.host")}>
+                      <Field
+                        label="Host SSH"
+                        error={problems.get("ssh.host")}
+                        hint={
+                          <>
+                            El servidor por el que se salta, no la base. La base se configura en la
+                            pestaña General con el nombre que tenga <em>desde el bastión</em>: puede
+                            ser un nombre que desde esta máquina no resuelve, y está bien.
+                          </>
+                        }
+                      >
                         <Input
                           value={conn.ssh.host}
                           invalid={problems.has("ssh.host")}
@@ -491,7 +502,33 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                     </Field>
 
                     {conn.ssh.auth === AuthMethod.AuthKeyFile ? (
-                      <Field label="Clave privada" error={problems.get("ssh.keyPath")}>
+                      <Field
+                        label="Clave privada"
+                        error={problems.get("ssh.keyPath")}
+                        hint={
+                          <>
+                            La ruta al archivo de la clave, no su contenido. Sirven las dos formas:
+                            <br />
+                            <code>C:\Users\vos\.ssh\id_ed25519</code>
+                            <br />
+                            <code>~/.ssh/id_ed25519</code>
+                            <br />
+                            <br />
+                            El <code>~</code> se resuelve al conectar, no al guardar, así que el
+                            archivo de conexiones se puede sincronizar entre máquinas y en cada una
+                            apunta a su propio directorio.
+                            <br />
+                            <br />
+                            Va <strong>sin comillas</strong>. Si copiaste con «Copiar como ruta»
+                            del Explorador, Kaname se las saca solo; los espacios en el nombre no
+                            necesitan comillas acá porque esto no pasa por una terminal.
+                            <br />
+                            <br />
+                            Es la clave <strong>privada</strong> —sin <code>.pub</code>—. Si está
+                            cifrada, la frase de paso va en el campo de abajo.
+                          </>
+                        }
+                      >
                         <Input
                           value={conn.ssh.keyPath ?? ""}
                           placeholder="~/.ssh/id_ed25519"
@@ -610,17 +647,24 @@ function Field({
   error,
   compact = false,
   align = "center",
+  hint,
   children,
 }: {
   label: string;
   error?: string | undefined;
   compact?: boolean;
   align?: "center" | "start";
+  /** Ayuda que se abre al pasar el mouse o al enfocar. Para lo que no cabe en
+   *  la etiqueta pero hace falta ANTES de escribir. */
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className={cx(styles.field, compact && styles.fieldCompact)}>
-      <label className={cx(styles.label, align === "start" && styles.labelTop)}>{label}</label>
+      <label className={cx(styles.label, align === "start" && styles.labelTop)}>
+        {label}
+        {hint ? <InfoHint label={`Ayuda sobre ${label}`}>{hint}</InfoHint> : null}
+      </label>
       <div className={styles.fieldBody}>
         {children}
         {error ? (

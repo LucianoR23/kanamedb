@@ -60,7 +60,7 @@ type Config struct {
 func (c Config) Normalize() Config {
 	c.Host = strings.TrimSpace(c.Host)
 	c.User = strings.TrimSpace(c.User)
-	c.KeyPath = strings.TrimSpace(c.KeyPath)
+	c.KeyPath = limpiarRuta(c.KeyPath)
 	c.Auth = AuthMethod(strings.ToLower(strings.TrimSpace(string(c.Auth))))
 
 	// Los defaults solo se aplican con el túnel encendido.
@@ -124,4 +124,24 @@ func (c Config) Address() string {
 func (c Config) Describe() string {
 	c = c.Normalize()
 	return c.User + "@" + c.Address()
+}
+
+// limpiarRuta saca los espacios y las comillas que rodean a una ruta.
+//
+// Las comillas se sacan porque "Copiar como ruta" del Explorador de Windows las
+// agrega, y es la forma más común de copiar una ruta en ese sistema. La cadena
+// va directo a la API de archivos, no a una shell: ahí las comillas serían parte
+// del nombre y el archivo no aparecería. Fallar en silencio con lo que hace todo
+// el mundo es peor que ser tolerante acá.
+//
+// Solo se sacan si están de los dos lados. Una ruta que empieza con comilla y no
+// termina con una es otra cosa, y adivinar sería peor que dejarla como está.
+func limpiarRuta(p string) string {
+	p = strings.TrimSpace(p)
+	for _, c := range []string{`"`, "'"} {
+		if len(p) >= 2 && strings.HasPrefix(p, c) && strings.HasSuffix(p, c) {
+			p = strings.TrimSpace(p[1 : len(p)-1])
+		}
+	}
+	return p
 }

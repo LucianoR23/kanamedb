@@ -1,0 +1,56 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-inset);
+  color: var(--text-3);
+  font: 700 9px var(--font-mono);
+  cursor: help;
+}
+.boton:hover,
+.boton[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.boton:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* El globo se abre hacia abajo y hacia la derecha del ícono.
+ *
+ * Va por encima de todo con z-index alto porque aparece dentro de formularios
+ * que scrollean, y quedar cortado por el borde del panel lo volvería inútil. */
+.globo {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -6px;
+  z-index: 30;
+  width: max-content;
+  max-width: 320px;
+  padding: 9px 11px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-menu);
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+  text-align: left;
+  white-space: normal;
+}
+.globo code {
+  font: 400 11px var(--font-mono);
+  color: var(--text-1);
+  word-break: break-all;
+}
