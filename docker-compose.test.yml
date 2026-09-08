@@ -1,0 +1,39 @@
+# Motores para los tests de integración.
+#
+# El plan pide tener los cuatro desde el día uno porque el differ se rompe en
+# silencio. Por ahora está Postgres, que es el motor de la Iteración 1; MySQL,
+# MariaDB y SQLite se suman en la Iteración 6.
+#
+#   docker compose -f docker-compose.test.yml up -d
+#   go test ./... -tags=integration
+#
+# Las credenciales son de juguete y los puertos están corridos a propósito, para
+# no chocar con una instalación local ni tentar a nadie a apuntar esto a algo
+# real.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: kaname-test-pg17
+    environment:
+      POSTGRES_USER: kaname
+      POSTGRES_PASSWORD: kaname
+      POSTGRES_DB: kaname_test
+      # Acelera el arranque: estos datos son descartables.
+      POSTGRES_INITDB_ARGS: "--no-sync"
+    ports:
+      - "55432:5432"
+    tmpfs:
+      # Todo en memoria: los tests recrean el esquema en cada corrida y nada de
+      # esto debe sobrevivir a un reinicio.
+      - /var/lib/postgresql/data
+    command: >
+      postgres
+      -c fsync=off
+      -c full_page_writes=off
+      -c synchronous_commit=off
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaname -d kaname_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
