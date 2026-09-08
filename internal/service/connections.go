@@ -57,6 +57,10 @@ type ConnectionView struct {
 	// existir sin su contraseña.
 	HasPassword bool `json:"hasPassword"`
 
+	// HasSSHSecret dice si el bastión tiene su secreto guardado. Es
+	// independiente del de la base: se puede tener una y no el otro.
+	HasSSHSecret bool `json:"hasSSHSecret"`
+
 	// KeychainRef es dónde buscarla en el gestor del sistema. Se muestra tal
 	// cual y no como un slug bonito: la etiqueta no puede mentir sobre lo que
 	// hay guardado.
@@ -140,29 +144,31 @@ func (s *Connections) Check(c connection.Connection) ConnectionView {
 
 // Save guarda la conexión y aplica la acción pedida sobre la contraseña.
 func (s *Connections) Save(c connection.Connection, action PasswordAction, password string) (ConnectionView, error) {
+	return s.SaveWithSSH(c, action, password, PasswordKeep, "")
+}
+
+// SaveWithSSH guarda la conexión, su contraseña y el secreto del bastión.
+//
+// Son dos secretos con su propia acción cada uno porque son independientes: se
+// puede cambiar la contraseña de la base sin tocar la del salto, y al revés.
+// Una sola acción para los dos obligaría a reescribir uno para cambiar el otro.
+func (s *Connections) SaveWithSSH(
+	c connection.Connection,
+	action PasswordAction, password string,
+	sshAction PasswordAction, sshSecret string,
+) (ConnectionView, error) {
 	c = c.Normalize()
 	if err := c.Validate(); err != nil {
 		return ConnectionView{}, err
 	}
 
-	// La contraseña se guarda ANTES que la conexión: si el keychain falla, no
+	// Los secretos se guardan ANTES que la conexión: si el keychain falla, no
 	// queda una conexión a medias apuntando a una credencial que no existe.
-	switch action {
-	case PasswordSet:
-		if password == "" {
-			return ConnectionView{}, errors.New("no se puede guardar una contraseña vacía; usá quitar")
-		}
-		if err := s.keyring.Set(c.ID, password); err != nil {
-			return ConnectionView{}, err
-		}
-	case PasswordRemove:
-		if err := s.keyring.Delete(c.ID); err != nil {
-			return ConnectionView{}, err
-		}
-	case PasswordKeep, "":
-		// No se toca.
-	default:
-		return ConnectionView{}, fmt.Errorf("acción de contraseña desconocida: %q", action)
+	if err := s.aplicarSecreto(c.ID, action, password); err != nil {
+		return ConnectionView{}, err
+	}
+	if err := s.aplicarSecreto(SSHSecretID(c.ID), sshAction, sshSecret); err != nil {
+		return ConnectionView{}, err
 	}
 
 	// Se intenta actualizar y, si no existía, se agrega. Preguntar primero con
@@ -178,6 +184,23 @@ func (s *Connections) Save(c connection.Connection, action PasswordAction, passw
 	return s.view(c), nil
 }
 
+// aplicarSecreto guarda, borra o deja como está un secreto del keychain.
+func (s *Connections) aplicarSecreto(id string, action PasswordAction, secreto string) error {
+	switch action {
+	case PasswordSet:
+		if secreto == "" {
+			return errors.New("no se puede guardar un secreto vacío; usá quitar")
+		}
+		return s.keyring.Set(id, secreto)
+	case PasswordRemove:
+		return s.keyring.Delete(id)
+	case PasswordKeep, "":
+		return nil
+	default:
+		return fmt.Errorf("acción de contraseña desconocida: %q", action)
+	}
+}
+
 // Delete borra la conexión Y su contraseña del keychain.
 //
 // Borrar la credencial es irreversible, así que el diálogo que lleva acá tiene
@@ -187,7 +210,12 @@ func (s *Connections) Delete(id string) error {
 	if err := s.store.Delete(id); err != nil {
 		return err
 	}
-	return s.keyring.Delete(id)
+	// Los dos secretos: el de la base y el del bastión. Dejar uno huérfano
+	// sería un secreto en el sistema que ya nadie sabe a qué corresponde.
+	if err := s.keyring.Delete(id); err != nil {
+		return err
+	}
+	return s.keyring.Delete(SSHSecretID(id))
 }
 
 // Duplicate copia una conexión con un ID nuevo.
@@ -224,6 +252,14 @@ func (s *Connections) Duplicate(id string) (ConnectionView, error) {
 // memoria del webview sin que nadie lo pidiera.
 func (s *Connections) RevealPassword(id string) (string, error) {
 	return s.keyring.Get(id)
+}
+
+// RevealSSHSecret devuelve el secreto del bastión: contraseña o frase de paso.
+//
+// Va aparte de RevealPassword y no con un parámetro que elija, para que en el
+// código de la interfaz se lea cuál de los dos secretos se está pidiendo.
+func (s *Connections) RevealSSHSecret(id string) (string, error) {
+	return s.keyring.Get(SSHSecretID(id))
 }
 
 // ParseURI interpreta una cadena de conexión pegada.
@@ -302,6 +338,14 @@ func (s *Connections) view(c connection.Connection) ConnectionView {
 	if c.ID != "" {
 		has, err := s.keyring.Has(c.ID)
 		v.HasPassword = err == nil && has
+
+		// Solo se pregunta por el secreto del bastión si la conexión usa túnel:
+		// sin túnel no hay nada que guardar, y consultar el keychain de más
+		// pide una interacción del sistema por cada conexión de la lista.
+		if c.SSH.Enabled {
+			hasSSH, err := s.keyring.Has(SSHSecretID(c.ID))
+			v.HasSSHSecret = err == nil && hasSSH
+		}
 	}
 
 	if v.Warnings == nil {

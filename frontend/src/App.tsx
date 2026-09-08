@@ -10,6 +10,10 @@ import { ConnectionManager } from "./screens/ConnectionManager";
 import { Shell } from "./screens/Shell";
 import { Welcome } from "./screens/Welcome";
 import { ConnectionError } from "./screens/ConnectionError";
+import { HostKeyDialog } from "./screens/HostKeyDialog";
+import * as HostsSvc from "../bindings/github.com/LucianoR23/kanamedb/internal/service/hosts";
+import { Verdict } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
+import type { Inspection } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { ConnectionFailure } from "./screens/ConnectionError";
 
 type Screen = "loading" | "welcome" | "manager" | "shell" | "about";
@@ -65,9 +69,53 @@ export default function App() {
     }
   }
 
+  // La verificación de la clave del bastión, esperando decisión.
+  //
+  // Se guarda la conexión junto con la inspección porque el diálogo puede
+  // terminar en "conectar", y para eso hace falta saber a qué conexión volver.
+  const [hostKey, setHostKey] = useState<{
+    view: ConnectionView;
+    inspection: Inspection;
+  } | null>(null);
+  const [knownHostsPath, setKnownHostsPath] = useState("");
+
+  /**
+   * Conecta, verificando antes la clave del bastión si la conexión usa túnel.
+   *
+   * El orden importa y no es cosmético: se inspecciona ANTES de conectar, y la
+   * inspección corta el handshake antes de la autenticación. Cuando aparece el
+   * diálogo, el bastión todavía no recibió ninguna credencial.
+   */
   async function connect(view: ConnectionView) {
     setError(null);
     setFailure(null);
+
+    if (view.connection.ssh.enabled) {
+      const insp = await HostsSvc.Inspect(view.connection);
+      if (!insp.ok || !insp.inspection) {
+        setFailure({
+          connection: view,
+          kind: "network",
+          message: "No se pudo contactar al bastión SSH.",
+          hint: "Revisá el host, el puerto y que el servidor esté escuchando.",
+          detail: insp.error ?? "",
+          sqlState: "",
+          elapsedMs: 0,
+        });
+        return;
+      }
+      if (insp.inspection.verdict !== Verdict.VerdictTrusted) {
+        // Se corta acá: la decisión es de la persona, y hasta que la tome no
+        // se manda nada.
+        setKnownHostsPath(await HostsSvc.KnownHostsPath());
+        setHostKey({ view, inspection: insp.inspection });
+        return;
+      }
+    }
+    await conectarDeVerdad(view);
+  }
+
+  async function conectarDeVerdad(view: ConnectionView, acceptOnce = "") {
     // El tiempo se mide acá y no en Go: un rechazo inmediato y un timeout de
     // diez segundos se ven distinto, y eso ya dice algo antes de leer nada.
     const inicio = performance.now();
@@ -75,7 +123,7 @@ export default function App() {
       // El fallo no es un error de Go: la promesa se resuelve igual. Por eso
       // Connect devuelve un resultado con `ok` en vez de un par, que se podía
       // ignorar a medias.
-      const res = await SessionSvc.Connect(view.connection.id);
+      const res = await SessionSvc.ConnectAccepting(view.connection.id, acceptOnce);
       if (!res.ok) {
         const f = res.failure;
         setFailure({
@@ -178,6 +226,28 @@ export default function App() {
               setScreen("manager");
               if (shouldConnect) await connect(saved);
             })();
+          }}
+        />
+      ) : null}
+
+      {hostKey ? (
+        <HostKeyDialog
+          inspection={hostKey.inspection}
+          knownHostsPath={knownHostsPath}
+          onCancel={() => setHostKey(null)}
+          onConnectOnce={() => {
+            // Sin guardar: la aceptación vale para este intento y nada más.
+            // El backend la recibe por AcceptOnce y no toca known_hosts.
+            const { view, inspection } = hostKey;
+            setHostKey(null);
+            void conectarDeVerdad(view, inspection.presented.fingerprint);
+          }}
+          onTrust={() => {
+            const { view, inspection } = hostKey;
+            setHostKey(null);
+            void HostsSvc.Trust(inspection.address, inspection.authorizedKey)
+              .then(() => conectarDeVerdad(view))
+              .catch((err) => setError(err instanceof Error ? err.message : String(err)));
           }}
         />
       ) : null}

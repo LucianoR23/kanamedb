@@ -7,12 +7,14 @@ import {
   Environment,
   SSLMode,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
+import { AuthMethod } from "../../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import {
   Badge,
   Button,
   EnvBadge,
   Input,
   PasswordField,
+  Toggle,
   passwordAction,
 } from "../components/ui";
 import type { PasswordState } from "../components/ui";
@@ -22,7 +24,7 @@ import styles from "./ConnectionEditor.module.css";
 /** Las tabs de S03. En la Iteración 1 solo General está viva. */
 const TABS = [
   { id: "general", label: "General", ready: true, since: "" },
-  { id: "tunnel", label: "SSH tunnel", ready: false, since: "Iteración 3" },
+  { id: "tunnel", label: "Túnel SSH", ready: true, since: "" },
   { id: "tls", label: "TLS", ready: false, since: "Iteración 9" },
   { id: "safety", label: "Safety", ready: false, since: "Iteración 5" },
   { id: "advanced", label: "Advanced", ready: false, since: "Iteración 9" },
@@ -60,6 +62,25 @@ const ENVIRONMENTS: { value: Environment; label: string; hint: string }[] = [
   },
 ];
 
+/** Los métodos de autenticación del bastión, con lo que hay que saber de cada uno. */
+const SSH_AUTH = [
+  {
+    value: AuthMethod.AuthAgent,
+    label: "ssh-agent",
+    hint: "La clave privada nunca sale del agente: Kaname le manda lo que hay que firmar y recibe la firma. Es el único método donde la aplicación no ve la clave.",
+  },
+  {
+    value: AuthMethod.AuthKeyFile,
+    label: "Clave privada",
+    hint: "Se guarda la ruta, no la clave. El archivo vive en esta máquina y el de conexiones puede sincronizarse sin llevarse nada.",
+  },
+  {
+    value: AuthMethod.AuthPassword,
+    label: "Contraseña",
+    hint: "Se guarda en el keychain del sistema. Existe porque hay bastiones que solo aceptan esto, no porque sea la mejor opción.",
+  },
+] as const;
+
 interface Props {
   /** La conexión a editar. Un borrador nuevo viene de Draft(). */
   initial: ConnectionView;
@@ -81,6 +102,11 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pasteNotices, setPasteNotices] = useState<string[]>([]);
+  // El bastión tiene su propio secreto —contraseña o frase de paso— y su propio
+  // estado: una conexión puede tener guardada la de la base y no la del salto.
+  const [sshPassword, setSshPassword] = useState<PasswordState>(
+    initial.hasSSHSecret ? { kind: "stored" } : { kind: "empty" },
+  );
 
   // La validación vive en Go: el formulario no reimplementa las reglas, las
   // consulta. Así no puede divergir de lo que el store va a aceptar.
@@ -104,6 +130,13 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
   const valid = problems.size === 0;
   const warnings = view.warnings ?? [];
   const envInfo = ENVIRONMENTS.find((e) => e.value === conn.environment) ?? ENVIRONMENTS[0]!;
+
+  // El túnel vive en un struct anidado, así que tiene su propio setter. Sin
+  // esto habría que reconstruir el objeto entero en cada tecla.
+  function setSSH<K extends keyof Connection["ssh"]>(key: K, value: Connection["ssh"][K]) {
+    setConn((c) => ({ ...c, ssh: { ...c.ssh, [key]: value } }));
+    setTest(null);
+  }
 
   function set<K extends keyof Connection>(key: K, value: Connection[K]) {
     setConn((c) => ({ ...c, [key]: value }));
@@ -135,7 +168,14 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
     setSaveError(null);
     try {
       const { action, password: pw } = passwordAction(password);
-      onSaved(await Connections.Save(conn, action, pw), connect);
+      // El secreto del bastión se guarda en la misma llamada: si fueran dos,
+      // la segunda podría fallar y dejar la conexión guardada apuntando a una
+      // credencial de SSH que no existe.
+      const ssh = passwordAction(sshPassword);
+      onSaved(
+        await Connections.SaveWithSSH(conn, action, pw, ssh.action, ssh.password),
+        connect,
+      );
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -385,6 +425,121 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                   </div>
                 ) : null}
               </aside>
+            </div>
+          ) : tab === "tunnel" ? (
+            <div className={styles.tunnel}>
+              <div className={styles.tunnelSwitch}>
+                <Toggle
+                  checked={conn.ssh.enabled}
+                  onChange={(v) => setSSH("enabled", v)}
+                  label="Conectar a través de un túnel SSH"
+                />
+                <span className={styles.tunnelSwitchLabel}>
+                  Conectar a través de un túnel SSH
+                </span>
+              </div>
+
+              {conn.ssh.enabled ? (
+                <>
+                  <div className={styles.fields}>
+                    <div className={styles.hostRow}>
+                      <Field label="Host SSH" error={problems.get("ssh.host")}>
+                        <Input
+                          value={conn.ssh.host}
+                          invalid={problems.has("ssh.host")}
+                          onChange={(e) => setSSH("host", e.currentTarget.value)}
+                        />
+                      </Field>
+                      <Field label="Puerto" error={problems.get("ssh.port")} compact>
+                        <Input
+                          value={String(conn.ssh.port || "")}
+                          inputMode="numeric"
+                          invalid={problems.has("ssh.port")}
+                          onChange={(e) =>
+                            setSSH("port", Number(e.currentTarget.value.replace(/\D/g, "")) || 0)
+                          }
+                        />
+                      </Field>
+                    </div>
+
+                    <Field label="Usuario SSH" error={problems.get("ssh.user")}>
+                      <Input
+                        value={conn.ssh.user}
+                        invalid={problems.has("ssh.user")}
+                        onChange={(e) => setSSH("user", e.currentTarget.value)}
+                      />
+                    </Field>
+
+                    <Field label="Autenticación" error={problems.get("ssh.auth")} align="start">
+                      <div className={styles.envColumn}>
+                        <div className={styles.chips}>
+                          {SSH_AUTH.map((a) => (
+                            <button
+                              key={a.value}
+                              type="button"
+                              className={cx(styles.chip, conn.ssh.auth === a.value && styles.chipOn)}
+                              onClick={() => setSSH("auth", a.value)}
+                            >
+                              {a.label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className={styles.envHint}>
+                          {SSH_AUTH.find((a) => a.value === conn.ssh.auth)?.hint ?? ""}
+                        </p>
+                      </div>
+                    </Field>
+
+                    {conn.ssh.auth === AuthMethod.AuthKeyFile ? (
+                      <Field label="Clave privada" error={problems.get("ssh.keyPath")}>
+                        <Input
+                          value={conn.ssh.keyPath ?? ""}
+                          placeholder="~/.ssh/id_ed25519"
+                          invalid={problems.has("ssh.keyPath")}
+                          onChange={(e) => setSSH("keyPath", e.currentTarget.value)}
+                        />
+                      </Field>
+                    ) : null}
+
+                    {conn.ssh.auth === AuthMethod.AuthKeyFile ||
+                    conn.ssh.auth === AuthMethod.AuthPassword ? (
+                      <Field
+                        label={
+                          conn.ssh.auth === AuthMethod.AuthPassword ? "Contraseña SSH" : "Frase de paso"
+                        }
+                      >
+                        <PasswordField
+                          state={sshPassword}
+                          onChange={setSshPassword}
+                          onReveal={() => Connections.RevealSSHSecret(conn.id)}
+                        />
+                      </Field>
+                    ) : null}
+                  </div>
+
+                  <div className={styles.tunnelNote}>
+                    <p className={styles.tunnelNoteTitle}>
+                      El túnel no abre ningún puerto en esta máquina.
+                    </p>
+                    <p>
+                      La conexión a la base viaja por dentro del canal SSH y existe solo dentro
+                      del proceso. Por eso no hay un «puerto local» que configurar: un puerto en
+                      loopback sería alcanzable desde cualquier pestaña del navegador.
+                    </p>
+                    <p>
+                      La primera vez que se conecte a{" "}
+                      <code>{conn.ssh.host || "el bastión"}</code>, Kaname va a mostrar la huella
+                      de su clave para que la verifiques. Si esa clave cambia alguna vez, se
+                      detiene y avisa <strong>antes de enviar ninguna credencial</strong>.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <p className={styles.tunnelOff}>
+                  La conexión va directa a la base. Activá el túnel si la base solo es alcanzable
+                  a través de un bastión.
+                </p>
+              )}
             </div>
           ) : (
             <div className={styles.placeholder}>

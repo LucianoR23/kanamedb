@@ -184,3 +184,57 @@
   background: var(--bg-panel);
 }
 .footNote { white-space: nowrap; font: 400 11px var(--font-mono); color: var(--text-dim); }
+
+/* Pestaña del túnel SSH. */
+.tunnel {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+}
+.tunnelSwitch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.tunnelSwitchLabel {
+  font: 500 12.5px var(--font-ui);
+  color: var(--text-1);
+}
+.tunnelOff {
+  margin: 0;
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-3);
+  max-width: 52ch;
+}
+
+/* La nota que explica por qué no hay puerto local que configurar.
+ *
+ * El diseño tenía un campo "Local port" con "0 elige uno libre". Existía porque
+ * asumía la implementación clásica —escuchar en loopback y reenviar—, y esta no
+ * escucha en ningún lado. En vez de dejar un campo que no hace nada, se explica
+ * la diferencia: es información que cambia lo que alguien espera del programa. */
+.tunnelNote {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 13px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--success);
+  border-radius: var(--r-md);
+}
+.tunnelNote p {
+  margin: 0;
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+}
+.tunnelNoteTitle {
+  font-weight: 500 !important;
+  color: var(--text-1) !important;
+}
+.tunnelNote code {
+  font: 400 11px var(--font-mono);
+  color: var(--text-1);
+}

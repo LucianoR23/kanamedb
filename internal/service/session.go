@@ -100,6 +100,16 @@ var ErrNotConnected = errors.New("no hay ninguna conexión abierta")
 // distintas sin que la interfaz lo muestre es la receta para aplicar un cambio
 // donde no era.
 func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
+	return s.ConnectAccepting(ctx, id, "")
+}
+
+// ConnectAccepting conecta aceptando una clave de host solo para este intento.
+//
+// Es el botón "Conectar una vez" de S04: la huella vale para esta conexión y no
+// se guarda en ningún lado. Va como parámetro explícito y no como estado del
+// servicio para que no exista la posibilidad de que una aceptación temporal
+// quede activa para la próxima conexión sin que nadie la haya pedido.
+func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) ConnectResult {
 	c, err := s.store.Get(id)
 	if err != nil {
 		return failed(&postgres.Failure{
@@ -146,7 +156,7 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 			sec.Passphrase = secreto
 		}
 
-		cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{})
+		cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{AcceptOnce: acceptOnce})
 		if err != nil {
 			return failed(&postgres.Failure{
 				Kind:    postgres.FailureOther,
