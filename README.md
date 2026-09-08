@@ -97,6 +97,8 @@ No se commitean: están en `.gitignore`.
 
 ## Estructura
 
+Módulo Go: `github.com/LucianoR23/kanamedb`.
+
 ```
 main.go              Punto de entrada. Registra servicios y crea la ventana.
 build/               Assets e íconos por plataforma, Taskfiles de build.

@@ -1,4 +1,4 @@
-module kaname
+module github.com/LucianoR23/kanamedb
 
 go 1.25.0
 

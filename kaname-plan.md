@@ -289,6 +289,8 @@ de anime). El guión de `kaname-db` lo hace sonar a componente de otra cosa. La
 categoría entera usa un solo token: chartdb, dbeaver, duckdb, surrealdb. El
 título de ventana, el binario y `build/config.yml` siguen diciendo "Kaname".
 
+Módulo Go: `github.com/LucianoR23/kanamedb`. Repo privado, acceso por SSH.
+
 **Fuera el modo servidor HTTP del template de Wails.**
 Wails v3 trae de fábrica `build:server`, `run:server` y `build:docker`, que
 levantan la app como servidor HTTP sin GUI. Es exactamente el agujero descrito
