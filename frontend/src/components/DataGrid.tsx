@@ -144,7 +144,9 @@ export function DataGrid({
     getRowId: (_fila, i) => String(i),
   });
 
-  const visibles = table.getVisibleLeafColumns();
+  // Se recorren los headers y no las columnas porque el tirador de
+  // redimensionado cuelga del header, no de la columna.
+  const headers = table.getHeaderGroups()[0]?.headers ?? [];
 
   // Todas las columnas conservan su ancho y una columna de relleno se come lo
   // que sobra.
@@ -155,7 +157,7 @@ export function DataGrid({
   // ventana solo porque es la última.
   const template = [
     `${GUTTER_W}px`,
-    ...visibles.map((c) => `${c.getSize()}px`),
+    ...headers.map((h) => `${h.column.getSize()}px`),
     "minmax(0, 1fr)",
   ].join(" ");
 
@@ -174,13 +176,14 @@ export function DataGrid({
         <div className={styles.gutterHead} role="columnheader">
           #
         </div>
-        {visibles.map((col, i) => {
+        {headers.map((h, i) => {
           const meta = columns[i];
           if (!meta) return null;
           const ordenada = sort?.column === meta.name;
+          const clave = keys?.[meta.name];
           return (
             <div
-              key={col.id}
+              key={h.id}
               role="columnheader"
               aria-sort={ordenada ? (sort?.descending ? "descending" : "ascending") : "none"}
               className={cx(styles.headCell, ordenada && styles.headCellSorted)}
@@ -195,18 +198,29 @@ export function DataGrid({
                   }
                 : {})}
             >
-              <span className={cx(styles.tag, keys?.[meta.name] && styles[`tag_${keys[meta.name]}`])}>
-                {keys?.[meta.name] === "pk"
-                  ? "PK"
-                  : keys?.[meta.name] === "fk"
-                    ? "FK"
-                    : (TAG[meta.class] ?? "···")}
+              <span className={cx(styles.tag, clave && styles[`tag_${clave}`])}>
+                {clave === "pk" ? "PK" : clave === "fk" ? "FK" : (TAG[meta.class] ?? "···")}
               </span>
               <span className={styles.headName}>{meta.name}</span>
               <span className={styles.spacer} />
               {ordenada ? (
                 <span className={styles.sortGlyph}>{sort?.descending ? "▼" : "▲"}</span>
               ) : null}
+              {/* El tirador se lleva el clic para que arrastrar el borde no
+                  ordene la columna sin querer. */}
+              <span
+                className={cx(styles.resizer, h.column.getIsResizing() && styles.resizerOn)}
+                onMouseDown={h.getResizeHandler()}
+                onTouchStart={h.getResizeHandler()}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  h.column.resetSize();
+                }}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Ancho de ${meta.name}`}
+              />
             </div>
           );
         })}
@@ -225,14 +239,14 @@ export function DataGrid({
               style={{ gridTemplateColumns: template, transform: `translateY(${v.start}px)` }}
             >
               <div className={styles.gutter}>{v.index + 1}</div>
-              {visibles.map((col, i) => {
+              {headers.map((h, i) => {
                 const meta = columns[i];
                 if (!meta) return null;
                 const valor = fila[i] ?? null;
                 const puesta = selection?.row === v.index && selection.col === i;
                 return (
                   <Celda
-                    key={col.id}
+                    key={h.id}
                     valor={valor}
                     align={alineacionDe(meta)}
                     selected={puesta}
@@ -279,6 +293,13 @@ function Celda({
   onDoubleClick?: () => void;
 }) {
   const esNulo = valor === null;
+  // El valor entero al pasar el mouse. Un texto largo se recorta con puntos
+  // suspensivos, y sin esto la única forma de leerlo sería abrir el visor de
+  // celda, que es demasiado para confirmar de un vistazo qué dice.
+  //
+  // En NULL no va: "[null]" no está recortado, es todo el valor, y un globo
+  // que repite lo que ya se lee es ruido.
+  const titulo = esNulo ? {} : { title: valor };
   return (
     <div
       role="gridcell"
@@ -286,6 +307,7 @@ function Celda({
       style={{ textAlign: align }}
       onClick={onClick}
       {...(onDoubleClick ? { onDoubleClick } : {})}
+      {...titulo}
     >
       {esNulo ? "[null]" : valor}
     </div>
