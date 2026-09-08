@@ -42,6 +42,11 @@ jobs:
             echo "Archivos sin formatear:"; echo "$unformatted"; exit 1
           fi
 
+      # Si go.mod queda desprolijo, la limpieza aparece como ruido en el
+      # siguiente commit que corra tidy. Mejor que falle acá.
+      - name: go mod tidy está al día
+        run: go mod tidy -diff
+
       - name: go vet
         run: go vet ./...
 
