@@ -341,6 +341,21 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 3 — 2026-09-08
 
+**Wails se queda en beta.17 por ahora.** El informe de versiones detectó
+beta.18 el mismo día en que salió. Se revisó y no se sube, por tres motivos que
+se suman: es una release nocturna automática, no curada; su único cambio es una
+pérdida de memoria de `Calloc` **en Linux y Darwin**, y hoy solo distribuimos
+Windows; y subir Wails obliga a mover `@wailsio/runtime` en el mismo paso,
+porque si las versiones no coinciden exacto los bindings generados no matchean
+el runtime.
+
+Además, cambiar el framework de la ventana justo antes de arrancar el túnel SSH
+mezcla dos fuentes de problemas: si algo se rompe, no se sabe cuál fue.
+
+Se revisa de nuevo cuando lleguen los builds de Linux y macOS —ahí el arreglo sí
+nos toca— o si aparece uno que afecte a Windows. Que exista una versión nueva no
+es motivo para subir; el informe es para decidir.
+
 **Leer el esquema tolera que borren tablas mientras lee.**
 `has_table_privilege` devuelve NULL —no `false`— cuando el OID ya no existe, y
 entre que `pg_class` lista una tabla y se evalúa su permiso, otra sesión puede
