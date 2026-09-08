@@ -3,7 +3,16 @@ import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/inter
 import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Splitter } from "../components/Splitter";
-import { Badge, Button, EnvBadge, PillTabs, SearchInput, ShortcutChip, TabStrip } from "../components/ui";
+import {
+  Badge,
+  Button,
+  EnvBadge,
+  PillTabs,
+  SearchInput,
+  ShortcutChip,
+  Spinner,
+  TabStrip,
+} from "../components/ui";
 import type { TabItem } from "../components/ui";
 import { SchemaTree } from "./SchemaTree";
 import { SqlEditorScreen } from "./SqlEditorScreen";
@@ -160,7 +169,10 @@ export function Shell({
             ) : schemaError ? (
               <p className={styles.emptySmall}>No se pudo leer el esquema. {schemaError}</p>
             ) : loading && !snapshot ? (
-              <p className={styles.emptySmall}>Leyendo el catálogo…</p>
+              <p className={styles.cargando}>
+                <Spinner size="sm" />
+                Leyendo el catálogo…
+              </p>
             ) : snapshot ? (
               <SchemaTree
                 snapshot={snapshot}

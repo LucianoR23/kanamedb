@@ -31,6 +31,8 @@ export { Checkbox, Field, Input, SearchInput, SelectTrigger, Toggle } from "./In
 export { PillTabs, TabStrip } from "./Tabs";
 export type { PillItem, TabItem } from "./Tabs";
 
+export { Spinner } from "./Spinner";
+
 export { Toast, ToastStack } from "./Toast";
 export type { ToastItem, ToastTone } from "./Toast";
 

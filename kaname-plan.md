@@ -346,6 +346,20 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 3 — 2026-09-08
 
+**Las pantallas de carga las hizo necesarias el túnel.**
+Conectar directo tarda milisegundos y nadie extraña una pantalla de espera. Por
+un bastión son varios segundos —TCP, handshake SSH, autenticación, y recién ahí
+Postgres— y sin nada en pantalla la aplicación parece colgada. El contador de
+segundos no es decoración: es lo que distingue "está tardando" de "se colgó".
+
+El botón de cancelar corta de verdad, no esconde la pantalla: las llamadas que
+genera Wails se pueden cancelar y eso corta el contexto del lado de Go, que
+tanto `tunnel.Dial` como `postgres.Connect` respetan.
+
+Vale anotar de dónde salió: no estaba en el plan de ninguna iteración. Apareció
+porque una función nueva volvió lenta una operación que antes era instantánea, y
+recién ahí se notó que nunca había habido una espera que mostrar.
+
 **El túnel no abre ningún puerto local.**
 Un túnel SSH se implementa habitualmente escuchando en `127.0.0.1` y
 reenviando. Este proyecto no puede: un puerto en loopback es alcanzable desde

@@ -11,6 +11,7 @@ import { Shell } from "./screens/Shell";
 import { Welcome } from "./screens/Welcome";
 import { ConnectionError } from "./screens/ConnectionError";
 import { HostKeyDialog } from "./screens/HostKeyDialog";
+import { Connecting } from "./screens/Connecting";
 import * as HostsSvc from "../bindings/github.com/LucianoR23/kanamedb/internal/service/hosts";
 import { Verdict } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { Inspection } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
@@ -79,6 +80,17 @@ export default function App() {
   } | null>(null);
   const [knownHostsPath, setKnownHostsPath] = useState("");
 
+  // Lo que se está conectando ahora, si hay algo.
+  //
+  // Guarda la promesa además de la vista porque el botón de cancelar la
+  // necesita: las llamadas generadas por Wails se pueden cancelar, y cancelarlas
+  // corta el contexto del lado de Go. Sin la referencia, el botón sería un
+  // adorno que oculta la pantalla sin cortar nada.
+  const [conectando, setConectando] = useState<{
+    view: ConnectionView;
+    cancelar: () => void;
+  } | null>(null);
+
   /**
    * Conecta, verificando antes la clave del bastión si la conexión usa túnel.
    *
@@ -91,7 +103,18 @@ export default function App() {
     setFailure(null);
 
     if (view.connection.ssh.enabled) {
-      const insp = await HostsSvc.Inspect(view.connection);
+      const pedido = HostsSvc.Inspect(view.connection);
+      setConectando({ view, cancelar: () => pedido.cancel() });
+      let insp;
+      try {
+        insp = await pedido;
+      } catch {
+        // Cancelada por la persona, o el puente falló. En los dos casos no hay
+        // nada que reportar: cancelar es lo que pidió.
+        setConectando(null);
+        return;
+      }
+      setConectando(null);
       if (!insp.ok || !insp.inspection) {
         setFailure({
           connection: view,
@@ -119,11 +142,13 @@ export default function App() {
     // El tiempo se mide acá y no en Go: un rechazo inmediato y un timeout de
     // diez segundos se ven distinto, y eso ya dice algo antes de leer nada.
     const inicio = performance.now();
+    const pedido = SessionSvc.ConnectAccepting(view.connection.id, acceptOnce);
+    setConectando({ view, cancelar: () => pedido.cancel() });
     try {
       // El fallo no es un error de Go: la promesa se resuelve igual. Por eso
       // Connect devuelve un resultado con `ok` en vez de un par, que se podía
       // ignorar a medias.
-      const res = await SessionSvc.ConnectAccepting(view.connection.id, acceptOnce);
+      const res = await pedido;
       if (!res.ok) {
         const f = res.failure;
         setFailure({
@@ -151,6 +176,8 @@ export default function App() {
         sqlState: f?.sqlState ?? "",
         elapsedMs: Math.round(performance.now() - inicio),
       });
+    } finally {
+      setConectando(null);
     }
   }
 
@@ -226,6 +253,21 @@ export default function App() {
               setScreen("manager");
               if (shouldConnect) await connect(saved);
             })();
+          }}
+        />
+      ) : null}
+
+      {conectando ? (
+        <Connecting
+          target={conectando.view.uri}
+          bastion={
+            conectando.view.connection.ssh.enabled
+              ? `${conectando.view.connection.ssh.user}@${conectando.view.connection.ssh.host}:${conectando.view.connection.ssh.port}`
+              : ""
+          }
+          onCancel={() => {
+            conectando.cancelar();
+            setConectando(null);
           }}
         />
       ) : null}

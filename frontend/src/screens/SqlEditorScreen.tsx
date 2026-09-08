@@ -3,7 +3,7 @@ import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/inter
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/postgres";
-import { Button, PillTabs } from "../components/ui";
+import { Button, PillTabs, Spinner } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
@@ -249,7 +249,7 @@ export function SqlEditorScreen({
             <Mensajes estado={estado} />
           ) : corriendo ? (
             <div className={styles.corriendo}>
-              <span className={styles.spinner} />
+              <Spinner />
               <div className={styles.corriendoTitulo}>Ejecutando en {connectionLabel}…</div>
               <div className={styles.corriendoMeta}>
                 {(transcurrido / 1000).toFixed(1)} s

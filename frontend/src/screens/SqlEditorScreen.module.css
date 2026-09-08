@@ -206,19 +206,6 @@
   justify-content: center;
   gap: 12px;
 }
-.spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: kn-spin 0.8s linear infinite;
-}
-@keyframes kn-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 .corriendoTitulo {
   font: 500 12.5px var(--font-ui);
   color: var(--text-2);

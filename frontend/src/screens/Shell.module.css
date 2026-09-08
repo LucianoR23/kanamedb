@@ -179,3 +179,15 @@
 .paneHidden {
   display: none;
 }
+
+/* Leer el catálogo por un túnel tarda lo suficiente como para que un texto solo
+   parezca que no pasa nada. */
+.cargando {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-3);
+}

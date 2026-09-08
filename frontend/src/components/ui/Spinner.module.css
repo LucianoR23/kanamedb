@@ -1,0 +1,30 @@
+.spinner {
+  flex: none;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: kn-spinner 0.8s linear infinite;
+}
+.sm {
+  width: 11px;
+  height: 11px;
+  border-width: 1.5px;
+}
+
+@keyframes kn-spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Sin animación para quien la pidió apagada: un giro perpetuo puede provocar
+   malestar, y la información —"esto está en curso"— la da igual el elemento. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    opacity: 0.7;
+  }
+}
