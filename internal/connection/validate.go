@@ -3,6 +3,7 @@ package connection
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // FieldError es un problema en un campo concreto. La UI lo pinta debajo del
@@ -50,10 +51,18 @@ func (c Connection) Validate() error {
 		errs = append(errs, FieldError{Field: field, Message: msg})
 	}
 
+	// El ID es la clave con la que la contraseña quedó guardada en el keychain
+	// y la que usan Get, Update y Delete. Sin ID, todas las conexiones sin ID
+	// comparten la misma entrada del keychain y las operaciones resuelven
+	// siempre la primera: se edita o se borra la conexión equivocada.
+	if c.ID == "" {
+		add("id", "La conexión no tiene identificador.")
+	}
+
 	switch {
 	case c.Name == "":
 		add("name", "El nombre es obligatorio.")
-	case len(c.Name) > maxNameLength:
+	case utf8.RuneCountInString(c.Name) > maxNameLength:
 		add("name", fmt.Sprintf("El nombre no puede pasar de %d caracteres.", maxNameLength))
 	}
 
@@ -114,10 +123,16 @@ type Warning struct {
 func (c Connection) Warnings() []Warning {
 	var w []Warning
 
-	if c.Engine != SQLite && c.SSLMode != "" && !c.SSLMode.Verifies() {
+	// Se mira el modo EFECTIVO: un SSLMode vacío no es "sin configurar", es
+	// `prefer`, que ni verifica el certificado ni garantiza cifrado. Mirar el
+	// campo crudo apagaba el aviso justo en el caso inseguro.
+	if mode := c.EffectiveSSLMode(); c.Engine != SQLite && !mode.Verifies() {
 		msg := "La conexión no verifica el certificado del servidor."
-		if c.SSLMode == SSLDisable {
+		if mode == SSLDisable {
 			msg = "La conexión viaja sin cifrar."
+		}
+		if c.SSLMode == "" {
+			msg = "Sin modo SSL configurado se usa prefer, que no verifica el certificado y acepta seguir en claro."
 		}
 		if c.Environment == Production {
 			msg += " Contra producción, conviene verify-full."

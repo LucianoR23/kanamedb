@@ -35,7 +35,7 @@ func TestValidateAceptaUnaConexionCompleta(t *testing.T) {
 func TestValidateReportaTodosLosCamposDeUnaVez(t *testing.T) {
 	got := fieldErrors(t, Connection{Engine: Postgres, Port: 5432})
 
-	for _, campo := range []string{"name", "database", "host", "user"} {
+	for _, campo := range []string{"id", "name", "database", "host", "user"} {
 		if _, ok := got[campo]; !ok {
 			t.Errorf("falta el error del campo %q; se obtuvo %v", campo, got)
 		}
@@ -48,6 +48,7 @@ func TestValidatePorCampo(t *testing.T) {
 		ajuste func(*Connection)
 		campo  string
 	}{
+		{"sin id", func(c *Connection) { c.ID = "" }, "id"},
 		{"sin nombre", func(c *Connection) { c.Name = "" }, "name"},
 		{"sin base", func(c *Connection) { c.Database = "" }, "database"},
 		{"sin host", func(c *Connection) { c.Host = "" }, "host"},
@@ -166,5 +167,61 @@ func TestProduccionExigeConfirmacionDeEscritura(t *testing.T) {
 		if got := env.NeedsWriteConfirmation(); got != quiere {
 			t.Errorf("%s.NeedsWriteConfirmation() = %v", env, got)
 		}
+	}
+}
+
+// El nombre se mide en caracteres, no en bytes. En una app en español los
+// acentos ocupan dos bytes y el mensaje diría un número que no es el que ve el
+// usuario ni el que cuenta el frontend.
+func TestElLimiteDeNombreCuentaCaracteresNoBytes(t *testing.T) {
+	nombre := strings.Repeat("á", maxNameLength)
+	c := valid()
+	c.Name = nombre
+
+	if len(nombre) <= maxNameLength {
+		t.Fatalf("el caso de prueba no sirve: %d bytes para %d caracteres", len(nombre), maxNameLength)
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("un nombre de %d caracteres fue rechazado: %v", maxNameLength, err)
+	}
+
+	c.Name = strings.Repeat("á", maxNameLength+1)
+	if _, ok := fieldErrors(t, c)["name"]; !ok {
+		t.Errorf("un nombre de %d caracteres debería ser rechazado", maxNameLength+1)
+	}
+}
+
+// Este era el agujero: con el campo vacío no avisaba nada, pero el modo
+// efectivo es prefer, que no verifica el certificado.
+func TestAvisaAunqueElModoSSLEsteVacio(t *testing.T) {
+	c := valid()
+	c.SSLMode = ""
+
+	var aviso *Warning
+	for i, w := range c.Warnings() {
+		if w.Field == "sslMode" {
+			aviso = &c.Warnings()[i]
+		}
+	}
+	if aviso == nil {
+		t.Fatalf("sin modo SSL configurado no avisó nada; avisos: %v", c.Warnings())
+	}
+	if !strings.Contains(aviso.Message, "prefer") {
+		t.Errorf("el aviso no explica cuál es el modo efectivo: %q", aviso.Message)
+	}
+}
+
+func TestAvisaSobreProduccionSinVerificarCertificado(t *testing.T) {
+	c := valid()
+	c.Environment = Production
+	c.SSLMode = SSLRequire
+	c.ReadOnly = true
+
+	avisos := c.Warnings()
+	if len(avisos) == 0 {
+		t.Fatal("producción con require —que cifra pero no verifica— debería avisar")
+	}
+	if !strings.Contains(avisos[0].Message, "verify-full") {
+		t.Errorf("contra producción el aviso debería sugerir verify-full: %q", avisos[0].Message)
 	}
 }

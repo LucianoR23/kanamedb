@@ -2,7 +2,10 @@ module github.com/LucianoR23/kanamedb
 
 go 1.25.0
 
-require github.com/wailsapp/wails/v3 v3.0.0-beta.17
+require (
+	github.com/BurntSushi/toml v1.6.0
+	github.com/wailsapp/wails/v3 v3.0.0-beta.17
+)
 
 require (
 	github.com/adrg/xdg v0.5.3 // indirect

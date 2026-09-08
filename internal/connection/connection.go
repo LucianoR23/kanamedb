@@ -109,6 +109,17 @@ func (s SSLMode) Known() bool {
 	return false
 }
 
+// EffectiveSSLMode es el modo que se va a usar de verdad. Un campo vacío no
+// significa "sin TLS" sino `prefer`, que es el default de libpq: cifra si el
+// servidor ofrece, y si no, sigue en claro. Sin este método, cualquier chequeo
+// sobre SSLMode trata el caso vacío como si fuera seguro.
+func (c Connection) EffectiveSSLMode() SSLMode {
+	if c.SSLMode == "" {
+		return SSLPrefer
+	}
+	return c.SSLMode
+}
+
 // Verifies dice si el modo valida realmente el certificado del servidor.
 // `require` cifra pero no verifica nada: no protege contra un intermediario.
 func (s SSLMode) Verifies() bool {
@@ -180,15 +191,18 @@ func (c Connection) DSN(password string) (string, error) {
 	if c.Engine != Postgres {
 		return "", fmt.Errorf("motor %q todavía no está implementado", c.Engine)
 	}
+	// Sin usuario, url.User quedaría en nil y la contraseña se descartaría en
+	// silencio: pgx caería al usuario del sistema operativo y el fallo llegaría
+	// como un error de autenticación opaco en vez de "falta el usuario".
+	if c.User == "" {
+		return "", fmt.Errorf("la conexión %s no tiene usuario", c.Describe())
+	}
 
 	port := c.Port
 	if port == 0 {
 		port = c.Engine.DefaultPort()
 	}
-	sslMode := c.SSLMode
-	if sslMode == "" {
-		sslMode = SSLPrefer
-	}
+	sslMode := c.EffectiveSSLMode()
 
 	u := url.URL{
 		Scheme: "postgres",
@@ -197,9 +211,7 @@ func (c Connection) DSN(password string) (string, error) {
 	}
 	// url.UserPassword escapa usuario y contraseña. Sin eso, una contraseña con
 	// `@` o `/` rompería el DSN o, peor, lo redirigiría a otro host.
-	if c.User != "" {
-		u.User = url.UserPassword(c.User, password)
-	}
+	u.User = url.UserPassword(c.User, password)
 	u.RawQuery = url.Values{
 		"sslmode": {string(sslMode)},
 		// Identifica la app en pg_stat_activity, para que un DBA sepa de dónde
@@ -217,6 +229,13 @@ func (c Connection) Normalize() Connection {
 	c.Host = strings.TrimSpace(c.Host)
 	c.Database = strings.TrimSpace(c.Database)
 	c.User = strings.TrimSpace(c.User)
+
+	// Los enums también se limpian porque el archivo se edita a mano. Sin esto,
+	// `engine = " Postgres"` da "Motor desconocido" y el motivo —un espacio de
+	// más, o una mayúscula— queda invisible en el mensaje.
+	c.Engine = Engine(strings.ToLower(strings.TrimSpace(string(c.Engine))))
+	c.Environment = Environment(strings.ToLower(strings.TrimSpace(string(c.Environment))))
+	c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(string(c.SSLMode))))
 
 	if c.Port == 0 {
 		c.Port = c.Engine.DefaultPort()

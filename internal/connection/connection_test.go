@@ -3,6 +3,7 @@ package connection
 import (
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -38,18 +39,36 @@ func TestNewIDEsUnicoYNoVacio(t *testing.T) {
 	}
 }
 
-// La contraseña vive en el keychain. Si alguien agrega un campo para guardarla
-// en la estructura que se serializa a disco, este test tiene que romper.
-func TestConnectionNoTieneCampoDeContrasena(t *testing.T) {
+// La contraseña vive en el keychain, nunca en la estructura que se serializa a
+// disco. Este test reflexiona sobre los campos reales porque mirar la salida de
+// fmt no sirve: Connection implementa Stringer, así que fmt rutea también %+v
+// por String() y un campo Password quedaría igual de invisible.
+func TestConnectionNoTieneNingunCampoDeSecreto(t *testing.T) {
 	prohibidos := []string{"password", "passwd", "secret", "token", "credential"}
+	tipo := reflect.TypeOf(Connection{})
 
-	// %+v es lo que sale de un log descuidado. Como Connection implementa
-	// Stringer, tiene que imprimir la descripción segura y nada más.
-	rendered := strings.ToLower(fmt.Sprintf("%+v %v %s", valid(), valid(), valid()))
-	for _, p := range prohibidos {
-		if strings.Contains(rendered, p) {
-			t.Errorf("la representación de Connection contiene %q: %s", p, rendered)
+	for i := 0; i < tipo.NumField(); i++ {
+		f := tipo.Field(i)
+		candidatos := []string{
+			strings.ToLower(f.Name),
+			strings.ToLower(f.Tag.Get("toml")),
+			strings.ToLower(f.Tag.Get("json")),
 		}
+		for _, c := range candidatos {
+			for _, p := range prohibidos {
+				if strings.Contains(c, p) {
+					t.Errorf("Connection.%s parece guardar un secreto (%q): las contraseñas van al keychain", f.Name, c)
+				}
+			}
+		}
+	}
+}
+
+// Y además, un log descuidado de la estructura completa no puede filtrar nada.
+func TestFormatearUnaConnectionUsaLaDescripcionSegura(t *testing.T) {
+	got := fmt.Sprintf("%+v", valid())
+	if got != valid().Describe() {
+		t.Errorf("%%+v = %q, se esperaba la descripción segura %q", got, valid().Describe())
 	}
 }
 
@@ -183,5 +202,56 @@ func TestNormalizeNuncaAsumeProduccion(t *testing.T) {
 	c := Connection{Engine: Postgres}.Normalize()
 	if c.Environment == Production {
 		t.Fatal("Normalize() marcó la conexión como producción por defecto")
+	}
+}
+
+func TestDSNFallaSinUsuarioEnVezDeDescartarLaContrasena(t *testing.T) {
+	c := valid()
+	c.User = ""
+	dsn, err := c.DSN("s3cr3t")
+	if err == nil {
+		t.Fatalf("DSN() sin usuario no devolvió error, devolvió %q", dsn)
+	}
+	if strings.Contains(err.Error(), "s3cr3t") {
+		t.Errorf("el error filtra la contraseña: %v", err)
+	}
+}
+
+func TestNormalizeLimpiaLosEnums(t *testing.T) {
+	c := Connection{
+		ID:          "a1",
+		Name:        "x",
+		Engine:      " Postgres ",
+		Host:        "h",
+		Database:    "d",
+		User:        "u",
+		Environment: "  DEV ",
+		SSLMode:     " Require ",
+	}.Normalize()
+
+	if c.Engine != Postgres {
+		t.Errorf("Engine = %q, se esperaba %q", c.Engine, Postgres)
+	}
+	if c.Environment != Dev {
+		t.Errorf("Environment = %q, se esperaba %q", c.Environment, Dev)
+	}
+	if c.SSLMode != SSLRequire {
+		t.Errorf("SSLMode = %q, se esperaba %q", c.SSLMode, SSLRequire)
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("una conexión con enums sucios pero válidos fue rechazada: %v", err)
+	}
+}
+
+// Un SSLMode vacío no es "sin configurar": es prefer, que no verifica el
+// certificado y acepta seguir en claro.
+func TestElModoSSLEfectivoDeUnCampoVacioEsPrefer(t *testing.T) {
+	c := valid()
+	c.SSLMode = ""
+	if got := c.EffectiveSSLMode(); got != SSLPrefer {
+		t.Errorf("EffectiveSSLMode() = %q, se esperaba %q", got, SSLPrefer)
+	}
+	if c.EffectiveSSLMode().Verifies() {
+		t.Error("prefer no verifica el certificado y no debería decir que sí")
 	}
 }
