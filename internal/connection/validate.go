@@ -48,6 +48,7 @@ const maxNameLength = 120
 func (c Connection) Validate() error {
 	errs := c.identityErrors()
 	errs = append(errs, c.connectErrors()...)
+	errs = append(errs, c.safetyErrors()...)
 	return wrap(errs)
 }
 
@@ -131,6 +132,33 @@ func (c Connection) connectErrors() []FieldError {
 	return errs
 }
 
+// safetyErrors valida los números de las protecciones.
+//
+// Cero es "usar el default" y -1 es "sin límite"; cualquier otro negativo es un
+// error de tipeo en el archivo, y dejarlo pasar significaría que el usuario
+// cree haber puesto un límite que no está.
+func (c Connection) safetyErrors() []FieldError {
+	var errs []FieldError
+	numeros := []struct {
+		field string
+		valor int
+		label string
+	}{
+		{"statementTimeoutSeconds", c.Safety.StatementTimeoutSeconds, "El timeout de sentencia"},
+		{"rowLimit", c.Safety.RowLimit, "El límite de filas"},
+		{"idleDisconnectMinutes", c.Safety.IdleDisconnectMinutes, "La desconexión por inactividad"},
+	}
+	for _, n := range numeros {
+		if n.valor < 0 && n.valor != Unlimited {
+			errs = append(errs, FieldError{
+				Field:   n.field,
+				Message: fmt.Sprintf("%s no puede ser negativo. Usá 0 para el valor por defecto o %d para sin límite.", n.label, Unlimited),
+			})
+		}
+	}
+	return errs
+}
+
 func wrap(errs []FieldError) error {
 	if len(errs) == 0 {
 		return nil
@@ -167,10 +195,33 @@ func (c Connection) Warnings() []Warning {
 		w = append(w, Warning{Field: "sslMode", Message: msg})
 	}
 
-	if c.Environment == Production && !c.ReadOnly {
+	if c.Environment == Production && !c.Safety.ReadOnly {
 		w = append(w, Warning{
 			Field:   "readOnly",
 			Message: "Conexión de producción con escritura habilitada. Cada cambio va a pedir confirmación con el nombre de la base.",
+		})
+	}
+
+	// Aplicar sin preview contra algo que no es local es cómo se borra una
+	// columna sin haber leído el DDL.
+	if c.Safety.AllowApplyWithoutPreview && c.Environment != Local {
+		w = append(w, Warning{
+			Field:   "allowApplyWithoutPreview",
+			Message: "Los cambios se van a aplicar sin mostrar el SQL primero.",
+		})
+	}
+
+	if c.Safety.AllowWriteWithoutConfirmation && c.Environment == Staging {
+		w = append(w, Warning{
+			Field:   "allowWriteWithoutConfirmation",
+			Message: "Las escrituras contra staging no van a pedir confirmación.",
+		})
+	}
+
+	if c.Safety.StatementTimeoutSeconds == Unlimited {
+		w = append(w, Warning{
+			Field:   "statementTimeoutSeconds",
+			Message: "Sin timeout de sentencia: una consulta pesada puede quedar corriendo y tomando bloqueos indefinidamente.",
 		})
 	}
 

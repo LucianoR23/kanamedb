@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Engine es el motor de base de datos.
@@ -140,12 +141,118 @@ type Connection struct {
 	User        string      `toml:"user"`
 	Environment Environment `toml:"environment"`
 
-	// ReadOnly bloquea toda escritura desde la app, independientemente de los
-	// permisos que tenga el usuario en el motor.
-	ReadOnly bool `toml:"read_only"`
-
 	// SSLMode aplica a Postgres, MySQL y MariaDB. SQLite lo ignora.
 	SSLMode SSLMode `toml:"ssl_mode"`
+
+	Safety Safety `toml:"safety"`
+}
+
+// Safety son las protecciones por conexión.
+//
+// Los nombres están elegidos para que el VALOR CERO SEA EL LADO SEGURO, y no
+// para que suenen bien. El archivo se edita a mano: si alguien borra una línea,
+// o si una versión futura lee un archivo escrito por una anterior, la clave
+// ausente decodifica como cero. Con `RequirePreview` el cero sería `false` y la
+// protección quedaría apagada sin que nadie lo pidiera; con
+// `AllowApplyWithoutPreview` el cero es `false` y la protección queda puesta.
+//
+// La conexión más vieja es la que tiene más chances de que le falte una clave
+// nueva, y suele ser la más importante.
+type Safety struct {
+	// ReadOnly bloquea toda escritura desde la app, sin importar los permisos
+	// que tenga el usuario en el motor. Cero: la conexión permite escribir, que
+	// es lo que el usuario espera al crear una conexión común.
+	ReadOnly bool `toml:"read_only"`
+
+	// AllowApplyWithoutPreview deja aplicar cambios sin abrir el preview de SQL.
+	// Cero: el changeset siempre se abre para revisar.
+	AllowApplyWithoutPreview bool `toml:"allow_apply_without_preview"`
+
+	// AllowWriteWithoutConfirmation saltea la confirmación por nombre de base.
+	// Cero: hay que tipear el nombre. En producción se ignora: ver
+	// RequiresWriteConfirmation.
+	AllowWriteWithoutConfirmation bool `toml:"allow_write_without_confirmation"`
+
+	// BlockDropTruncate hace que aplicar se niegue a ejecutar DROP y TRUNCATE.
+	// Las sentencias igual se generan y se muestran; lo que no se hace es
+	// correrlas. Cero: no se bloquean, que es el default del diseño.
+	BlockDropTruncate bool `toml:"block_drop_truncate"`
+
+	// StatementTimeoutSeconds corta una consulta que se cuelga.
+	// Cero significa "usar el default", no "sin límite": un archivo al que le
+	// falta la clave tiene que quedar protegido, no desprotegido. Para sacar el
+	// límite hay que pedirlo con -1.
+	StatementTimeoutSeconds int `toml:"statement_timeout_seconds"`
+
+	// RowLimit es cuántas filas trae una consulta antes de "cargar más".
+	// Cero es el default; -1 es sin límite.
+	RowLimit int `toml:"row_limit"`
+
+	// IdleDisconnectMinutes cierra la conexión tras ese tiempo sin actividad.
+	// Cero es el default; -1 es nunca desconectar.
+	IdleDisconnectMinutes int `toml:"idle_disconnect_minutes"`
+}
+
+// Defaults de las protecciones, tomados de S03.
+const (
+	DefaultStatementTimeoutSeconds = 30
+	DefaultRowLimit                = 1000
+	DefaultIdleDisconnectMinutes   = 15
+)
+
+// Unlimited es el valor que hay que poner explícitamente para sacar un límite.
+// No es cero justamente para que una clave ausente no lo saque sin querer.
+const Unlimited = -1
+
+// RequiresPreview dice si el changeset tiene que abrirse antes de aplicar.
+func (s Safety) RequiresPreview() bool { return !s.AllowApplyWithoutPreview }
+
+// RequiresWriteConfirmation dice si hay que tipear el nombre de la base antes
+// de escribir.
+//
+// En producción es true siempre, sin importar la configuración: es la
+// protección que no se puede apagar.
+func (c Connection) RequiresWriteConfirmation() bool {
+	if c.Environment.NeedsWriteConfirmation() {
+		return true
+	}
+	return !c.Safety.AllowWriteWithoutConfirmation
+}
+
+// StatementTimeout devuelve el timeout efectivo. Cero significa sin límite.
+func (s Safety) StatementTimeout() time.Duration {
+	switch {
+	case s.StatementTimeoutSeconds == Unlimited:
+		return 0
+	case s.StatementTimeoutSeconds <= 0:
+		return DefaultStatementTimeoutSeconds * time.Second
+	default:
+		return time.Duration(s.StatementTimeoutSeconds) * time.Second
+	}
+}
+
+// EffectiveRowLimit devuelve el límite efectivo. Cero significa sin límite.
+func (s Safety) EffectiveRowLimit() int {
+	switch {
+	case s.RowLimit == Unlimited:
+		return 0
+	case s.RowLimit <= 0:
+		return DefaultRowLimit
+	default:
+		return s.RowLimit
+	}
+}
+
+// IdleDisconnect devuelve el tiempo de inactividad efectivo. Cero es nunca.
+func (s Safety) IdleDisconnect() time.Duration {
+	switch {
+	case s.IdleDisconnectMinutes == Unlimited:
+		return 0
+	case s.IdleDisconnectMinutes <= 0:
+		return DefaultIdleDisconnectMinutes * time.Minute
+	default:
+		return time.Duration(s.IdleDisconnectMinutes) * time.Minute
+	}
 }
 
 // NewID genera un identificador aleatorio para una conexión nueva.

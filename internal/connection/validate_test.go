@@ -135,12 +135,12 @@ func TestAvisaSobreProduccionConEscritura(t *testing.T) {
 	c.Environment = Production
 	c.SSLMode = SSLVerifyFull
 
-	c.ReadOnly = false
+	c.Safety.ReadOnly = false
 	if len(c.Warnings()) == 0 {
 		t.Error("producción con escritura habilitada debería avisar")
 	}
 
-	c.ReadOnly = true
+	c.Safety.ReadOnly = true
 	if len(c.Warnings()) != 0 {
 		t.Errorf("producción en solo lectura no debería avisar: %v", c.Warnings())
 	}
@@ -215,7 +215,7 @@ func TestAvisaSobreProduccionSinVerificarCertificado(t *testing.T) {
 	c := valid()
 	c.Environment = Production
 	c.SSLMode = SSLRequire
-	c.ReadOnly = true
+	c.Safety.ReadOnly = true
 
 	avisos := c.Warnings()
 	if len(avisos) == 0 {

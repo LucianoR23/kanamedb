@@ -270,7 +270,7 @@ func TestIdaYVueltaPorDiscoPreservaTodosLosCampos(t *testing.T) {
 		Database:    "shop_prod",
 		User:        "app_ro",
 		Environment: connection.Production,
-		ReadOnly:    true,
+		Safety:      connection.Safety{ReadOnly: true},
 		SSLMode:     connection.SSLVerifyFull,
 	}
 	if err := s.Add(want); err != nil {
@@ -434,5 +434,66 @@ environment = "dev"
 	}
 	if !ve.Has("database") {
 		t.Errorf("el error no señala el campo database: %v", ve.Errors)
+	}
+}
+
+// El archivo se escribe siempre completo: si una versión futura agrega una
+// clave de seguridad, la ausencia en un archivo viejo tiene que caer del lado
+// seguro. Este test fija que las claves se escriben y vuelven intactas.
+func TestLasProteccionesSobrevivenElDisco(t *testing.T) {
+	s := nuevo(t)
+	want := conn("a1", "prod")
+	want.Environment = connection.Production
+	want.Safety = connection.Safety{
+		ReadOnly:                true,
+		BlockDropTruncate:       true,
+		StatementTimeoutSeconds: 5,
+		RowLimit:                connection.Unlimited,
+		IdleDisconnectMinutes:   60,
+	}
+	if err := s.Add(want); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+	got, err := New(s.Path()).Get("a1")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Safety != want.Safety {
+		t.Errorf("las protecciones cambiaron al pasar por disco:\n got %+v\nwant %+v", got.Safety, want.Safety)
+	}
+}
+
+// Y si el archivo NO tiene la sección de seguridad, la conexión tiene que
+// quedar protegida y no desprotegida.
+func TestUnArchivoSinSeccionDeSeguridadQuedaProtegido(t *testing.T) {
+	s := nuevo(t)
+	escribirCrudo(t, s.Path(), `
+version = 1
+
+[[connection]]
+id = "vieja"
+name = "conexión de antes"
+engine = "postgres"
+host = "db.local"
+port = 5432
+database = "shop"
+user = "rw"
+environment = "production"
+`)
+	got, err := s.Get("vieja")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if !got.Safety.RequiresPreview() {
+		t.Error("sin sección de seguridad, el preview debería ser obligatorio")
+	}
+	if !got.RequiresWriteConfirmation() {
+		t.Error("sin sección de seguridad, escribir debería pedir confirmación")
+	}
+	if got.Safety.StatementTimeout() == 0 {
+		t.Error("sin sección de seguridad, debería haber timeout y no 'sin límite'")
+	}
+	if got.Safety.EffectiveRowLimit() == 0 {
+		t.Error("sin sección de seguridad, debería haber límite de filas")
 	}
 }
