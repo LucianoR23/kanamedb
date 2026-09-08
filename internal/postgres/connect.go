@@ -8,6 +8,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -122,7 +123,27 @@ func checkVersion(info *ServerInfo) *Failure {
 //
 // El pool existe porque cancelar una query necesita una segunda conexión, y
 // porque la interfaz puede tener varias pestañas consultando a la vez.
-func Connect(ctx context.Context, dsn, desc string, maxConns int32) (*pgxpool.Pool, *ServerInfo, *Failure) {
+// ConnectOptions son las decisiones de la conexión que el pool tiene que
+// hacer cumplir.
+//
+// Van acá y no en cada consulta a propósito. Solo lectura y statement_timeout
+// se mandan como parámetros del paquete de arranque, así que toda conexión que
+// el pool abra nace con ellos y no hay forma de olvidarse de aplicarlos en un
+// camino nuevo. Un guard que hay que acordarse de invocar termina siendo un
+// guard que alguien no invoca.
+type ConnectOptions struct {
+	MaxConns int32
+
+	// ReadOnly pone default_transaction_read_only. El servidor rechaza toda
+	// escritura con 25006, incluidas las que no pasen por nuestro código.
+	ReadOnly bool
+
+	// StatementTimeout corta del lado del servidor. Cancelar desde el cliente
+	// depende de que el cliente siga vivo; esto no.
+	StatementTimeout time.Duration
+}
+
+func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpool.Pool, *ServerInfo, *Failure) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		// El error de parseo puede citar el DSN, que lleva la contraseña.
@@ -131,8 +152,18 @@ func Connect(ctx context.Context, dsn, desc string, maxConns int32) (*pgxpool.Po
 			Message: "La cadena de conexión de " + desc + " no es válida.",
 		}
 	}
-	if maxConns > 0 {
-		cfg.MaxConns = maxConns
+	if opts.MaxConns > 0 {
+		cfg.MaxConns = opts.MaxConns
+	}
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	if opts.ReadOnly {
+		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	}
+	if opts.StatementTimeout > 0 {
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] =
+			strconv.FormatInt(opts.StatementTimeout.Milliseconds(), 10)
 	}
 	// Solo si el DSN no trajo el suyo: un connect_timeout explícito en la cadena
 	// de conexión es una decisión del usuario, y pisarla hacía que Connect y

@@ -15,7 +15,7 @@ func conectar(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	dsn := testDSN(t)
 
-	pool, _, f := Connect(context.Background(), dsn, "base de pruebas", 4)
+	pool, _, f := Connect(context.Background(), dsn, "base de pruebas", ConnectOptions{MaxConns: 4})
 	if f != nil {
 		t.Fatalf("Connect() falló: %s", f.Message)
 	}
@@ -317,7 +317,7 @@ func TestIntrospectMarcaLasTablasQueNoSePuedenLeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	u.User = url.UserPassword(rol, "temporal")
-	limitado, _, f := Connect(context.Background(), u.String(), "rol limitado", 2)
+	limitado, _, f := Connect(context.Background(), u.String(), "rol limitado", ConnectOptions{MaxConns: 2})
 	if f != nil {
 		t.Fatalf("Connect() como %s falló: %s", rol, f.Message)
 	}

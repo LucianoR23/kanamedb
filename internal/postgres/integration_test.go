@@ -153,7 +153,7 @@ func TestProbeContraUnPuertoCerradoDaNetwork(t *testing.T) {
 func TestConnectDevuelvePoolUsable(t *testing.T) {
 	dsn := testDSN(t)
 
-	pool, info, f := Connect(context.Background(), dsn, "base de pruebas", 4)
+	pool, info, f := Connect(context.Background(), dsn, "base de pruebas", ConnectOptions{MaxConns: 4})
 	if f != nil {
 		t.Fatalf("Connect() falló: %s", f.Message)
 	}
@@ -179,7 +179,7 @@ func TestConnectFallaAlAbrirYNoEnLaPrimeraQuery(t *testing.T) {
 	dsn := testDSN(t)
 	malo := cambiarContrasena(t, dsn, "tampoco-es-esta")
 
-	pool, _, f := Connect(context.Background(), malo, "base de pruebas", 2)
+	pool, _, f := Connect(context.Background(), malo, "base de pruebas", ConnectOptions{MaxConns: 2})
 	if f == nil {
 		pool.Close()
 		t.Fatal("Connect() con credenciales malas devolvió un pool")
@@ -204,7 +204,7 @@ func TestLaConexionSeIdentificaComoKaname(t *testing.T) {
 	q.Set("application_name", "kaname")
 	u.RawQuery = q.Encode()
 
-	pool, _, f := Connect(context.Background(), u.String(), "base de pruebas", 2)
+	pool, _, f := Connect(context.Background(), u.String(), "base de pruebas", ConnectOptions{MaxConns: 2})
 	if f != nil {
 		t.Fatalf("Connect() falló: %s", f.Message)
 	}

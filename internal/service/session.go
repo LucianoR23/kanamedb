@@ -111,7 +111,7 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 		})
 	}
 
-	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), poolSize(c))
+	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), connectOptions(c))
 	if failure != nil {
 		return failed(failure)
 	}
@@ -224,6 +224,31 @@ func (s *Session) viewLocked() SessionView {
 		v.ReadOnlyReason = "El servidor fuerza transacciones de solo lectura."
 	}
 	return v
+}
+
+// connectOptions traduce las protecciones de la conexión a lo que el pool tiene
+// que hacer cumplir.
+//
+// Solo lectura y statement_timeout viajan en el arranque de cada conexión, no
+// se aplican por consulta. Así una escritura la rechaza el servidor con 25006
+// aunque el camino que la mande sea uno que todavía no existe, y el corte por
+// tiempo sigue vigente aunque la app se cuelgue o se cierre.
+func connectOptions(c connection.Connection) postgres.ConnectOptions {
+	return postgres.ConnectOptions{
+		MaxConns:         poolSize(c),
+		ReadOnly:         c.Safety.ReadOnly,
+		StatementTimeout: c.Safety.StatementTimeout(),
+	}
+}
+
+// abierta devuelve la sesión en curso.
+func (s *Session) abierta() (*openSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.current == nil {
+		return nil, ErrNotConnected
+	}
+	return s.current, nil
 }
 
 // poolSize decide cuántas conexiones abrir.

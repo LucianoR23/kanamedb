@@ -324,6 +324,37 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 2 — 2026-09-08
 
+**Solo lectura y statement_timeout los hace cumplir el servidor, no nosotros.**
+Van como parámetros del paquete de arranque de cada conexión del pool
+—`default_transaction_read_only` y `statement_timeout`—, no como un guard por
+consulta. La diferencia es la que importa: un guard cubre los caminos que nos
+acordamos de cubrir, y `default_transaction_read_only` cubre también los que
+todavía no escribimos. El corte por tiempo, además, sigue vigente aunque la app
+se cuelgue o se cierre; cancelar desde el cliente depende de que el cliente siga
+vivo. Verificado con el motor: un INSERT sobre una conexión de solo lectura
+vuelve con 25006, y `pg_sleep(10)` con timeout de 300 ms vuelve con 57014.
+
+**Cancelar es por identificador de ejecución, no global.**
+El editor puede tener varias pestañas corriendo. Con un solo `cancel`
+compartido, apretar cancelar en una pestaña corta la consulta de otra — y de
+forma intermitente, que es la peor manera de tener un error. La interfaz elige
+un `runID` y `Cancel(runID)` corta esa y nada más.
+
+**Citar identificadores siempre, no "cuando hace falta".**
+Decidir caso por caso se equivoca: `order` es reservada, `Mi Tabla` tiene
+espacio, `año` no es ASCII y `a"b` es un nombre válido. El test lo prueba contra
+el motor con una tabla cuyo nombre es `raro"; drop table "<esq>"."victima" --`,
+armado para que la SQL resultante sea válida y destructiva si el citado falla —
+un nombre que rompe el parser haría fallar el test por el motivo equivocado. Con
+el citado roto, la víctima desaparece; con el citado bien, no.
+
+**El paginado dice cuándo no es confiable.**
+Sin ORDER BY, LIMIT/OFFSET no define qué filas devuelve: el motor puede entregar
+la misma fila en dos páginas y saltearse otra. `TableData` no inventa un orden;
+el servicio resuelve la clave primaria y devuelve `OrderedBy`. Vacío significa
+que la tabla no tiene clave y que "cargar más" es aproximado — y la interfaz
+tiene que decirlo, no taparlo.
+
 **La grilla no es una librería de grilla: es CSS Grid propio más virtualización.**
 Descartada `glide-data-grid`, que era lo que decía el plan: su estable declara
 `react: ^16 || 17 || 18`, React 19 solo está en una alpha sin promover desde

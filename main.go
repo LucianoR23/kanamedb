@@ -32,6 +32,7 @@ func main() {
 
 	connections := store.New(info.Paths.Connections)
 	keyring := secrets.New()
+	sesion := service.NewSession(connections, keyring)
 
 	app := application.New(application.Options{
 		Name:        "Kaname",
@@ -40,7 +41,8 @@ func main() {
 		Services: []application.Service{
 			application.NewService(appinfo.New()),
 			application.NewService(service.NewConnections(connections, keyring)),
-			application.NewService(service.NewSession(connections, keyring)),
+			application.NewService(sesion),
+			application.NewService(service.NewQueries(sesion)),
 		},
 
 		Assets: application.AssetOptions{

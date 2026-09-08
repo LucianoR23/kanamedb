@@ -1,0 +1,173 @@
+package service
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/LucianoR23/kanamedb/internal/connection"
+	"github.com/LucianoR23/kanamedb/internal/postgres"
+)
+
+// Dos valores por defecto con el mismo número en paquetes distintos se separan
+// solos en cuanto alguien toca uno. Este test es el que avisa.
+func TestElLimiteDeFilasPorDefectoNoSeSepara(t *testing.T) {
+	if postgres.DefaultRowLimit != connection.DefaultRowLimit {
+		t.Errorf("postgres.DefaultRowLimit = %d y connection.DefaultRowLimit = %d: "+
+			"el corte de lectura ya no coincide con lo que dice la conexión",
+			postgres.DefaultRowLimit, connection.DefaultRowLimit)
+	}
+}
+
+func queriesDePrueba(t *testing.T) (*Queries, *Session, string) {
+	t.Helper()
+	sesion, _, id := sesionDePrueba(t)
+	return NewQueries(sesion), sesion, id
+}
+
+// Sin conexión no hay que reventar: hay que decirlo.
+func TestRunSinConexionDevuelveFalloYNoRompe(t *testing.T) {
+	q, _, _ := queriesDePrueba(t)
+
+	res := q.Run(context.Background(), "r1", "select 1")
+	if res.OK {
+		t.Fatal("ejecutó una consulta sin conexión abierta")
+	}
+	if res.Failure == nil || res.Failure.Message == "" {
+		t.Errorf("el fallo llegó vacío: %+v", res.Failure)
+	}
+	if res.Result != nil {
+		t.Error("vino un resultado junto con el fallo")
+	}
+}
+
+// Cancelar tiene que cortar la consulta que se pidió y solo esa. Con un único
+// cancel compartido, apretar cancelar en una pestaña mataría la de otra — y de
+// forma intermitente, que es la peor manera de tener un error.
+func TestCancelCortaSoloLaEjecucionQueSePide(t *testing.T) {
+	q, sesion, id := queriesDePrueba(t)
+	saltearSinBase(t, sesion.Connect(context.Background(), id))
+
+	var wg sync.WaitGroup
+	var largaRes, cortaRes RunResult
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		largaRes = q.Run(context.Background(), "larga", "select pg_sleep(10)")
+	}()
+	go func() {
+		defer wg.Done()
+		cortaRes = q.Run(context.Background(), "corta", "select pg_sleep(1)")
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	q.Cancel("larga")
+
+	hecho := make(chan struct{})
+	go func() { wg.Wait(); close(hecho) }()
+	select {
+	case <-hecho:
+	case <-time.After(8 * time.Second):
+		t.Fatal("las consultas no terminaron: la cancelación no cortó nada")
+	}
+
+	if largaRes.OK {
+		t.Error("la consulta cancelada terminó bien")
+	}
+	if !cortaRes.OK {
+		t.Errorf("se canceló la consulta equivocada: %+v", cortaRes.Failure)
+	}
+}
+
+// El registro de cancelaciones no puede crecer para siempre: cada ejecución que
+// termina tiene que sacarse, o cancelar una vieja alcanzaría a una nueva.
+func TestElRegistroDeCancelacionesQuedaVacio(t *testing.T) {
+	q, sesion, id := queriesDePrueba(t)
+	saltearSinBase(t, sesion.Connect(context.Background(), id))
+
+	for i := 0; i < 5; i++ {
+		if res := q.Run(context.Background(), "r", "select 1"); !res.OK {
+			t.Fatalf("consulta %d falló: %+v", i, res.Failure)
+		}
+	}
+	if n := q.Running(); n != 0 {
+		t.Errorf("quedaron %d ejecuciones registradas después de terminar todas", n)
+	}
+	// Cancelar algo que ya terminó no es un error.
+	q.Cancel("r")
+}
+
+// Sin ORDER BY el paginado puede repetir y saltear filas. El servicio resuelve
+// la clave primaria para evitarlo, y lo informa: OrderedBy vacío es la señal de
+// que "cargar más" es aproximado.
+func TestTableDataOrdenaPorLaClavePrimariaYLoInforma(t *testing.T) {
+	q, sesion, id := queriesDePrueba(t)
+	saltearSinBase(t, sesion.Connect(context.Background(), id))
+
+	esquema := "kn_svc_tabledata"
+	crear(t, q, `drop schema if exists `+esquema+` cascade`)
+	crear(t, q, `create schema `+esquema)
+	t.Cleanup(func() { crear(t, q, `drop schema if exists `+esquema+` cascade`) })
+	crear(t, q, `create table `+esquema+`.con_pk (id int primary key, n text)`)
+	crear(t, q, `insert into `+esquema+`.con_pk select i, 'x' from generate_series(1, 5) as i`)
+	crear(t, q, `create table `+esquema+`.sin_pk (n text)`)
+	crear(t, q, `insert into `+esquema+`.sin_pk values ('a'), ('b')`)
+
+	conPK := q.TableData(context.Background(), TableDataRequest{
+		RunID: "t1", Schema: esquema, Table: "con_pk", Limit: 3,
+	})
+	if !conPK.OK {
+		t.Fatalf("TableData falló: %+v", conPK.Failure)
+	}
+	if strings.Join(conPK.OrderedBy, ",") != "id" {
+		t.Errorf("OrderedBy = %v, se esperaba [id]", conPK.OrderedBy)
+	}
+	if len(conPK.Result.Rows) != 3 {
+		t.Errorf("filas = %d, se esperaban 3 por el LIMIT", len(conPK.Result.Rows))
+	}
+
+	sinPK := q.TableData(context.Background(), TableDataRequest{
+		RunID: "t2", Schema: esquema, Table: "sin_pk", Limit: 10,
+	})
+	if !sinPK.OK {
+		t.Fatalf("TableData sin clave primaria falló: %+v", sinPK.Failure)
+	}
+	if len(sinPK.OrderedBy) != 0 {
+		t.Errorf("OrderedBy = %v: sin clave primaria tiene que quedar vacío", sinPK.OrderedBy)
+	}
+	// Y aun así muestra los datos: no tener orden no es motivo para no leer.
+	if len(sinPK.Result.Rows) != 2 {
+		t.Errorf("filas = %d, se esperaban 2", len(sinPK.Result.Rows))
+	}
+}
+
+func TestTableCountEsExactoDesdeElServicio(t *testing.T) {
+	q, sesion, id := queriesDePrueba(t)
+	saltearSinBase(t, sesion.Connect(context.Background(), id))
+
+	esquema := "kn_svc_count"
+	crear(t, q, `drop schema if exists `+esquema+` cascade`)
+	crear(t, q, `create schema `+esquema)
+	t.Cleanup(func() { crear(t, q, `drop schema if exists `+esquema+` cascade`) })
+	crear(t, q, `create table `+esquema+`.t (id int)`)
+	crear(t, q, `insert into `+esquema+`.t select generate_series(1, 41)`)
+
+	res := q.TableCount(context.Background(), "c1", esquema, "t")
+	if !res.OK {
+		t.Fatalf("TableCount falló: %+v", res.Failure)
+	}
+	if res.Count != 41 {
+		t.Errorf("count = %d, se esperaban 41", res.Count)
+	}
+}
+
+// crear ejecuta DDL de preparación a través del servicio.
+func crear(t *testing.T, q *Queries, sql string) {
+	t.Helper()
+	if res := q.Run(context.Background(), "ddl", sql); !res.OK {
+		t.Fatalf("no se pudo preparar con %q: %+v", sql, res.Failure)
+	}
+}
