@@ -370,6 +370,19 @@ lista anunciada. Guardarlos como campos propios queda pendiente; el aviso es lo
 que impide que la conexión guardada sea distinta de la que el usuario pegó sin
 que nada se lo diga.
 
+**Un control que no controla se dibuja como estado, no como interruptor.**
+El panel de protecciones de S02 mostraba cuatro switches de 28x16 con perilla.
+Los valores existen y el backend los respeta, pero todavía no se editan desde
+ahí —la tab Safety es de la Iteración 5—, así que el switch prometía un clic que
+no hacía nada. El usuario lo apretó y concluyó, con razón, que la app estaba
+rota. Ahora es un punto: informa sin ofrecer. La forma de un control es una
+promesa, y una promesa que no se cumple cuesta más que la función que falta.
+
+De paso quedó a la vista un agujero de orden en el plan: lo primero que puede
+escribir en la base es el editor SQL de la Iteración 2, y el interruptor de solo
+lectura está agendado para la 5. Mientras tanto se edita en `connections.toml`,
+que para eso se eligió un formato que se edita a mano.
+
 **El paquete `main` solo se compila donde tiene sentido compilarlo.**
 El primer push puso todo en rojo, y por dos causas distintas que se destaparon
 una después de la otra. La primera: `pattern all:frontend/dist: no matching

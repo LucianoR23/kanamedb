@@ -388,8 +388,9 @@ function Detail({
             <SafetyRow on={c.safety.blockDropTruncate} label="Bloquear DROP y TRUNCATE" />
           </ul>
           <p className={styles.safetyNote}>
-            Se configuran en la tab Safety del editor, que llega en la Iteración 5. Los
-            valores ya se guardan.
+            Acá se miran, no se tocan. Se configuran en la tab Safety del editor, que
+            llega en la Iteración 5; hasta entonces se editan en connections.toml y los
+            valores ya se guardan y se respetan.
           </p>
         </section>
       </div>
@@ -419,6 +420,7 @@ function SafetyRow({
     <li className={styles.safetyRow}>
       <span className={cx(styles.safetyDot, on && styles.safetyDotOn)} aria-hidden="true" />
       <span className={cx(styles.safetyLabel, !on && styles.safetyLabelOff)}>{label}</span>
+      <span className={styles.srOnly}>{on ? "activa" : "inactiva"}</span>
       {locked ? <span className={styles.safetyLocked}>no se puede apagar</span> : null}
     </li>
   );
