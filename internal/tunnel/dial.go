@@ -336,8 +336,23 @@ func discar(ctx context.Context, addr string) (net.Conn, error) {
 // cada máquina.
 //
 // Una ruta absoluta de Windows pasa intacta: no empieza con `~`.
+//
+// La forma `~\algo` se acepta en TODAS las plataformas, y por la misma razón de
+// arriba: quien configuró la conexión en Windows escribió `~\.ssh\id_ed25519`, y
+// ese mismo archivo de conexiones se abre en Linux. Ahí las barras invertidas no
+// separan nada —son caracteres válidos de un nombre de archivo—, así que
+// traducir solo el prefijo dejaba una ruta que apunta a un archivo llamado
+// `.ssh\id_ed25519`, que no existe. Aceptar el prefijo sin traducir el resto es
+// media función.
+//
+// La traducción se hace SOLO cuando la ruta empieza con `~\`, que es sintaxis de
+// Windows inequívoca. Una ruta `~/carpeta\rara` conserva su barra invertida: en
+// Linux es un nombre de archivo legítimo y cambiarlo sería romperlo.
 func expandirRuta(ruta string) (string, error) {
-	if ruta != "~" && !strings.HasPrefix(ruta, "~/") && !strings.HasPrefix(ruta, `~\`) {
+	const tildeDeWindows = `~\`
+	estiloWindows := strings.HasPrefix(ruta, tildeDeWindows)
+
+	if ruta != "~" && !strings.HasPrefix(ruta, "~/") && !estiloWindows {
 		return ruta, nil
 	}
 	home, err := os.UserHomeDir()
@@ -347,5 +362,12 @@ func expandirRuta(ruta string) (string, error) {
 	if ruta == "~" {
 		return home, nil
 	}
-	return filepath.Join(home, ruta[2:]), nil
+
+	resto := ruta[2:]
+	if estiloWindows {
+		// En Windows el separador YA es la barra invertida, así que esto no
+		// cambia nada; en Linux y macOS es lo que hace que la ruta exista.
+		resto = strings.ReplaceAll(resto, `\`, string(filepath.Separator))
+	}
+	return filepath.Join(home, resto), nil
 }

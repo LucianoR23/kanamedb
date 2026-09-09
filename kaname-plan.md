@@ -526,6 +526,26 @@ se le corrió `ANALYZE`, así que el planificador no tiene estimación: puede te
 millones de filas. La que sí está vacía dice «vacía». La etiqueta es correcta y
 demasiado corta para explicarse, así que `TreeRow` ganó un `metaTitle`.
 
+**Lo primero que encontró CI en Linux fue una funcion a medio hacer, no un test
+caprichoso.** `expandirRuta` acepta el prefijo `~` con barra invertida en TODAS
+las plataformas a proposito: el archivo de conexiones se sincroniza, asi que una
+ruta configurada en Windows se abre en Linux. Pero traducia solo el prefijo, no
+el resto — y en Linux la barra invertida no separa nada, es un caracter valido de
+un nombre de archivo. La ruta terminaba apuntando a un archivo llamado
+`.ssh` mas barra invertida mas `id_ed25519`, que no existe. Aceptar el prefijo
+sin traducir el resto es media funcion.
+
+La traduccion se hace SOLO cuando la ruta empieza con la tilde de Windows, que es
+sintaxis inequivoca. Una ruta con tilde y barra normal conserva sus barras
+invertidas: en Linux son parte del nombre y cambiarlas lo romperia. Hay un caso
+de test para cada una de las dos formas de equivocarse, y las dos se verificaron
+corriendo la suite dentro de un contenedor de Linux — en Windows ninguno de los
+dos casos puede distinguir nada, porque las dos barras separan igual.
+
+Vale la pena anotar de donde salio: **de la pata de Linux de CI, que es la unica
+que puede verlo.** La maquina de desarrollo es Windows y ahi el test pasa con la
+funcion rota. Es exactamente para esto que la matriz corre en los dos sistemas.
+
 **Las posiciones del diagrama van al lado de la libreta de conexiones**, no en el
 directorio de estado. Es el mismo razonamiento que puso ahí la libreta: acomodar
 cuarenta tablas es trabajo, y quien sincroniza sus conexiones entre máquinas con

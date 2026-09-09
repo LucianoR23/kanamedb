@@ -24,7 +24,19 @@ func TestExpandirRuta(t *testing.T) {
 	}{
 		{"tilde sola", "~", home},
 		{"tilde con barra", "~/.ssh/id_ed25519", filepath.Join(home, ".ssh", "id_ed25519")},
+		// La forma de Windows tiene que funcionar TAMBIÉN en Linux y macOS: el
+		// archivo de conexiones se sincroniza, y quien la configuró en Windows
+		// escribió barras invertidas. Ahí no separan nada por sí solas, así que
+		// hay que traducirlas o la ruta apunta a un archivo llamado
+		// `.ssh\id_ed25519`.
 		{"tilde con barra invertida", `~\.ssh\id_ed25519`, filepath.Join(home, ".ssh", "id_ed25519")},
+		// Y la traducción NO puede pasarse de lista. Con `~/`, la barra
+		// invertida es parte del nombre: en Linux un archivo se puede llamar
+		// así, y convertirla en separador lo rompería. En Windows este caso no
+		// distingue nada —las dos barras separan igual—, así que es un test que
+		// solo puede fallar en la pata de Linux de la matriz.
+		{"barra invertida adentro de una ruta con tilde y barra", `~/carpeta\rara`,
+			filepath.Join(home, `carpeta\rara`)},
 		// Lo que importa que NO se toque: una ruta absoluta de Windows, que es
 		// como la va a pegar cualquiera que arrastre el archivo o copie del
 		// explorador.
