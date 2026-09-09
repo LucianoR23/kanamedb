@@ -101,6 +101,24 @@ directorio de datos del anterior y Postgres aborta con *"database files are
 incompatible with server"*. El `-v` es lo que lo borra. En CI no aparece porque
 cada pata de la matriz corre en una máquina limpia.
 
+### Datos para probar a mano
+
+Los tests crean y borran su propio esquema en cada caso, así que la base queda
+vacía. Para mirar la aplicación con algo que se parezca a un esquema real:
+
+```sh
+docker exec -i kaname-postgres-1 psql -U kaname -d kaname_test < docker/demo.sql
+```
+
+Deja tres esquemas: **`demo`** con identidad, columnas generadas, restricciones
+sin validar, índices de todas las formas y triggers activos y deshabilitados;
+**`aristas`** con una tabla por cada forma de relación, para comparar cómo se
+dibuja cada una; y tres tablas preparadas para que ciertas operaciones **fallen**
+al aplicarse, y poder ver que el error se explica y que la transacción revierte.
+
+Se puede correr las veces que haga falta. La base vive en tmpfs, así que bajar el
+stack se lleva todo y hay que volver a correrlo.
+
 ```sh
 gofmt -l .                         # formato de Go
 go vet ./...                       # análisis estático
