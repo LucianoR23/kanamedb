@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Service as AppInfo } from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
 import type { Info } from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
 import { Button } from "../components/ui";
+import { DevSignature } from "../components/DevSignature";
 import styles from "./About.module.css";
 
 /** Motores y plataformas: `on` es lo que funciona hoy en el binario que estás
@@ -195,6 +196,8 @@ export function About({ onBack }: { onBack: () => void }) {
             una tecla que no hace nada.
           </p>
         </div>
+
+        <DevSignature />
       </div>
     </div>
   );

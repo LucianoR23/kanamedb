@@ -1,0 +1,124 @@
+/* Firma del autor, al pie de S25 About.
+   Colores solo por tokens: ningún literal. Ver CLAUDE.md. */
+
+.firma {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+}
+
+.hecho {
+  flex: none;
+}
+
+.separador {
+  flex: 1;
+}
+
+/* El wordmark. Va en mono porque es un identificador, como todo lo que en esta
+   aplicación es un nombre y no una frase. */
+.marca {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: 500 11.5px/1 var(--font-mono);
+  letter-spacing: -0.04em;
+  cursor: pointer;
+  user-select: none;
+}
+.marca:hover {
+  color: var(--text-1);
+}
+.marca:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
+.texto {
+  white-space: nowrap;
+}
+
+.apagado {
+  opacity: 0.55;
+}
+
+/* El punto late al escribirse. React lo retriggerea cambiando la key. */
+.punto {
+  display: inline-block;
+  color: var(--accent);
+  transform-origin: center;
+  animation: kn-punto 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cursor {
+  display: inline-block;
+  width: 0.55em;
+  margin-left: 0.05em;
+  color: var(--accent);
+  animation: kn-cursor 1s step-end infinite;
+}
+
+.repo {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+.repo:hover {
+  color: var(--accent);
+}
+.repo:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
+/* Para lectores de pantalla: el wordmark se teclea, así que lo que hay en el
+   DOM en cada instante es un texto a medio escribir. */
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes kn-punto {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.6); }
+  70%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes kn-cursor {
+  0%, 50%      { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* El interruptor global de tokens.css ya acorta todas las animaciones, pero el
+   cursor parpadeando es infinito y ahí "más rápido" no alcanza: hay que
+   apagarlo y dejarlo encendido. */
+@media (prefers-reduced-motion: reduce) {
+  .punto,
+  .cursor {
+    animation: none;
+  }
+  .cursor {
+    opacity: 1;
+  }
+}
