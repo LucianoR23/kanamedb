@@ -29,6 +29,13 @@ var tipoValido = regexp.MustCompile(`^[A-Za-z0-9_ ,()'\[\]]+$`)
 // caso a manejar en la interfaz: es la red que garantiza que una operación sin
 // renderizado nunca se ofrezca.
 func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
+	return renderDDL(c, k, false)
+}
+
+// renderDDL es lo mismo, sabiendo cómo cita este servidor los literales de
+// texto. Ver quoteString.
+func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statement, error) {
+	cita := func(s string) string { return quoteString(s, sinEscapes) }
 	if err := c.Validate(); err != nil {
 		return change.Statement{}, err
 	}
@@ -45,7 +52,7 @@ func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
 	case change.CreateTable:
 		partes := make([]string, 0, len(c.Columns)+1)
 		for _, col := range c.Columns {
-			def, err := columnaDDL(col)
+			def, err := columnaDDL(col, cita)
 			if err != nil {
 				return st, err
 			}
@@ -74,12 +81,12 @@ func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
 		st.Note = "Todo lo que nombre la tabla —consultas guardadas, vistas, código— deja de encontrarla."
 
 	case change.SetTableComment:
-		st.SQL = fmt.Sprintf("ALTER TABLE %s COMMENT = %s", tabla, QuoteString(c.Comment))
+		st.SQL = fmt.Sprintf("ALTER TABLE %s COMMENT = %s", tabla, cita(c.Comment))
 		st.Impact = change.ImpactMetadata
 		st.Lock = change.LockNone
 
 	case change.AddColumn:
-		def, err := columnaDDL(*c.Column)
+		def, err := columnaDDL(*c.Column, cita)
 		if err != nil {
 			return st, err
 		}
@@ -184,7 +191,7 @@ func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
 		}
 		st.SQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s %s%s COMMENT %s",
 			tabla, QuoteIdent(c.Column.Name), c.Column.DataType, nulo, def,
-			QuoteString(c.Comment))
+			cita(c.Comment))
 		st.Impact = change.ImpactMetadata
 		st.Lock = change.LockNone
 		st.Note = "MySQL no tiene COMMENT ON: el comentario es parte de la definición de la " +
@@ -293,7 +300,7 @@ func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
 }
 
 // columnaDDL escribe la definición de una columna.
-func columnaDDL(col change.Column) (string, error) {
+func columnaDDL(col change.Column, cita func(string) string) (string, error) {
 	if !tipoValido.MatchString(col.DataType) {
 		return "", fmt.Errorf("el tipo %q tiene caracteres que no se aceptan", col.DataType)
 	}
@@ -306,7 +313,7 @@ func columnaDDL(col change.Column) (string, error) {
 		b.WriteString(" DEFAULT " + col.Default)
 	}
 	if col.Comment != "" {
-		b.WriteString(" COMMENT " + QuoteString(col.Comment))
+		b.WriteString(" COMMENT " + cita(col.Comment))
 	}
 	return b.String(), nil
 }

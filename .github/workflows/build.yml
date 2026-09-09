@@ -200,9 +200,10 @@ jobs:
       # motor está corriendo, así que sin él una corrida contra la 16 podría
       # devolver el resultado cacheado de la corrida contra la 18.
       #
-      # KANAME_REQUIRE_POSTGRES y KANAME_REQUIRE_SSH convierten el "saltear" en
-      # "fallar": si el mapeo de puertos o el tag de la imagen se rompen, este
-      # job tiene que ponerse rojo y no verde sin haber probado nada.
+      # KANAME_REQUIRE_POSTGRES, KANAME_REQUIRE_SSH y KANAME_REQUIRE_ENGINES
+      # convierten el "saltear" en "fallar": si el mapeo de puertos o el tag de
+      # la imagen se rompen, este job tiene que ponerse rojo y no verde sin
+      # haber probado nada.
       #
       # KANAME_EXPECT_PG_MAJOR verifica que esta pata esté hablando con la
       # versión que dice, y no cuatro veces con el mismo servidor.
@@ -215,6 +216,11 @@ jobs:
         env:
           KANAME_REQUIRE_POSTGRES: "1"
           KANAME_REQUIRE_SSH: "1"
+          # Lo mismo para MySQL, las dos MariaDB y la batería de motores. Sin
+          # esto, un contenedor que no arranca deja esos tests salteados y el
+          # job en verde. Pasó: MariaDB estuvo salteándose sin que nadie lo
+          # notara.
+          KANAME_REQUIRE_ENGINES: "1"
           KANAME_EXPECT_PG_MAJOR: ${{ matrix.postgres }}
         # -p 1 obligatorio: `go test` corre los binarios de cada paquete EN
         # PARALELO, y los de postgres y service escriben en la misma base de

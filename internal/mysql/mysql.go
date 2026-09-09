@@ -43,14 +43,30 @@ func QualifiedName(esquema, tabla string) string {
 	return QuoteIdent(esquema) + "." + QuoteIdent(tabla)
 }
 
-// QuoteString cita un literal de texto.
+// QuoteString cita un literal de texto para el modo normal de MySQL.
 //
 // Existe únicamente para el DDL, donde un comentario o un valor por defecto no
 // pueden ir como parámetro. Todo lo demás va parametrizado. Ver CLAUDE.md.
-func QuoteString(s string) string {
-	// Se escapan la comilla simple y la barra invertida. MySQL trata la barra
-	// como carácter de escape salvo con NO_BACKSLASH_ESCAPES, y duplicarla es
-	// correcto en los dos modos.
+func QuoteString(s string) string { return quoteString(s, false) }
+
+// quoteString cita un literal sabiendo si el servidor trata la barra invertida
+// como carácter de escape.
+//
+// Acá había un comentario que decía que duplicar la barra «es correcto en los
+// dos modos». No lo es: con NO_BACKSLASH_ESCAPES la barra no escapa nada, así
+// que una barra duplicada son DOS barras y un comentario que dice `C:\ruta` se
+// guardaba como `C:\\ruta`. Comprobado contra MySQL 9.7.
+//
+// No es un agujero de inyección —duplicar la comilla simple sigue siendo
+// correcto en los dos modos, y la comilla es lo único que puede cerrar el
+// literal— pero sí corrupción silenciosa de un texto que escribió el usuario.
+//
+// No hay una forma de citar que sirva para los dos modos, así que hay que saber
+// en cuál está el servidor: se lee @@sql_mode al conectar.
+func quoteString(s string, sinEscapes bool) string {
+	if sinEscapes {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
 	r := strings.NewReplacer(`\`, `\\`, `'`, `''`)
 	return "'" + r.Replace(s) + "'"
 }

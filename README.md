@@ -87,8 +87,15 @@ servidor SSH para el túnel:
 docker compose -f docker-compose.test.yml up -d
 ```
 
-Levanta PostgreSQL, MySQL y MariaDB, cada uno en un puerto corrido para no
-chocar con una instalación local: **55432**, **53306** y **53307**.
+Levanta PostgreSQL, MySQL y **dos** MariaDB, cada uno en un puerto corrido para
+no chocar con una instalación local: **55432**, **53306**, **53307** (MariaDB
+12.3) y **53308** (MariaDB 10.11, la LTS más vieja que la aplicación declara
+soportar).
+
+Las dos MariaDB a la vez no son exceso de celo. Probando solo la 12.3, la 10.11
+no conectaba en absoluto —Kaname pedía `@@transaction_read_only`, que llegó
+recién en 11.1.1— y nadie se enteraba. Declarar una versión soportada y no
+correr un solo test contra ella es prometer sin comprobar.
 
 **SQLite no está ahí y no hace falta levantarlo**: es un archivo, y sus tests
 crean uno nuevo en el directorio temporal de cada caso. Por eso los de SQLite
@@ -104,6 +111,9 @@ así que un motor pasa o no pasa contra los mismos 17 casos que los demás:
 go test ./internal/postgres/ ./internal/mysql/ ./internal/sqlite/ -run TestSuite
 ```
 
+Eso son cinco corridas de la misma batería: Postgres, MySQL, MariaDB 12.3,
+MariaDB 10.11 y SQLite.
+
 Por defecto levanta PostgreSQL 18. Para probar contra otra versión de la matriz,
 `PG_VERSION` la elige — pero **hay que bajar el stack con `-v` antes de
 cambiarla**:
@@ -118,8 +128,8 @@ directorio de datos del anterior y Postgres aborta con *"database files are
 incompatible with server"*. El `-v` es lo que lo borra. En CI no aparece porque
 cada pata de la matriz corre en una máquina limpia.
 
-`MYSQL_VERSION` y `MARIADB_VERSION` hacen lo mismo para los otros dos. Los
-defaults son MySQL 9.7 y MariaDB 12.3.
+`MYSQL_VERSION`, `MARIADB_VERSION` y `MARIADB_LTS_VERSION` hacen lo mismo para
+los otros tres. Los defaults son MySQL 9.7, MariaDB 12.3 y MariaDB 10.11.
 
 ### Datos para probar a mano
 

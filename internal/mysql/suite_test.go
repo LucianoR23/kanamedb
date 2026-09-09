@@ -2,6 +2,7 @@ package mysql_test
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -13,12 +14,19 @@ import (
 const (
 	dsnMySQL   = "kaname:kaname@tcp(127.0.0.1:53306)/kaname_test?parseTime=true"
 	dsnMariaDB = "kaname:kaname@tcp(127.0.0.1:53307)/kaname_test?parseTime=true"
+	// La LTS más vieja que la aplicación declara soportar. Corre la batería
+	// entera igual que las otras, y no por prolijidad: probando solo la 12.3,
+	// la 10.11 no conectaba en absoluto y nadie se enteraba. Declarar una
+	// versión soportada y no correr un test contra ella es prometer sin
+	// comprobar.
+	dsnMariaDBLTS = "kaname:kaname@tcp(127.0.0.1:53308)/kaname_test?parseTime=true"
 )
 
 // Los dos motores corren la MISMA batería que Postgres. Es lo que hace que
 // «está implementado» signifique lo mismo para todos.
-func TestSuiteMySQL(t *testing.T)   { correr(t, dsnMySQL) }
-func TestSuiteMariaDB(t *testing.T) { correr(t, dsnMariaDB) }
+func TestSuiteMySQL(t *testing.T)      { correr(t, dsnMySQL) }
+func TestSuiteMariaDB(t *testing.T)    { correr(t, dsnMariaDB) }
+func TestSuiteMariaDBLTS(t *testing.T) { correr(t, dsnMariaDBLTS) }
 
 func correr(t *testing.T, dsn string) {
 	enginetest.Correr(t, enginetest.Fixture{
@@ -39,8 +47,19 @@ func abrir(t *testing.T, dsn string) engine.Conn {
 	c, f := mysql.Open(context.Background(), dsn, "base de pruebas",
 		engine.OpenOptions{MaxConns: 4})
 	if f != nil {
+		// En CI saltearse no es aceptable: si el mapeo de puertos, el tag de la
+		// imagen o las credenciales se rompen, esto daría VERDE sin haber
+		// probado nada — que es exactamente cómo MariaDB estuvo salteándose sin
+		// que nadie lo notara.
+		if os.Getenv("KANAME_REQUIRE_ENGINES") != "" {
+			t.Fatalf("KANAME_REQUIRE_ENGINES está puesto y no se pudo abrir %s: %s — %s",
+				dsn, f.Message, f.Detail)
+		}
 		t.Skipf("no hay motor escuchando (%s).\n"+
-			"Levantalo con: docker compose -f docker-compose.test.yml up -d", f.Message)
+			"Si el motor está levantado, esto NO es un salteo: es un fallo.\n"+
+			"Detalle: %s\n"+
+			"Levantalo con: docker compose -f docker-compose.test.yml up -d",
+			f.Message, f.Detail)
 	}
 	return c
 }

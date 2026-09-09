@@ -40,11 +40,16 @@ const (
 	errInterbloqueo        = 1213 // ER_LOCK_DEADLOCK
 	errTablaBloqueada      = 1099 // ER_TABLE_NOT_LOCKED_FOR_WRITE
 	errSoloLectura         = 1290 // ER_OPTION_PREVENTS_STATEMENT (--read-only)
-	errConsultaCancelada   = 1317 // ER_QUERY_INTERRUPTED
-	errAlgoritmoNoSoporta  = 1845 // ER_ALTER_OPERATION_NOT_SUPPORTED
-	errSinDefault          = 1364 // ER_NO_DEFAULT_FOR_FIELD
-	errTipoInvalido        = 1366 // ER_TRUNCATED_WRONG_VALUE_FOR_FIELD
-	errDependencias        = 3730 // ER_FK_CANNOT_DROP_PARENT
+	// ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION. Es el que da una escritura en
+	// una conexión que Kaname abrió en modo solo lectura, así que es el más
+	// probable de toda esta lista en una conexión de producción. Estaba sin
+	// clasificar y salía como «el motor rechazó la sentencia».
+	errTxSoloLectura      = 1792
+	errConsultaCancelada  = 1317 // ER_QUERY_INTERRUPTED
+	errAlgoritmoNoSoporta = 1845 // ER_ALTER_OPERATION_NOT_SUPPORTED
+	errSinDefault         = 1364 // ER_NO_DEFAULT_FOR_FIELD
+	errTipoInvalido       = 1366 // ER_TRUNCATED_WRONG_VALUE_FOR_FIELD
+	errDependencias       = 3730 // ER_FK_CANNOT_DROP_PARENT
 )
 
 // Classify interpreta un error de CONEXIÓN.
@@ -355,6 +360,14 @@ func deNumero(me *sqldriver.MySQLError) *engine.Failure {
 			Hint:    "Puede ser una réplica, o tener read_only puesto.",
 		}
 
+	case errTxSoloLectura:
+		return &engine.Failure{
+			Kind:    engine.FailurePermission,
+			Message: "Esta conexión está abierta en modo solo lectura.",
+			Hint: "Lo pide Kaname, no el servidor: la conexión tiene la casilla de solo " +
+				"lectura puesta. Se saca en la pantalla de conexiones.",
+		}
+
 	case errSinPrivilegios, errSinPrivilegiosCol:
 		return &engine.Failure{
 			Kind:    engine.FailurePermission,
@@ -406,6 +419,14 @@ func porClase(me *sqldriver.MySQLError) *engine.Failure {
 		return &engine.Failure{
 			Kind:    engine.FailureOther,
 			Message: "La transacción se canceló y no quedó nada aplicado.",
+		}
+	case "25":
+		// Clase «estado de transacción inválido»: casi siempre, escribir en una
+		// transacción de solo lectura.
+		return &engine.Failure{
+			Kind:    engine.FailurePermission,
+			Message: "La transacción no admite esta operación.",
+			Hint:    "Suele ser una escritura en una conexión abierta en modo solo lectura.",
 		}
 	case "08":
 		return &engine.Failure{Kind: engine.FailureNetwork, Message: "Se perdió la conexión."}

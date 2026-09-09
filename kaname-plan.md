@@ -589,6 +589,23 @@ UNIQUE se agrega como índice único, que es el mismo mecanismo que usa el
 motor—, `DROP TABLE ... CASCADE`, y estadísticas de filas salvo que alguien
 haya corrido `ANALYZE`.
 
+**MariaDB 10.11 no conectaba, y es la LTS más vieja que declaramos soportar.**
+`leerServerInfo` pedía `@@transaction_read_only` en la misma consulta que todo
+lo demás, y esa variable llegó a MariaDB recién en 11.1.1 — antes se llamaba
+`@@tx_read_only`, y MySQL 8.0 hizo el camino inverso: agregó la nueva y eliminó
+la vieja. O sea que **no hay un solo nombre que sirva en los dos**. La conexión
+entera fallaba con «Unknown system variable», que se mostraba como «el servidor
+rechazó la conexión» y mandaba a revisar la contraseña.
+
+Ahora se lee aparte, después de saber qué motor hay del otro lado, y no poder
+leerlo no rompe la conexión: es un dato de la barra de estado.
+
+Lo que dejó pasar el bug no fue el código sino el banco de pruebas: el
+`docker-compose.test.yml` tenía una sola MariaDB. Ahora tiene **dos, a la vez**
+—12.3 en el 53307 y 10.11 en el 53308— y las dos corren la batería entera.
+Declarar una versión soportada y no correr un solo test contra ella es prometer
+sin comprobar. Con la corrección, la 10.11 pasa los diecinueve casos.
+
 **Lo que encontró el `/code-review` en `high`, y que los tests no.** Doce
 hallazgos legítimos, todos reproducidos antes de tocar nada. Vale anotarlos
 porque tienen una forma en común: ninguno se ve leyendo el código de a una
@@ -644,6 +661,21 @@ función.
   con `engine = "mysql"` le entregaba a pgx un DSN que no es suyo y el error
   hablaba de credenciales. Una comprobación que vive solo del lado de la
   interfaz no es una protección.
+- **`QuoteString` corrompía las barras invertidas bajo `NO_BACKSLASH_ESCAPES`.**
+  El comentario decía que duplicarlas «es correcto en los dos modos»; no lo es,
+  y un comentario que dice `C:uta` se guardaba con dos barras. No es una
+  inyección —la comilla simple, que es lo único que puede cerrar el literal, se
+  duplica igual en los dos modos— pero sí corrupción silenciosa. Se lee
+  `@@sql_mode` al conectar.
+- **El error 1792 no estaba clasificado**, y es justamente el que da una
+  escritura en una conexión que Kaname abrió en modo solo lectura: el más
+  probable de toda la lista en una conexión de producción. Salía como «el motor
+  rechazó la sentencia».
+- **`Redact` solo tapaba contraseñas en URIs `esquema://`**, que es la forma de
+  Postgres. El DSN de MySQL no es un URI —`usuario:clave@tcp(host)/base`— así
+  que la contraseña pasaba entera. No se encontró un camino por el que llegara
+  a un log hoy, pero CLAUDE.md lo pone como requisito duro y la función
+  prometía más de lo que hacía.
 - **Y una comprobación de la batería que no podía fallar.** `r.Rows[0][0] ==
   r2.Rows[0][0]` compara `*string`: dos punteros de dos lecturas distintas
   nunca son iguales. Un `Page` que ignorara el `Offset` por completo pasaba.

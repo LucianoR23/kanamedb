@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	sqldriver "github.com/go-sql-driver/mysql"
+
 	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 )
@@ -164,5 +166,56 @@ func TestComentarUnaColumnaNoLeBorraElValorPorDefecto(t *testing.T) {
 	if st.Note == "" {
 		t.Error("sin nota: quien revisa la vista previa no tiene cómo saber que MODIFY " +
 			"reescribe la definición entera")
+	}
+}
+
+// TestCitarUnLiteralRespetaElModoDelServidor.
+//
+// Con NO_BACKSLASH_ESCAPES la barra invertida no escapa nada, así que
+// duplicarla guarda DOS barras: un comentario que dice `C:\ruta` se guardaba
+// como `C:\ruta`. No es una inyección —la comilla simple, que es lo único que
+// puede cerrar el literal, se duplica igual en los dos modos— pero sí
+// corrupción silenciosa de un texto escrito por el usuario.
+func TestCitarUnLiteralRespetaElModoDelServidor(t *testing.T) {
+	const conBarra = `C:\ruta`
+	// En el modo normal la barra invertida ESCAPA, así que hay que duplicarla
+	// para que el servidor guarde una sola.
+	if got := quoteString(conBarra, false); got != "'C:\\\\ruta'" {
+		t.Errorf("en modo normal quedó %s y tendría que quedar 'C:\\\\ruta'", got)
+	}
+	// Con NO_BACKSLASH_ESCAPES no escapa nada, así que duplicarla guardaría dos.
+	if got := quoteString(conBarra, true); got != `'C:\ruta'` {
+		t.Errorf("con NO_BACKSLASH_ESCAPES quedó %s y tendría que quedar 'C:\\ruta'", got)
+	}
+	// La comilla simple se duplica SIEMPRE: es lo único que puede cerrar el
+	// literal, y es lo que hace que esto no sea un agujero de inyección.
+	for _, sinEscapes := range []bool{false, true} {
+		got := quoteString(`no' DROP TABLE x --`, sinEscapes)
+		if !strings.HasPrefix(got, `'no''`) {
+			t.Errorf("sinEscapes=%v: la comilla no se duplicó: %s", sinEscapes, got)
+		}
+	}
+}
+
+// TestElErrorDeEscrituraEnSoloLecturaSeEntiende.
+//
+// El 1792 es el que devuelve una escritura en una conexión que Kaname abrió en
+// modo solo lectura, así que es el más probable de toda la lista en una
+// conexión de producción. Salía como «el motor rechazó la sentencia».
+func TestElErrorDeEscrituraEnSoloLecturaSeEntiende(t *testing.T) {
+	err := &sqldriver.MySQLError{
+		Number:   1792,
+		SQLState: [5]byte{'2', '5', '0', '0', '6'},
+		Message:  "Cannot execute statement in a READ ONLY transaction.",
+	}
+	f := ClassifyStatement(err, "usuario@host/base")
+	if f.Kind != engine.FailurePermission {
+		t.Errorf("Kind = %q, se esperaba %q", f.Kind, engine.FailurePermission)
+	}
+	if !strings.Contains(strings.ToLower(f.Message), "solo lectura") {
+		t.Errorf("el mensaje no dice de qué se trata: %q", f.Message)
+	}
+	if f.Hint == "" {
+		t.Error("sin sugerencia: el usuario no sabe dónde se saca esa casilla")
 	}
 }

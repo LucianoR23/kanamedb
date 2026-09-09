@@ -84,7 +84,7 @@ func Open(
 		return nil, Classify(err, desc)
 	}
 
-	info, err := leerServerInfo(ctx, db)
+	info, sinEscapes, err := leerServerInfo(ctx, db)
 	if err != nil {
 		db.Close()
 		return nil, Classify(err, desc)
@@ -94,7 +94,7 @@ func Open(
 		return nil, f
 	}
 
-	return &Conn{db: db, server: info, desc: desc, dialer: red}, nil
+	return &Conn{db: db, server: info, desc: desc, dialer: red, sinEscapes: sinEscapes}, nil
 }
 
 // Probe abre una conexión, lee los datos del servidor y la cierra.
@@ -133,6 +133,31 @@ func encendido(v string) bool {
 	return false
 }
 
+// transaccionSoloLectura lee si el servidor abre las transacciones en modo solo
+// lectura, con el nombre de variable que entienda este motor.
+//
+// No hay uno que sirva para los dos: MySQL 8.0 eliminó @@tx_read_only y solo
+// tiene @@transaction_read_only; MariaDB agregó @@transaction_read_only recién
+// en 11.1.1 y antes solo tenía @@tx_read_only. Se prueba el que corresponde y
+// si no está, se prueba el otro.
+//
+// Que no se pueda leer NO es motivo para fallar la conexión: es un dato de la
+// barra de estado. Antes lo era, y dejaba afuera a toda la línea 10.x de
+// MariaDB.
+func transaccionSoloLectura(ctx context.Context, db *sql.DB, k engine.Kind) bool {
+	nombres := []string{"@@transaction_read_only", "@@tx_read_only"}
+	if k == engine.MariaDB {
+		nombres = []string{"@@tx_read_only", "@@transaction_read_only"}
+	}
+	for _, n := range nombres {
+		var v string
+		if err := db.QueryRowContext(ctx, "SELECT "+n).Scan(&v); err == nil {
+			return encendido(v)
+		}
+	}
+	return false
+}
+
 func versionLegible(num int) string {
 	return fmt.Sprintf("%d.%d", num/10000, (num%10000)/100)
 }
@@ -140,7 +165,17 @@ func versionLegible(num int) string {
 // leerServerInfo junta todo lo que interesa del servidor en un solo viaje.
 //
 // Son datos del servidor, no del usuario: nada de esto es sensible.
-func leerServerInfo(ctx context.Context, db *sql.DB) (*engine.ServerInfo, error) {
+func leerServerInfo(ctx context.Context, db *sql.DB) (*engine.ServerInfo, bool, error) {
+	// La consulta NO pide @@transaction_read_only, y eso es a propósito: esa
+	// variable no existe en toda la matriz. MySQL la tiene desde 8.0 —donde
+	// además ELIMINÓ la vieja @@tx_read_only— y MariaDB recién desde 11.1.1.
+	// O sea que no hay un solo nombre que sirva en los dos, y pedirlo acá hacía
+	// que la conexión entera fallara contra MariaDB 10.11 —la LTS más vieja que
+	// esta aplicación declara soportar— con «Unknown system variable», que
+	// después se mostraba como «el servidor rechazó la conexión» y mandaba a
+	// revisar la contraseña. Comprobado contra 10.11.19.
+	//
+	// Se lee aparte, más abajo, donde ya se sabe qué motor hay del otro lado.
 	const q = `
 		SELECT VERSION(),
 		       CURRENT_USER(),
@@ -148,26 +183,29 @@ func leerServerInfo(ctx context.Context, db *sql.DB) (*engine.ServerInfo, error)
 		       @@character_set_database,
 		       @@time_zone,
 		       @@read_only,
-		       @@transaction_read_only`
+		       @@sql_mode`
 
 	var version, usuario, encoding, tz string
 	var base sql.NullString
-	// read_only y transaction_read_only se leen como TEXTO y no como bool, y
-	// esto no es cautela de más: MySQL devuelve 0/1 y MariaDB devuelve OFF/ON.
-	// Escanear a bool funciona contra uno y falla contra el otro con un error
-	// de conversión que después se interpreta como «no se pudo conectar», que
-	// es falso y manda a buscar el problema a la red.
-	var readOnly, txReadOnly string
+	// read_only se lee como TEXTO y no como bool, y esto no es cautela de más:
+	// MySQL devuelve 0/1 y MariaDB devuelve OFF/ON. Escanear a bool funciona
+	// contra uno y falla contra el otro con un error de conversión que después
+	// se interpreta como «no se pudo conectar», que es falso y manda a buscar
+	// el problema a la red.
+	var readOnly, modo string
 	if err := db.QueryRowContext(ctx, q).Scan(
-		&version, &usuario, &base, &encoding, &tz, &readOnly, &txReadOnly,
+		&version, &usuario, &base, &encoding, &tz, &readOnly, &modo,
 	); err != nil {
-		return nil, fmt.Errorf("leer los datos del servidor: %w", err)
+		return nil, false, fmt.Errorf("leer los datos del servidor: %w", err)
 	}
+	// NO_BACKSLASH_ESCAPES cambia cómo hay que citar un literal de texto en el
+	// DDL. Ver quoteString.
+	sinEscapes := strings.Contains(strings.ToUpper(modo), "NO_BACKSLASH_ESCAPES")
 
 	inicio := time.Now()
 	var uno int
 	if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&uno); err != nil {
-		return nil, fmt.Errorf("medir la latencia: %w", err)
+		return nil, false, fmt.Errorf("medir la latencia: %w", err)
 	}
 	latencia := time.Since(inicio)
 
@@ -184,7 +222,7 @@ func leerServerInfo(ctx context.Context, db *sql.DB) (*engine.ServerInfo, error)
 		// InRecovery no existe como tal: el equivalente es un servidor con
 		// read_only puesto, que es lo que tiene una réplica.
 		InRecovery:      encendido(readOnly),
-		DefaultReadOnly: encendido(txReadOnly),
+		DefaultReadOnly: transaccionSoloLectura(ctx, db, k),
 		Latency:         latencia,
 		LatencyMS:       latencia.Milliseconds(),
 	}
@@ -206,5 +244,5 @@ func leerServerInfo(ctx context.Context, db *sql.DB) (*engine.ServerInfo, error)
 		info.VisibleTables = visibles
 	}
 
-	return info, nil
+	return info, sinEscapes, nil
 }

@@ -21,6 +21,10 @@ type Conn struct {
 	// ofrece cómo, y son unas pocas entradas por sesión.
 	dialer string
 
+	// sinEscapes recuerda si el servidor tiene NO_BACKSLASH_ESCAPES, que cambia
+	// cómo hay que citar un literal de texto en el DDL. Ver quoteString.
+	sinEscapes bool
+
 	unaVez sync.Once
 }
 
@@ -92,7 +96,7 @@ func (t *txMy) Rollback(ctx context.Context) error {
 
 // RenderDDL ignora el contexto: acá es una función pura. Ver engine.Conn.
 func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement, error) {
-	return RenderDDL(ch, c.server.Kind)
+	return renderDDL(ch, c.server.Kind, c.sinEscapes)
 }
 
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {

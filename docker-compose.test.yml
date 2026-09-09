@@ -90,6 +90,14 @@ services:
   # son el mismo servidor: divergen en tipos, en funciones y en cómo se lee el
   # catálogo, y probar uno solo dejaría al otro sin cubrir justo donde se
   # separan.
+  # La MariaDB nueva y la LTS más vieja que la aplicación declara soportar, las
+  # DOS a la vez y no una elegida por variable de entorno.
+  #
+  # No es exceso de celo: probando solo 12.3, la 10.11 no conectaba en absoluto
+  # —«Unknown system variable 'transaction_read_only'», porque esa variable
+  # llegó recién en 11.1.1— y nadie se enteraba. Declarar una versión soportada
+  # y no correr un solo test contra ella es prometer sin comprobar. Las dos van
+  # en tmpfs, así que el costo es memoria y arranque, no disco.
   mariadb:
     image: mariadb:${MARIADB_VERSION:-12.3}
     environment:
@@ -99,6 +107,26 @@ services:
       MARIADB_PASSWORD: kaname
     ports:
       - "53307:3306"
+    tmpfs:
+      - /var/lib/mysql
+    command: >
+      --innodb-flush-log-at-trx-commit=0
+      --sync-binlog=0
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  mariadb-lts:
+    image: mariadb:${MARIADB_LTS_VERSION:-10.11}
+    environment:
+      MARIADB_ROOT_PASSWORD: kaname
+      MARIADB_DATABASE: kaname_test
+      MARIADB_USER: kaname
+      MARIADB_PASSWORD: kaname
+    ports:
+      - "53308:3306"
     tmpfs:
       - /var/lib/mysql
     command: >

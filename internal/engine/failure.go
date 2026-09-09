@@ -90,8 +90,16 @@ type Failure struct {
 func (f *Failure) Error() string { return f.Message }
 
 // dsnCredentials captura las credenciales de cualquier URI con la forma
-// esquema://usuario:contraseña@host.
+// esquema://usuario:contraseña@host. Es el DSN de Postgres.
 var dsnCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^:/?#\[\]@\s]*):([^@\s]*)@`)
+
+// dsnMySQL captura el DSN de MySQL, que NO es un URI: tiene la forma
+// usuario:contraseña@tcp(host:puerto)/base.
+//
+// Va aparte porque la expresión de arriba exige el `esquema://` y por lo tanto
+// no lo reconocía. Mientras el DSN se armó solo para Postgres eso alcanzaba;
+// desde la Iteración 6 hay cuatro motores y dos formatos más.
+var dsnMySQL = regexp.MustCompile(`([^\s:/@]+):([^@\s]*)@(tcp|unix|kaname-tunnel-\d+)\(`)
 
 // Redact enmascara las contraseñas de cualquier cadena de conexión que aparezca
 // en un texto.
@@ -100,5 +108,6 @@ var dsnCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^:/?#\[\]
 // librerías— antes de que llegue a un Failure. Los mensajes terminan en toasts,
 // logs y tickets, y no se puede asumir que quien los escribió tuvo cuidado.
 func Redact(s string) string {
-	return dsnCredentials.ReplaceAllString(s, "${1}${2}:***@")
+	s = dsnCredentials.ReplaceAllString(s, "${1}${2}:***@")
+	return dsnMySQL.ReplaceAllString(s, "${1}:***@${3}(")
 }
