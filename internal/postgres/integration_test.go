@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
 // defaultTestDSN apunta al Postgres de docker-compose.test.yml.
@@ -80,6 +82,12 @@ func TestProbeContraUnaBaseReal(t *testing.T) {
 		t.Fatalf("Probe() falló: %s", f.Message)
 	}
 
+	// El motor va estampado en el ServerInfo. La interfaz decide qué ofrecer
+	// según este campo, así que si queda vacío no se rompe nada visiblemente:
+	// simplemente se comporta como el motor por defecto, que es peor.
+	if info.Kind != engine.Postgres {
+		t.Errorf("Kind = %q, se esperaba %q", info.Kind, engine.Postgres)
+	}
 	if info.CurrentDB != "kaname_test" {
 		t.Errorf("CurrentDB = %q, se esperaba kaname_test", info.CurrentDB)
 	}

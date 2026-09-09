@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
-import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/postgres";
+import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import { Button, PillTabs, Spinner } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";

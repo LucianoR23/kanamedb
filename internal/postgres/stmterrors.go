@@ -10,26 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Kinds que solo aparecen cuando falla una SENTENCIA, no una conexión.
-const (
-	// FailureData es que los datos que ya están en la tabla no permiten el
-	// cambio: hay nulos, hay repetidos, hay huérfanos. La sentencia está bien
-	// escrita; lo que no da es la tabla.
-	FailureData FailureKind = "data"
-	// FailureConflict es que el objeto ya existe.
-	FailureConflict FailureKind = "conflict"
-	// FailureMissing es que el objeto que se nombra no existe.
-	FailureMissing FailureKind = "missing"
-	// FailureDependency es que hay otros objetos colgando del que se quiere
-	// tocar.
-	FailureDependency FailureKind = "dependency"
-	// FailureLock es que otra sesión tiene el objeto tomado.
-	FailureLock FailureKind = "lock"
-	// FailureSyntax es que PostgreSQL no entendió la sentencia. Casi siempre es
-	// un error de Kaname escribiéndola, o de una expresión escrita a mano.
-	FailureSyntax FailureKind = "syntax"
-)
-
 // Códigos SQLSTATE que aparecen ejecutando DDL.
 // https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (

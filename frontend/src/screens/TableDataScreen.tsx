@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
-import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/postgres";
+import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import type {
   Snapshot,
   TableDetail,

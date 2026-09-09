@@ -4,66 +4,43 @@ import (
 	"context"
 	"errors"
 	"net"
-	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
-// FailureKind clasifica por qué falló una conexión.
-//
-// Existe para que la UI pueda decir qué hay que arreglar. "no se pudo conectar"
-// obliga al usuario a adivinar entre un host mal escrito, una contraseña vieja y
-// un firewall; cada una se arregla en un lugar distinto.
-type FailureKind string
+// El vocabulario de fallos vive en `internal/engine`: es el mismo para los
+// cuatro motores. Acá quedan alias para que el paquete —y todo lo que ya lo
+// llama— siga leyéndose igual. Un alias no es un tipo nuevo, así que
+// `postgres.Failure` y `engine.Failure` son literalmente el mismo tipo.
+type (
+	FailureKind = engine.FailureKind
+	Failure     = engine.Failure
+)
 
 const (
-	// FailureNetwork es que no se llegó al servidor: host inexistente, puerto
-	// cerrado, ruta bloqueada.
-	FailureNetwork FailureKind = "network"
-	// FailureTimeout es que se llegó pero no contestó a tiempo.
-	FailureTimeout FailureKind = "timeout"
-	// FailureAuth es que el servidor contestó y rechazó las credenciales.
-	FailureAuth FailureKind = "auth"
-	// FailureDatabase es que la base indicada no existe.
-	FailureDatabase FailureKind = "database"
-	// FailurePermission es que el usuario existe pero no puede entrar ahí.
-	FailurePermission FailureKind = "permission"
-	// FailureTLS es que el canal cifrado no se pudo establecer o verificar.
-	FailureTLS FailureKind = "tls"
-	// FailureTunnel es que el túnel SSH se cayó. La base puede estar
-	// perfectamente: lo que se rompió es el camino hasta ella.
-	FailureTunnel FailureKind = "tunnel"
-	// FailureCanceled es que el usuario canceló. No es un error: es lo que
-	// pidió. La interfaz no tiene que dibujarlo como un fallo, con su cartel
-	// rojo y su SQLSTATE, porque eso hace dudar de si además pasó algo malo.
-	FailureCanceled FailureKind = "canceled"
-	// FailureOther es todo lo demás.
-	FailureOther FailureKind = "other"
+	FailureNetwork    = engine.FailureNetwork
+	FailureTimeout    = engine.FailureTimeout
+	FailureAuth       = engine.FailureAuth
+	FailureDatabase   = engine.FailureDatabase
+	FailurePermission = engine.FailurePermission
+	FailureTLS        = engine.FailureTLS
+	FailureTunnel     = engine.FailureTunnel
+	FailureCanceled   = engine.FailureCanceled
+	FailureOther      = engine.FailureOther
+
+	FailureData       = engine.FailureData
+	FailureConflict   = engine.FailureConflict
+	FailureMissing    = engine.FailureMissing
+	FailureDependency = engine.FailureDependency
+	FailureLock       = engine.FailureLock
+	FailureSyntax     = engine.FailureSyntax
 )
 
-// Failure es un fallo de conexión ya interpretado, listo para mostrar.
-type Failure struct {
-	Kind FailureKind `json:"kind"`
-	// Message es qué pasó, en una línea.
-	Message string `json:"message"`
-	// Hint es qué hacer al respecto. Vacío si no hay nada útil que decir:
-	// inventar una sugerencia es peor que no darla.
-	Hint string `json:"hint"`
-	// SQLState es el código del motor, cuando lo hubo. Sirve para buscar y para
-	// pegar en un ticket.
-	SQLState string `json:"sqlState,omitempty"`
-
-	// Detail es el mensaje original, redactado.
-	//
-	// Message dice qué pasó en castellano; esto dice qué dijo el motor. Los dos
-	// hacen falta: el primero para entender, el segundo para buscar en Google o
-	// pegar en un ticket. Interpretar y descartar el original deja al usuario
-	// sin la única frase que otro va a reconocer.
-	Detail string `json:"detail,omitempty"`
-}
-
-func (f *Failure) Error() string { return f.Message }
+// Redact enmascara contraseñas en cualquier texto. Ver engine.Redact.
+func Redact(s string) string { return engine.Redact(s) }
 
 // Códigos SQLSTATE de PostgreSQL que sabemos interpretar.
 // https://www.postgresql.org/docs/current/errcodes-appendix.html
@@ -207,18 +184,4 @@ func esTLS(texto string) bool {
 		}
 	}
 	return false
-}
-
-// dsnCredentials captura las credenciales de cualquier URI con la forma
-// esquema://usuario:contraseña@host.
-var dsnCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^:/?#\[\]@\s]*):([^@\s]*)@`)
-
-// Redact enmascara las contraseñas de cualquier cadena de conexión que aparezca
-// en un texto.
-//
-// Se aplica a todo texto de origen ajeno —mensajes del servidor, errores de
-// librerías— antes de que llegue a un Failure. Los mensajes terminan en toasts,
-// logs y tickets, y no se puede asumir que quien los escribió tuvo cuidado.
-func Redact(s string) string {
-	return dsnCredentials.ReplaceAllString(s, "${1}${2}:***@")
 }

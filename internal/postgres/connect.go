@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
 // DefaultConnectTimeout es cuánto se espera a que el servidor responda antes de
@@ -23,50 +25,12 @@ const DefaultConnectTimeout = 10 * time.Second
 
 // MinServerVersion es la versión más vieja de PostgreSQL que la app soporta.
 // 14 es la más antigua con soporte oficial de PostgreSQL a septiembre de 2026.
-const MinServerVersion = 140000
+// La lista de mínimos de los cuatro motores vive en engine.MinVersion.
+var MinServerVersion = engine.MinVersion(engine.Postgres)
 
-// ServerInfo es lo que se sabe del servidor una vez conectado. Alimenta la
-// barra de estado y las decisiones sobre qué se puede hacer con la conexión.
-type ServerInfo struct {
-	// Version es el texto completo, como lo reporta el servidor.
-	Version string `json:"version"`
-	// VersionNum es server_version_num: 180006 para 18.6. Sirve para comparar.
-	VersionNum int `json:"versionNum"`
-	// Display es la versión corta para mostrar: "PostgreSQL 18.6".
-	Display string `json:"display"`
-
-	CurrentUser string `json:"currentUser"`
-	CurrentDB   string `json:"currentDatabase"`
-	Encoding    string `json:"encoding"`
-	TimeZone    string `json:"timeZone"`
-
-	// IsSuperuser importa para explicar por qué una operación no se puede hacer.
-	IsSuperuser bool `json:"isSuperuser"`
-
-	// InRecovery es true si el servidor es una réplica. Escribir contra una
-	// réplica falla con un mensaje poco claro, así que conviene avisar antes.
-	InRecovery bool `json:"inRecovery"`
-
-	// DefaultReadOnly es true si el servidor fuerza transacciones de solo
-	// lectura, otra causa de escrituras que fallan sin explicación obvia.
-	DefaultReadOnly bool `json:"defaultReadOnly"`
-
-	// VisibleTables es cuántas tablas ve el usuario en esta base.
-	//
-	// Dice algo que la versión del servidor no dice: que las credenciales no
-	// solo entran, sino que además alcanzan para ver algo. Conectar bien y ver
-	// cero tablas casi siempre significa que faltan permisos o que la base no
-	// es la que el usuario cree.
-	VisibleTables int `json:"visibleTables"`
-
-	// Latency es lo que tardó el ida y vuelta de la verificación.
-	Latency time.Duration `json:"-"`
-	// LatencyMS es lo mismo, en milisegundos, para el frontend.
-	LatencyMS int64 `json:"latencyMs"`
-}
-
-// Supported dice si la versión del servidor está dentro de lo que la app maneja.
-func (s ServerInfo) Supported() bool { return s.VersionNum >= MinServerVersion }
+// ServerInfo vive en `internal/engine`: es la misma forma para los cuatro
+// motores, aunque cada uno la complete a su manera. Acá queda el alias.
+type ServerInfo = engine.ServerInfo
 
 // Probe abre una conexión, lee los datos del servidor y la cierra.
 //
@@ -280,7 +244,10 @@ func readServerInfo(ctx context.Context, conn *pgx.Conn) (*ServerInfo, error) {
 		       pg_is_in_recovery(),
 		       current_setting('default_transaction_read_only')::bool`
 
-	var info ServerInfo
+	// Kind se pone acá y no lo deduce quien lee: la interfaz decide qué
+	// ofrecer según el motor, y un ServerInfo sin motor la obligaría a
+	// adivinarlo del texto de la versión.
+	info := ServerInfo{Kind: engine.Postgres}
 	var short string
 	err := conn.QueryRow(ctx, q).Scan(
 		&info.Version,
