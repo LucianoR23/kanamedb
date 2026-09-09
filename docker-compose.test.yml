@@ -16,10 +16,18 @@
 # no hay una base escuchando. No hay build tag: así el código de test siempre
 # compila y pasa vet.
 #
-# La versión se elige con PG_VERSION. El default es 18, que es la estable
-# actual; CI corre la matriz de versiones soportadas:
+# La versión de cada motor se elige por variable —PG_VERSION, MYSQL_VERSION,
+# MARIADB_VERSION—. Los defaults son la estable actual de cada uno; CI corre la
+# matriz de versiones soportadas:
 #
 #   PG_VERSION=17 docker compose -f docker-compose.test.yml up -d
+#
+# Para MySQL «la estable actual» necesita una aclaración, porque desde la 8.4
+# hay dos carriles: los LTS, con soporte de años, y los Innovation, sostenidos
+# solo hasta la release siguiente. Se prueba contra **LTS**: es lo que corre en
+# las bases de las que la gente se preocupa. En septiembre de 2026 eso es 9.7
+# (la última) y 8.4 (la que está instalada en todos lados). El carril
+# Innovation queda fuera a propósito.
 #
 # Las credenciales son de juguete y el puerto está corrido a propósito, para no
 # chocar con una instalación local ni tentar a nadie a apuntar esto a algo real.
@@ -55,6 +63,55 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # MySQL. Sin volumen: todo en tmpfs, igual que Postgres.
+  mysql:
+    image: mysql:${MYSQL_VERSION:-9.7}
+    environment:
+      MYSQL_ROOT_PASSWORD: kaname
+      MYSQL_DATABASE: kaname_test
+      MYSQL_USER: kaname
+      MYSQL_PASSWORD: kaname
+    ports:
+      - "53306:3306"
+    tmpfs:
+      - /var/lib/mysql
+    command: >
+      --skip-innodb-doublewrite
+      --innodb-flush-log-at-trx-commit=0
+      --sync-binlog=0
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ukaname -pkaname --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  # MariaDB aparte y no como variante de la imagen de MySQL. Hace años que no
+  # son el mismo servidor: divergen en tipos, en funciones y en cómo se lee el
+  # catálogo, y probar uno solo dejaría al otro sin cubrir justo donde se
+  # separan.
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-12.3}
+    environment:
+      MARIADB_ROOT_PASSWORD: kaname
+      MARIADB_DATABASE: kaname_test
+      MARIADB_USER: kaname
+      MARIADB_PASSWORD: kaname
+    ports:
+      - "53307:3306"
+    tmpfs:
+      - /var/lib/mysql
+    command: >
+      --innodb-flush-log-at-trx-commit=0
+      --sync-binlog=0
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  # SQLite no tiene servicio: es un archivo. Los tests crean el suyo en un
+  # directorio temporal y lo borran. Está acá escrito para que nadie lo busque.
 
   # Servidor SSH para los tests del túnel de la Iteración 3.
   #
