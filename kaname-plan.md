@@ -145,6 +145,9 @@ Queda fuera, con motivo anotado en § 6: **reordenar las sentencias a mano** (el
 diseño lo ofrece arrastrando) y los **toasts** de S24, que son una preocupación
 global y no de esta iteración.
 
+Probada a mano contra `docker/demo.sql` el 2026-09-09; las siete correcciones
+que salieron de ahí están en § 6.
+
 ### Iteración 6 — Otros motores
 
 MySQL, MariaDB y SQLite por el mismo pipeline, **cada uno contra su última
@@ -159,13 +162,36 @@ cubre la última más las anteriores que se declaren soportadas.
 
 ### Iteración 7 — Grilla editable
 
-Edición de celdas con preview de `UPDATE`/`DELETE`, import/export CSV.
+Edición de celdas con preview de `UPDATE`/`DELETE`, import/export CSV, y todo
+lo que entra y sale de la grilla.
 
 - **S07** — modo edición: celdas modificadas, filas nuevas, filas marcadas para
   borrar, tablas sin PK en solo lectura con explicación.
 - **S08 Data change review** — completa, incluida la variante de producción.
-- **S18 CSV import wizard** — completa.
-- **S19 Export dialog** — completa.
+- **S18 CSV import wizard** — completa. `COPY … FROM STDIN` de pgx hace el
+  trabajo; lo caro es el asistente —mapear columnas, tipos, NULL contra cadena
+  vacía, encoding, y qué hacer con las filas que no entran—, que es justamente
+  por qué es una pantalla y no un botón.
+- **S19 Export dialog** — completa, **una tabla y varias**. Varias no es otra
+  función: es la misma en un bucle más un selector. Lo que hay que decidir es el
+  formato del conjunto (un directorio de CSVs, un `.sql` con INSERTs, un zip), y
+  eso se decide con el diseño delante, no acá.
+- **Exportar el resultado del editor SQL** — CSV, JSON y Markdown. No estaba en
+  el plan y es lo más barato de todo el grupo: el resultado ya está en memoria,
+  así que es formateo puro, sin consulta ni streaming. Reusa el renderizador de
+  S19 y se hace primero, porque es lo que valida el formato antes de meterlo en
+  el camino difícil.
+- **Ver la fila entera como JSON** — hoy S09 formatea JSON de UNA celda. La fila
+  completa es un ítem del menú contextual y se resuelve del lado del servidor
+  con `row_to_json`.
+- **Filtros por columna en la grilla** — un constructor de `WHERE` sobre la
+  tabla que se está mirando, que hoy obliga a irse al editor SQL. Va acá porque
+  comparte pantalla y modelo con la edición de celdas.
+
+**Sobre el volumen.** Exportar no puede juntar la tabla en memoria: una tabla de
+dos millones de filas no pasa por un `[][]string`. Se escribe al archivo a
+medida que llega, y para CSV conviene `COPY … TO STDOUT` (`PgConn().CopyTo`),
+que es órdenes de magnitud más rápido que paginar con `LIMIT/OFFSET`.
 
 ### Iteración 8 — Objetos de texto
 
@@ -342,6 +368,43 @@ verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `w
 - Tests de integración con Docker Compose de los cuatro motores desde el día uno;
   el differ se rompe en silencio
 - Exportar ERD a SQL y a imagen
+
+---
+
+### Fuera de alcance, con motivo
+
+Cosas que se evaluaron y **no** se van a hacer. Se anotan para no volver a
+discutirlas desde cero dentro de seis meses.
+
+**Backup y restauración nativos. No.** Un backup de verdad de PostgreSQL es
+`pg_dump`/`pg_restore`, binarios externos que tienen que ser iguales o más
+nuevos que el servidor. Las salidas posibles son tres y ninguna sirve:
+
+1. *Llamarlos si están instalados.* Funciona, pero mete una dependencia que el
+   usuario tiene que conseguir y una matriz de versiones por motor que es un
+   pozo de soporte.
+2. *Empaquetarlos.* Choca de frente con «el binario se distribuye copiando y
+   pegando»: son cuatro motores por varias versiones cada uno.
+3. *Reimplementar el dump en Go.* Eso **es** `pg_dump`: orden de dependencias,
+   extensiones, secuencias, permisos, objetos grandes. No hay librería en la que
+   confiaría para la mitad que importa, que es restaurar.
+
+Y hay una cuarta que es la peligrosa: exportar esquema y datos con nuestro
+propio renderizador y **llamarlo backup**. Parecería que funciona hasta el día
+que hace falta. Un botón que dice «Backup» promete que se puede restaurar; si no
+cumple, es peor que no estar.
+
+Lo que sí se puede ofrecer con honestidad es **«Exportar el esquema como SQL»**
+—ya sabemos generar DDL, es el mismo renderizador del changeset— dejando escrito
+que no es un backup. Para backups de verdad, `pg_dump` desde la terminal, que
+además puede ir por el túnel SSH que la aplicación ya sabe levantar.
+
+**Constructor visual de consultas entre varias tablas. No por ahora.** Elegir
+tres tablas, unirlas y filtrar sin escribir SQL es un producto adentro de este:
+resolver joins, alias, ambigüedad de nombres y agregaciones en una interfaz. Lo
+que la gente casi siempre quiere cuando lo pide —filtrar lo que está mirando—
+está cubierto por los filtros por columna de la Iteración 7. Si después de
+usarlo la necesidad sigue en pie, se reconsidera con un caso concreto delante.
 
 ---
 
