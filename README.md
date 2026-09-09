@@ -87,6 +87,23 @@ servidor SSH para el túnel:
 docker compose -f docker-compose.test.yml up -d
 ```
 
+Levanta PostgreSQL, MySQL y MariaDB, cada uno en un puerto corrido para no
+chocar con una instalación local: **55432**, **53306** y **53307**.
+
+**SQLite no está ahí y no hace falta levantarlo**: es un archivo, y sus tests
+crean uno nuevo en el directorio temporal de cada caso. Por eso los de SQLite
+nunca se saltean, y los otros tres sí cuando el motor no está escuchando. Ese
+salteo es a propósito para trabajar sin Docker, pero en CI sería un test verde
+que no probó nada: ponerle cualquier valor a `KANAME_REQUIRE_ENGINES` lo
+convierte en un fallo.
+
+Los cuatro motores corren **la misma batería** —`internal/engine/enginetest`—,
+así que un motor pasa o no pasa contra los mismos 17 casos que los demás:
+
+```sh
+go test ./internal/postgres/ ./internal/mysql/ ./internal/sqlite/ -run TestSuite
+```
+
 Por defecto levanta PostgreSQL 18. Para probar contra otra versión de la matriz,
 `PG_VERSION` la elige — pero **hay que bajar el stack con `-v` antes de
 cambiarla**:
@@ -100,6 +117,9 @@ PG_VERSION=17 docker compose -f docker-compose.test.yml up -d --wait
 directorio de datos del anterior y Postgres aborta con *"database files are
 incompatible with server"*. El `-v` es lo que lo borra. En CI no aparece porque
 cada pata de la matriz corre en una máquina limpia.
+
+`MYSQL_VERSION` y `MARIADB_VERSION` hacen lo mismo para los otros dos. Los
+defaults son MySQL 9.7 y MariaDB 12.3.
 
 ### Datos para probar a mano
 

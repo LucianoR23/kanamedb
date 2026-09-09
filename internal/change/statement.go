@@ -52,6 +52,17 @@ type Statement struct {
 	// Destructive marca lo que puede perder datos de forma irreversible.
 	Destructive bool `json:"destructive"`
 
+	// RebuildsTable marca la sentencia que no MODIFICA la tabla sino que la
+	// reconstruye: crea una nueva con la definición que se quiere, copia las
+	// filas, tira la vieja y renombra.
+	//
+	// Es SQLite, que casi no tiene ALTER TABLE. Está acá y no deducido de
+	// Impact porque decide dos cosas distintas: qué advierte la pantalla de
+	// revisión —el costo es el tamaño de la tabla, no «solo metadatos»— y
+	// cómo hay que ejecutarla, porque una reconstrucción necesita que las
+	// claves foráneas estén apagadas mientras corre. Ver engine.TxOptions.
+	RebuildsTable bool `json:"rebuildsTable,omitempty"`
+
 	// Note es lo que hay que decirle a quien revisa antes de que aplique: por
 	// qué esta sentencia va a tardar, qué bloquea, o qué garantía se pierde.
 	// Vacía cuando no hay nada que avisar.

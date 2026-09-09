@@ -18,6 +18,7 @@ import (
 
 	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/engine"
+	"github.com/LucianoR23/kanamedb/internal/query"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
@@ -56,6 +57,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
 	t.Run("ciclo aplicar y releer", func(t *testing.T) { cicloDDL(t, f) })
+	t.Run("las filas sobreviven al cambio de esquema", func(t *testing.T) { filasSobreviven(t, f) })
 }
 
 /* ------------------------------------------------------------ los casos */
@@ -243,9 +245,33 @@ func pagina(t *testing.T, f Fixture) {
 	if len(r2.Rows) != 2 {
 		t.Fatalf("la segunda página dio %d filas", len(r2.Rows))
 	}
-	if r.Rows[0][0] == r2.Rows[0][0] {
-		t.Errorf("la segunda página empieza en la misma fila que la primera (%v): "+
-			"«cargar más» repetiría filas", r.Rows[0][0])
+	// Se comparan los VALORES, no los punteros. Rows es [][]*string, así que
+	// `r.Rows[0][0] == r2.Rows[0][0]` compara dos direcciones de dos lecturas
+	// distintas: nunca son iguales, y la comprobación no podía fallar ni con un
+	// Page que ignorara el Offset por completo.
+	if celda(r, 0, 0) == celda(r2, 0, 0) {
+		t.Errorf("la segunda página empieza en la misma fila que la primera (%q): "+
+			"«cargar más» repetiría filas", celda(r, 0, 0))
+	}
+
+	// Y el orden descendente tiene que aplicarse a TODAS las columnas del
+	// ORDER BY, no solo a la última. `ORDER BY nombre, id DESC` ordena por
+	// nombre ASCENDENTE, que es lo contrario de lo que pidió quien llama: con
+	// una clave compuesta el orden deja de ser total y el paginado repite y
+	// saltea filas.
+	rd, fail := c.Page(ctx, esq, tabla, engine.PageOptions{
+		OrderBy: []string{"nombre", "id"}, Descending: true, Limit: 1,
+	})
+	if fail != nil {
+		t.Fatalf("Page() descendente: %s", fail.Message)
+	}
+	if len(rd.Rows) != 1 {
+		t.Fatalf("Page() descendente dio %d filas", len(rd.Rows))
+	}
+	if v := celda(rd, 0, 1); v != "f5" {
+		t.Errorf("la primera fila del orden descendente por (nombre, id) es %q y "+
+			"tendría que ser \"f5\": el DESC se está aplicando solo a la última "+
+			"columna del ORDER BY", v)
 	}
 
 	pks, err := c.PrimaryKeyColumns(ctx, esq, tabla)
@@ -269,7 +295,7 @@ func transacciones(t *testing.T, f Fixture) {
 
 	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (1, 'antes')", nom))
 
-	tx, err := c.Begin(ctx)
+	tx, err := c.Begin(ctx, engine.TxOptions{})
 	if err != nil {
 		t.Fatalf("Begin(): %v", err)
 	}
@@ -284,7 +310,7 @@ func transacciones(t *testing.T, f Fixture) {
 			"tienen que revertirse en TODOS los motores", v)
 	}
 
-	tx, err = c.Begin(ctx)
+	tx, err = c.Begin(ctx, engine.TxOptions{})
 	if err != nil {
 		t.Fatalf("Begin(): %v", err)
 	}
@@ -404,6 +430,34 @@ func cicloDDL(t *testing.T, f Fixture) {
 			},
 		},
 		{
+			nombre: "ponerle un valor por defecto",
+			cambio: change.Change{
+				Type: change.SetDefault, Schema: esq, Table: tabla,
+				Column: &change.Column{Name: "extra", DataType: f.TipoEntero, Default: "7"},
+			},
+			comprobá: func(t *testing.T, d *schema.TableDetail) {
+				for _, col := range d.Columns {
+					if col.Name == "extra" && !strings.Contains(col.Default, "7") {
+						t.Errorf("el valor por defecto de «extra» quedó en %q", col.Default)
+					}
+				}
+			},
+		},
+		{
+			nombre: "sacarle el valor por defecto",
+			cambio: change.Change{
+				Type: change.DropDefault, Schema: esq, Table: tabla,
+				Column: &change.Column{Name: "extra", DataType: f.TipoEntero},
+			},
+			comprobá: func(t *testing.T, d *schema.TableDetail) {
+				for _, col := range d.Columns {
+					if col.Name == "extra" && col.Default != "" {
+						t.Errorf("«extra» quedó con el valor por defecto %q", col.Default)
+					}
+				}
+			},
+		},
+		{
 			nombre: "renombrar la columna",
 			cambio: change.Change{
 				Type: change.RenameColumn, Schema: esq, Table: tabla,
@@ -434,14 +488,14 @@ func cicloDDL(t *testing.T, f Fixture) {
 
 	for _, p := range pasos {
 		t.Run(p.nombre, func(t *testing.T) {
-			st, err := c.RenderDDL(p.cambio)
+			st, err := c.RenderDDL(ctx, p.cambio)
 			if err != nil {
 				t.Fatalf("RenderDDL(): %v", err)
 			}
 			if strings.TrimSpace(st.SQL) == "" {
 				t.Fatal("RenderDDL() devolvió SQL vacía")
 			}
-			if err := c.Exec(ctx, st.SQL); err != nil {
+			if err := aplicar(ctx, c, st); err != nil {
 				t.Fatalf("ejecutar %q: %v", st.SQL, err)
 			}
 			d, err := c.Detail(ctx, esq, tabla)
@@ -451,6 +505,95 @@ func cicloDDL(t *testing.T, f Fixture) {
 			p.comprobá(t, d)
 		})
 	}
+}
+
+// filasSobreviven comprueba la invariante más básica que hay, y la que más
+// caro sale romper: cambiar el ESQUEMA de una tabla no borra los DATOS de otra.
+//
+// Suena a que no hace falta probarlo. Hace falta, y este caso existe porque en
+// SQLite pasa de verdad: como casi no hay ALTER TABLE, cambiar una columna se
+// hace creando una tabla nueva, copiando y tirando la vieja — y ese DROP, con
+// las claves foráneas encendidas, dispara los ON DELETE CASCADE de las tablas
+// que la apuntan. Las filas hijas desaparecen sin un solo error, y hasta el
+// PRAGMA foreign_key_check da limpio después, porque no quedaron huérfanas:
+// quedaron borradas.
+//
+// Por eso el cambio va sobre la tabla PADRE y se cuentan las filas de la HIJA.
+// El ciclo de cicloDDL toca la hija, que no es referenciada por nadie, así que
+// no habría notado nada.
+func filasSobreviven(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	esq := f.Esquema(c)
+	hija := crearTabla(t, c, f, esq, "kn_sobrevive")
+	padre := hija + "_padre"
+	ctx := context.Background()
+
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id) VALUES (1), (2)", califica(c, esq, padre)))
+	exec(t, c, fmt.Sprintf(
+		"INSERT INTO %s (id, nombre, padre_id) VALUES (10, 'a', 1), (11, 'b', 2)",
+		califica(c, esq, hija)))
+
+	// Los cambios que en SQLite obligan a reconstruir la tabla. Se aplican
+	// sobre el padre, uno detrás del otro.
+	pasos := []change.Change{
+		{
+			Type: change.AddColumn, Schema: esq, Table: padre,
+			Column: &change.Column{Name: "etiqueta", DataType: f.TipoTexto, Nullable: true},
+		},
+		{
+			Type: change.SetNotNull, Schema: esq, Table: padre,
+			Column: &change.Column{Name: "etiqueta", DataType: f.TipoTexto, Default: "'x'"},
+		},
+	}
+	for _, ch := range pasos {
+		// SET NOT NULL sobre filas que ya tienen NULL falla en cualquier motor,
+		// así que primero se llenan.
+		if ch.Type == change.SetNotNull {
+			exec(t, c, fmt.Sprintf("UPDATE %s SET %s = 'x'",
+				califica(c, esq, padre), citar(c, "etiqueta")))
+		}
+		st, err := c.RenderDDL(ctx, ch)
+		if err != nil {
+			t.Fatalf("RenderDDL(%s): %v", ch.Type, err)
+		}
+		if err := aplicar(ctx, c, st); err != nil {
+			t.Fatalf("aplicar %s:\n%s\n%v", ch.Type, st.SQL, err)
+		}
+
+		n, fail := c.Count(ctx, esq, hija)
+		if fail != nil {
+			t.Fatalf("Count() sobre la hija: %s", fail.Message)
+		}
+		if n != 2 {
+			t.Fatalf("después de %s sobre %q, la tabla que la referencia quedó con %d "+
+				"filas de 2. Un cambio de esquema borró datos de otra tabla, y sin "+
+				"un solo error.\nSQL:\n%s", ch.Type, padre, n, st.SQL)
+		}
+		if n, fail := c.Count(ctx, esq, padre); fail != nil || n != 2 {
+			t.Fatalf("la tabla que se modificó quedó con %d filas de 2", n)
+		}
+	}
+}
+
+// aplicar ejecuta una sentencia por el camino que ella misma pide.
+//
+// Una que reconstruye la tabla NO se puede correr suelta: necesita que las
+// claves foráneas estén apagadas mientras corre, y eso hay que pedirlo antes
+// de abrir la transacción. Ejecutarla con Exec daría verde igual en el caso
+// fácil —cuando nadie referencia la tabla— y borraría filas en el caso real.
+func aplicar(ctx context.Context, c engine.Conn, st change.Statement) error {
+	if !st.RebuildsTable {
+		return c.Exec(ctx, st.SQL)
+	}
+	tx, err := c.Begin(ctx, engine.TxOptions{RebuildsTables: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := tx.Exec(ctx, st.SQL); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 /* ------------------------------------------------------------ ayudantes */
@@ -483,9 +626,14 @@ func crearTabla(t *testing.T, c engine.Conn, f Fixture, esq, base string) string
 	// No es estilo: MySQL ACEPTA la forma inline y después la IGNORA en
 	// InnoDB —no da error, simplemente no crea la clave— así que una suite
 	// escrita con esa forma daría verde creyendo que probó la relación.
+	// ON DELETE CASCADE no es decoración: es lo que vuelve SILENCIOSO el fallo
+	// que caza «las filas sobreviven al cambio de esquema». Sin él, un DROP
+	// TABLE sobre el padre da un error de clave foránea y el caso pasa por
+	// haber fallado ruidosamente, no por estar protegido — que es lo contrario
+	// de lo que el caso dice comprobar.
 	exec(t, c, fmt.Sprintf(
 		"CREATE TABLE %s (id %s PRIMARY KEY, nombre %s, padre_id %s, "+
-			"FOREIGN KEY (padre_id) REFERENCES %s (id))",
+			"FOREIGN KEY (padre_id) REFERENCES %s (id) ON DELETE CASCADE)",
 		nomHija, f.TipoEntero, f.TipoTexto, f.TipoEntero, nomPadre))
 	exec(t, c, fmt.Sprintf("CREATE INDEX kn_idx_%s ON %s (nombre)", base, nomHija))
 	return base
@@ -514,6 +662,15 @@ func unaCelda(t *testing.T, c engine.Conn, sql string) string {
 	return *v
 }
 
+// citar cita un identificador con las comillas del motor. Es lo mínimo que la
+// suite necesita para escribir un UPDATE a mano.
+func citar(c engine.Conn, ident string) string {
+	if c.Kind() == engine.MySQL || c.Kind() == engine.MariaDB {
+		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
+	}
+	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
+}
+
 // califica arma el nombre de la tabla como lo espera este motor. En SQLite no
 // hay esquema, así que el prefijo desaparece.
 func califica(c engine.Conn, esq, tabla string) string {
@@ -521,6 +678,14 @@ func califica(c engine.Conn, esq, tabla string) string {
 		return tabla
 	}
 	return esq + "." + tabla
+}
+
+// celda saca el valor de una celda del resultado. NULL y fuera de rango dan "".
+func celda(r *query.Result, fila, col int) string {
+	if fila >= len(r.Rows) || col >= len(r.Rows[fila]) || r.Rows[fila][col] == nil {
+		return ""
+	}
+	return *r.Rows[fila][col]
 }
 
 func buscarTabla(s *schema.Snapshot, esq, tabla string) *schema.Table {

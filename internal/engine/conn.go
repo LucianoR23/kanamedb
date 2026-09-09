@@ -100,7 +100,12 @@ type Conn interface {
 	// RenderDDL escribe una operación del changeset como SQL de este motor.
 	// Es lo único que sabe citar identificadores, y por eso la SQL nunca se
 	// arma en el frontend. Ver CLAUDE.md.
-	RenderDDL(c change.Change) (change.Statement, error)
+	//
+	// Recibe un contexto porque en SQLite no es una función pura: casi
+	// cualquier cambio de columna se hace reconstruyendo la tabla, y para
+	// escribir la definición nueva hay que leer la que hay. Los otros tres
+	// motores no lo usan.
+	RenderDDL(ctx context.Context, c change.Change) (change.Statement, error)
 	// ClassifyStatement interpreta el error de una sentencia que se estaba
 	// ejecutando. Cada motor tiene su vocabulario de códigos.
 	ClassifyStatement(err error, desc string) *Failure
@@ -110,7 +115,38 @@ type Conn interface {
 	// Begin abre una transacción. Los motores sin DDL transaccional la
 	// soportan igual: lo que no soportan es meter DDL adentro, y de eso se
 	// encarga TramosDe.
-	Begin(ctx context.Context) (Tx, error)
+	Begin(ctx context.Context, opts TxOptions) (Tx, error)
+}
+
+// TxOptions es lo que la transacción necesita saber de lo que va a ir adentro.
+//
+// Tiene un solo campo y no es un descuido: es la única cosa que un motor
+// necesita preparar ANTES del BEGIN y que no se puede decidir después.
+type TxOptions struct {
+	// RebuildsTables avisa que adentro va a haber una reconstrucción de tabla
+	// —crear una nueva, copiar, tirar la vieja y renombrar—.
+	//
+	// Solo SQLite lo mira, y sin esto pierde datos en silencio. El motivo es
+	// una cadena de tres hechos que por separado parecen inofensivos:
+	//
+	//  1. Con foreign_keys encendido, un DROP TABLE hace un DELETE implícito,
+	//     así que dispara los ON DELETE CASCADE de las tablas que la apuntan.
+	//  2. PRAGMA foreign_keys es un NO-OP adentro de una transacción, así que
+	//     no se puede apagar desde donde haría falta.
+	//  3. PRAGMA foreign_key_check DESPUÉS del rebuild devuelve cero filas,
+	//     porque las hijas no quedaron huérfanas: quedaron borradas.
+	//
+	// Comprobado: reconstruir una tabla con foreign_keys encendido borra las
+	// filas de las tablas hijas sin decir nada. Ver rebuild_test.go.
+	//
+	// Con esto en true, SQLite apaga foreign_keys antes del BEGIN, corre
+	// foreign_key_check antes del COMMIT —y se niega a commitear si encuentra
+	// algo— y lo vuelve a encender al terminar. Es el procedimiento que el
+	// propio manual de SQLite describe.
+	//
+	// Los otros tres motores hacen ALTER de verdad y no tienen nada que
+	// apagar, así que lo ignoran.
+	RebuildsTables bool
 }
 
 // Tx es una transacción abierta.

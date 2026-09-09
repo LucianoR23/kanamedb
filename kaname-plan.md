@@ -162,10 +162,24 @@ versión estable**, igual que Postgres. Verificar cuál es en su momento en vez 
 asumir: el default del `docker-compose.test.yml` se elige ahí, y la matriz de CI
 cubre la última más las anteriores que se declaren soportadas.
 
-- **S03** — variantes de engine.
-- **S15** — banners de DDL no transaccional (MySQL) y de rebuild de tabla
+Backend, por motor:
+
+- ✅ `internal/engine` — la costura: `Conn`, `Caps`, `TramosDe`, vocabulario de
+  fallos, `ServerInfo`, `TxOptions`.
+- ✅ `internal/engine/enginetest` — la batería de 17 casos que todo motor tiene
+  que pasar. Es la definición ejecutable de «está implementado».
+- ✅ `internal/postgres` implementa `Conn`. Pasa la batería.
+- ✅ `internal/mysql` — MySQL **y** MariaDB. Pasan la batería las dos.
+- ✅ `internal/sqlite` — incluida la reconstrucción de tabla. Pasa la batería.
+- ⏳ `internal/service` detrás de la costura, y el apply por tramos.
+
+Frontend y CI:
+
+- ⏳ **S03** — variantes de engine.
+- ⏳ **S15** — banners de DDL no transaccional (MySQL) y de rebuild de tabla
   (SQLite); dry run en transacción para Postgres.
-- **S01** — "Open SQLite file".
+- ⏳ **S01** — "Open SQLite file".
+- ⏳ **CI** — matriz de los cuatro motores con `KANAME_REQUIRE_ENGINES`.
 
 ### Iteración 7 — Grilla editable
 
@@ -493,6 +507,166 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 6 — 2026-09-09
+
+**Reconstruir una tabla en SQLite borra las filas de las tablas hijas, en
+silencio.** Es el hallazgo más caro de la iteración y el único con pérdida de
+datos.
+
+SQLite tiene cuatro `ALTER TABLE`: `RENAME TO`, `RENAME COLUMN`, `ADD COLUMN` y
+`DROP COLUMN`. Todo lo demás —cambiar un tipo, exigir que una columna no sea
+nula, sacar un valor por defecto, agregar un CHECK o una clave— se hace
+reconstruyendo: tabla nueva, copiar, tirar la vieja, renombrar. Y ahí se juntan
+tres hechos que por separado parecen inofensivos:
+
+1. Con `foreign_keys` encendido, un `DROP TABLE` hace un DELETE implícito, así
+   que dispara los `ON DELETE CASCADE` de las tablas que la referencian.
+2. `PRAGMA foreign_keys` es un **no-op adentro de una transacción**. No falla,
+   no avisa, no hace nada.
+3. `PRAGMA foreign_key_check` después del rebuild devuelve **cero filas**,
+   porque las hijas no quedaron huérfanas: quedaron borradas.
+
+Comprobado: padre con dos filas, hija con dos filas y `ON DELETE CASCADE`,
+reconstruir el padre → la hija queda en **0 filas, sin un solo error**.
+
+La solución es el procedimiento que documenta el propio manual de SQLite, y lo
+que obliga es a que las opciones de la transacción digan qué va adentro:
+`engine.TxOptions{RebuildsTables: true}` apaga las claves ANTES del `BEGIN`,
+corre `foreign_key_check` antes del `COMMIT` —y se niega a commitear si
+encuentra algo— y las vuelve a encender al terminar. Es la misma semántica que
+un `DEFERRABLE INITIALLY DEFERRED` de Postgres.
+
+**`PRAGMA legacy_alter_table` no sirve para esto, aunque lo parezca.** La idea
+natural para evitar el `DROP` peligroso es renombrar la tabla vieja para
+liberar el nombre, y ese pragma promete que un `RENAME` no reescriba las
+referencias. No lo cumple: con el pragma leyendo `1`, el `RENAME` reescribió
+igual el `REFERENCES` de la tabla hija, y el `DROP` posterior se llevó sus
+filas. Por eso el orden del rebuild es **crear la nueva con un nombre temporal,
+copiar, tirar la vieja, renombrar la nueva**: así el nombre original nunca
+cambia de dueño y ninguna otra tabla tiene que seguirlo.
+
+**El rebuild se arma leyendo el texto del `CREATE TABLE`, no el catálogo.**
+SQLite no expone los CHECK en ningún pragma ni en ninguna tabla del catálogo:
+solo existen en `sqlite_schema.sql`. Armar la definición nueva desde los
+pragmas —que es lo natural, y lo que hacen varias herramientas— perdería en
+silencio los CHECK, los COLLATE, las cláusulas `ON CONFLICT` y el
+`WITHOUT ROWID`. Es la misma clase de error que ya se decidió no cometer con
+Atlas y las columnas VIRTUAL, así que hay un tokenizador propio —`ddltext.go`,
+que respeta comillas, paréntesis y comentarios— y lo que el cambio no toca
+vuelve byte por byte como estaba. Lo que no se entiende **no se reconstruye**:
+una columna generada devuelve `ErrUnsupported` en vez de una definición
+aproximada, y una tabla **virtual** también: FTS5 y R-Tree figuran como
+`type='table'` igual que cualquier otra, y reconstruirlas con el procedimiento
+normal las dejaría convertidas en tablas comunes —mismos nombres de columna,
+sin el módulo— sin dar un solo error.
+
+**SQLite no tiene un código de error por problema.** `SQLITE_ERROR` es 1 y ahí
+caen, con el mismo número, la tabla que no existe, la columna repetida, el
+índice que ya está y el error de sintaxis — comprobado contra 3.53.4, los
+cuatro devuelven 1. Para ese caso, y solo para ese, la clasificación lee el
+mensaje. Es justo lo que en Postgres y MySQL se evita a propósito; se hace
+igual porque la alternativa es que la pantalla de apply diga «el motor rechazó
+la sentencia» y nada más contra el único motor que no necesita servidor, que va
+a ser el más usado para probar. Las restricciones son la mitad buena: ahí
+`SQLITE_CONSTRAINT` sí tiene códigos extendidos y son precisos —275 CHECK, 787
+FOREIGN KEY, 1299 NOT NULL, 1555 PRIMARY KEY, 2067 UNIQUE—.
+
+**Los pragmas de sesión van en el DSN, no por `Exec`.** `database/sql` tiene un
+pool: un `PRAGMA foreign_keys=ON` ejecutado con `db.Exec` se aplica a UNA
+conexión y la consulta siguiente puede salir por otra. Comprobado: con el
+pragma puesto así, seis inserts de filas huérfanas pasaron sin error. En el DSN
+—`?_pragma=foreign_keys(1)`— el driver lo aplica a cada conexión que abre.
+
+**SQLite acepta cualquier nombre de tipo.** `CREATE TABLE t (a noexistetipo)`
+no da error: el tipo declarado define una AFINIDAD, no una restricción. Así que
+la validación del tipo en el DDL es más importante acá que en los otros
+motores, no menos: no hay ninguna comprobación del motor detrás de la nuestra.
+Y por lo mismo la grilla lee todo como texto —una columna `integer` puede tener
+un texto en una fila y un blob en la otra—.
+
+**Lo que SQLite no tiene, y se dice en vez de fingirse:** comentarios de tabla y
+de columna (devuelven `ErrUnsupported`), `ALTER TABLE ADD CONSTRAINT` —una
+UNIQUE se agrega como índice único, que es el mismo mecanismo que usa el
+motor—, `DROP TABLE ... CASCADE`, y estadísticas de filas salvo que alguien
+haya corrido `ANALYZE`.
+
+**Lo que encontró el `/code-review` en `high`, y que los tests no.** Doce
+hallazgos legítimos, todos reproducidos antes de tocar nada. Vale anotarlos
+porque tienen una forma en común: ninguno se ve leyendo el código de a una
+función.
+
+- **Una vista encima de la tabla hacía imposible cualquier reconstrucción.**
+  Desde 3.25 un `RENAME TO` vuelve a analizar el esquema entero, y en el medio
+  del rebuild la tabla original ya no existe: `error in view vt: no such
+  table`. Se arregla con `PRAGMA legacy_alter_table` — que resultó servir para
+  esto y no para lo que se había supuesto antes, que era evitar que el rename
+  reescribiera las referencias. Eso lo gobierna `foreign_keys`, no este pragma.
+- **`ON DELETE SET NULL` y `ON DELETE SET DEFAULT` se partían en dos.** NULL y
+  DEFAULT abren cláusula en cualquier otro lugar de la definición de una
+  columna, y ahí no. Sacarle el valor por defecto a una columna con
+  `ON DELETE SET DEFAULT` devolvía «sí, lo saqué» y dejaba `ON DELETE SET`: SQL
+  rota y la acción de la clave destruida.
+- **`Run` ejecutaba las sentencias dos veces.** El reintento con `Exec` cuando
+  el `Query` fallaba volvía a correr lo que ya había corrido, porque el driver
+  de SQLite ejecuta toda la cadena en una llamada. `INSERT …; SELECT roto;`
+  dejaba dos filas. El reintento además no hacía falta: `QueryContext` acepta
+  DML y devuelve cero columnas, que es cómo se distingue.
+- **La validación de identificadores no validaba nada.** El mapa guardaba
+  descripción→nombre y el bucle lo leía al revés, así que medía el largo de la
+  descripción: un nombre de tabla de 300 caracteres pasaba, y uno con un salto
+  de línea adentro también. Estaba en MySQL y se había copiado a SQLite.
+- **El modo solo lectura protegía UNA conexión del pool.** `SET SESSION` vale
+  para la conexión que lo recibió; abrir una tabla y después correr un DELETE
+  en el editor sale por otra. Ahora la configuración de sesión va en un
+  conector propio, así que cada conexión que el pool abre la recibe.
+- **El límite de tiempo por sentencia estaba comentado y no implementado.** El
+  campo se asignaba y no se leía en ninguna parte. Se implementa en el mismo
+  conector, mandando las dos formas que existen —`max_execution_time` en
+  milisegundos para MySQL, `max_statement_time` en segundos para MariaDB— y
+  exigiendo que una haya funcionado.
+- **El `DESC` del paginado se aplicaba solo a la última columna.** En los
+  TRES motores. `ORDER BY a, b DESC` ordena por `a` ascendente; con una clave
+  primaria compuesta el orden deja de ser total y el paginado repite y saltea
+  filas.
+- **La reconstrucción hacía retroceder el contador de `AUTOINCREMENT`.** El
+  `DROP TABLE` se lleva la fila de `sqlite_sequence` y la copia la recrea con
+  el máximo de las filas que quedaron: si se habían borrado las últimas, la
+  próxima fila recibe un id que ya existió, que es exactamente lo único que
+  `AUTOINCREMENT` promete que no pasa.
+- **La ruta del archivo de SQLite iba sin escapar en un URI `file:`.** Una base
+  en `…/notas#1/app.db` se cortaba en el `#` y —como se abre con
+  `SQLITE_OPEN_CREATE`— SQLite **creaba un archivo vacío** llamado `notas` y lo
+  abría. Sin error: Kaname mostraba una base vacía mientras la del usuario
+  seguía intacta al lado.
+- **Comentar una columna en MySQL le borraba el valor por defecto.** `MODIFY`
+  reemplaza la definición entera y lo que no se repite se pierde.
+- **El servicio despachaba todo a Postgres.** El editor ofrece los otros tres
+  deshabilitados, pero el archivo de conexiones se edita a mano: una conexión
+  con `engine = "mysql"` le entregaba a pgx un DSN que no es suyo y el error
+  hablaba de credenciales. Una comprobación que vive solo del lado de la
+  interfaz no es una protección.
+- **Y una comprobación de la batería que no podía fallar.** `r.Rows[0][0] ==
+  r2.Rows[0][0]` compara `*string`: dos punteros de dos lecturas distintas
+  nunca son iguales. Un `Page` que ignorara el `Offset` por completo pasaba.
+
+Se agregó además `ON DELETE CASCADE` a la clave del fixture de la batería. Sin
+él, inyectar la falla del rebuild daba un error de clave foránea —ruidoso— en
+vez del borrado silencioso que el caso dice comprobar: pasaba por haber fallado
+fuerte, no por estar protegido.
+
+**La batería creció porque encontró un agujero en sí misma.** El ciclo de
+`RenderDDL → ejecutar → releer el catálogo` cubría agregar, exigir no nulo,
+renombrar y borrar una columna, pero no el valor por defecto. Ahí había un bug
+que llevaba en el repositorio desde que se escribió el paquete de MySQL:
+`SetDefault` leía `c.Expression` mientras Postgres —y ahora SQLite— leen
+`c.Column.Default`, que es lo que exige `Validate`. Un cambio perfectamente
+válido renderizaba `ALTER TABLE … SET DEFAULT ` y fallaba recién al aplicar,
+con un error de sintaxis. Se agregaron los dos casos y se comprobó que fallan
+con el bug puesto.
+
+Y se agregó un caso más, «las filas sobreviven al cambio de esquema», que
+modifica la tabla PADRE y cuenta las filas de la HIJA. El ciclo tocaba la
+hija, que no es referenciada por nadie, así que no habría notado nunca el
+borrado en cascada de SQLite.
 
 **MySQL y MariaDB no solo no revierten el DDL: lo que hacen es peor.** Un DDL
 en el medio de una transacción hace **commit implícito de todo lo anterior** y
