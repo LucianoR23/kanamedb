@@ -217,6 +217,8 @@
 .safetyLocked { font: 400 10.5px var(--font-ui); color: var(--text-dim); }
 .safetyNote { margin: 11px 0 0; font: 400 11px/1.5 var(--font-ui); color: var(--text-dim); text-wrap: pretty; }
 
+.statusSep { flex: none; width: 1px; height: 11px; background: var(--border); }
+
 .statusbar {
   flex: none;
   display: flex;

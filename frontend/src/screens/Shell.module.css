@@ -135,6 +135,9 @@
 }
 .statusDot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--env-color, var(--border-strong)); }
 .statusDim { color: var(--text-dim); }
+/* Separa la firma de las acciones de la derecha, para que no se lean como una
+   sola tira de cosas clickeables. */
+.statusSep { flex: none; width: 1px; height: 11px; background: var(--border); }
 
 /* Producción late. Es el único lugar de la app con animación permanente, y
    está ahí para que no se pueda olvidar contra qué estás trabajando. */

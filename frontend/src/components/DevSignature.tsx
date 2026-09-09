@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Browser } from "@wailsio/runtime";
+import { cx } from "../lib/cx";
 import styles from "./DevSignature.module.css";
 
 /** A dónde llevan los dos enlaces. Sin parámetros, y eso no es un detalle: un
@@ -12,6 +13,8 @@ const REPO = "https://github.com/LucianoR23/kanamedb";
 /** Lo que teclea el wordmark. Cada texto lleva exactamente UN punto, que es el
  *  separador entre la parte fuerte y la apagada. */
 const TEXTOS = ["luciano.rodriguez", "lemy.dev"] as const;
+/** El corto, para la variante quieta: en una barra de 10,5px no entra el largo. */
+const CORTO = TEXTOS[1];
 
 const TIPEO = 90;
 const BORRADO = 50;
@@ -19,13 +22,18 @@ const PAUSA_LLENO = 2500;
 const PAUSA_VACIO = 350;
 
 /**
- * Quién hizo esto, al pie de S25 About.
+ * Quién hizo esto, y dónde está el código.
  *
- * Va acá y en ningún otro lado a propósito. En el chrome principal sería
- * publicidad, y además rompería la regla de movimiento: un typewriter en bucle
- * anima CONTENIDO, para siempre, y eso es exactamente lo que no se hace en una
- * herramienta que se mira ocho horas. About es un diálogo que se abre a
- * propósito, se mira y se cierra; ahí no compite con nada.
+ * Dos variantes, y la diferencia no es estética:
+ *
+ * - **`quieta`** es la que va en la barra de estado, o sea en pantallas que se
+ *   miran horas. Ahí no se anima NADA. Un texto que se teclea solo en el borde
+ *   de la vista mientras leés un plan de ejecución es exactamente lo que la
+ *   regla de movimiento existe para evitar, y además es lo que haría que se
+ *   leyera como publicidad: lo que llama la atención es el movimiento, no el
+ *   hecho de estar ahí.
+ * - **`animada`** es la de About, que es un destino: se abre a propósito, se
+ *   mira y se cierra, y no compite con nada.
  *
  * Los enlaces NO son `<a href>`. Dentro de un webview eso no abre el navegador
  * del sistema: según cómo esté configurado WebView2, navega el webview en el
@@ -33,21 +41,44 @@ const PAUSA_VACIO = 350;
  * `Browser.OpenURL` se lo entrega al sistema operativo, que es lo único
  * aceptable acá: la aplicación no carga contenido remoto en su propio proceso.
  */
-export function DevSignature() {
+export function DevSignature({
+  variant = "quieta",
+}: {
+  variant?: "quieta" | "animada";
+}) {
+  const animada = variant === "animada";
   return (
-    <div className={styles.firma}>
-      <span className={styles.hecho}>Hecho por</span>
-      <Wordmark />
-      <span className={styles.separador} />
+    <div className={cx(styles.firma, animada ? styles.enPanel : styles.enBarra)}>
+      {animada ? <span className={styles.hecho}>Hecho por</span> : null}
+      {animada ? <Wordmark /> : <WordmarkQuieto />}
+      {animada ? <span className={styles.separador} /> : null}
       <button
         type="button"
         className={styles.repo}
-        title={REPO}
+        title={`Código en GitHub · ${REPO}`}
+        aria-label="Ver el código en GitHub"
         onClick={() => void Browser.OpenURL(REPO)}
       >
-        Código en GitHub
+        <MarcaGitHub />
+        {animada ? <span>Código en GitHub</span> : null}
       </button>
     </div>
+  );
+}
+
+/** El wordmark sin nada que se mueva. */
+function WordmarkQuieto() {
+  return (
+    <button
+      type="button"
+      className={styles.marca}
+      title={`Hecho por Luciano Rodríguez · ${PORTFOLIO}`}
+      onClick={() => void Browser.OpenURL(PORTFOLIO)}
+    >
+      <span className={styles.fuerte}>{CORTO.slice(0, CORTO.indexOf("."))}</span>
+      <span className={styles.puntoQuieto}>.</span>
+      <span className={styles.apagado}>{CORTO.slice(CORTO.indexOf(".") + 1)}</span>
+    </button>
   );
 }
 
@@ -158,7 +189,7 @@ function Wordmark() {
     >
       <span className={styles.oculto}>lemy.dev</span>
       <span className={styles.texto} aria-hidden="true">
-        <span>{fuerte}</span>
+        <span className={styles.fuerte}>{fuerte}</span>
         {punto >= 0 ? (
           <span key={puntoKey} className={styles.punto}>
             .
@@ -168,6 +199,24 @@ function Wordmark() {
         <span className={styles.cursor}>|</span>
       </span>
     </button>
+  );
+}
+
+/** La marca de GitHub. Va como SVG y no por `Glyph` porque `Glyph` son
+ *  etiquetas de texto, y esto es una forma concreta de un tercero. */
+function MarcaGitHub() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+      className={styles.gh}
+    >
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
   );
 }
 

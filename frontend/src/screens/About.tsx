@@ -197,7 +197,7 @@ export function About({ onBack }: { onBack: () => void }) {
           </p>
         </div>
 
-        <DevSignature />
+        <DevSignature variant="animada" />
       </div>
     </div>
   );

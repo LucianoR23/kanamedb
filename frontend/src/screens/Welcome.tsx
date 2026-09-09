@@ -1,4 +1,5 @@
 import { Button, ShortcutChip } from "../components/ui";
+import { DevSignature } from "../components/DevSignature";
 import styles from "./Welcome.module.css";
 
 interface Props {
@@ -101,6 +102,7 @@ export function Welcome({ onNew, onAbout, connectionsPath }: Props) {
       <footer className={styles.statusbar}>
         <span>Sin conectar</span>
         <span className={styles.spacer} />
+        <DevSignature />
         <span className={styles.path} title={connectionsPath}>
           {connectionsPath}
         </span>

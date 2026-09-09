@@ -19,6 +19,7 @@ import { SqlEditorScreen } from "./SqlEditorScreen";
 import { TableDataScreen } from "./TableDataScreen";
 import { ErdScreen } from "./ErdScreen";
 import { PendingChanges } from "./PendingChanges";
+import { DevSignature } from "../components/DevSignature";
 import { cx } from "../lib/cx";
 import styles from "./Shell.module.css";
 
@@ -478,6 +479,10 @@ export function Shell({
           <span>sin conexión</span>
         )}
         <span className={styles.spacer} />
+        {/* La firma va acá y no en la esquina: «Desconectar» es la acción y no
+         *  se le mueve el rincón, que es donde la mano ya la busca. */}
+        <DevSignature />
+        <span className={styles.statusSep} />
         {session?.readOnly ? (
           <span className={styles.statusDim}>solo lectura</span>
         ) : null}

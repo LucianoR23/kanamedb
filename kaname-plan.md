@@ -585,12 +585,25 @@ sistema: según cómo esté configurado WebView2, navega el webview en el lugar
 `Browser.OpenURL` de `@wailsio/runtime`, que se lo entrega al sistema operativo.
 La aplicación nunca carga contenido remoto en su propio proceso.
 
-El wordmark se teclea solo, y eso choca de frente con la regla de movimiento de
-más abajo —anima CONTENIDO, para siempre—. La excepción se sostiene por dónde
-está: About es un diálogo que se abre a propósito, se mira y se cierra, así que
-no compite con nada. Si alguna vez va a un lugar permanente, va estático. Se
-detiene además cuando la ventana no está visible: acá eso no es cortesía como en
-la web, es que esta ventana queda abierta horas.
+**Está en las cuatro pantallas, y la animación no.** En la barra de estado del
+workspace, del gestor de conexiones y de la bienvenida va la variante
+**quieta**: el wordmark corto, el punto en color, la marca de GitHub, y nada que
+se mueva. En About va la animada.
+
+La distinción no es estética. Un texto que se teclea solo en el borde de la
+vista, mientras alguien lee un plan de ejecución, es exactamente lo que la regla
+de movimiento existe para evitar — y es además lo que haría que se leyera como
+publicidad, porque **lo que llama la atención es el movimiento, no el hecho de
+estar ahí**. Una firma quieta en una barra de estado es lo que tiene cualquier
+herramienta y nadie la registra como un aviso.
+
+En About sí se teclea, porque About es un destino: se abre a propósito, se mira
+y se cierra, y no compite con nada. Ahí además se detiene cuando la ventana no
+está visible: eso en una página web es cortesía, acá es que esta ventana queda
+abierta horas.
+
+En la barra va después del espaciador pero **antes** de las acciones. La esquina
+sigue siendo de «Desconectar» y de «about», que es donde la mano ya las busca.
 
 **Sin contador de estrellas de GitHub.** Sería llamar a `api.github.com` cada vez
 que se abre About: GitHub aprendería la IP y que esa persona corre Kaname, cada

@@ -10,6 +10,7 @@ import {
   SearchInput,
 } from "../components/ui";
 import type { MenuAnchor, MenuEntry } from "../components/ui";
+import { DevSignature } from "../components/DevSignature";
 import { cx } from "../lib/cx";
 import styles from "./ConnectionManager.module.css";
 
@@ -253,6 +254,8 @@ export function ConnectionManager({
             : "sin conexiones"}
         </span>
         <span className={styles.spacer} />
+        <DevSignature />
+        <span className={styles.statusSep} />
         <button type="button" className={styles.statusLink} onClick={onAbout}>
           about
         </button>
