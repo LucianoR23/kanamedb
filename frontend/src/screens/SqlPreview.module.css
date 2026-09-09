@@ -1,0 +1,333 @@
+/* El diálogo se queda con casi toda la altura de la ventana y scrollea por
+   dentro. Un preview que hace scrollear la página entera pierde el botón de
+   aplicar de vista, que es justo el que hay que pensar dos veces. */
+.marco {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  height: min(72vh, 700px);
+  margin: -4px -2px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Contra producción el diálogo entero cambia de temperatura. No es decoración:
+   es lo que evita aplicar en la base equivocada por costumbre. */
+.produccion {
+  box-shadow: inset 0 3px 0 var(--env-prod);
+}
+
+.izquierda {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.barraSql {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.grow { flex: 1; }
+.meta,
+.txn {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.codigo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 0;
+  background: var(--bg-inset);
+}
+.linea {
+  display: flex;
+  gap: 10px;
+  padding: 0 12px;
+  font: 400 12.5px/20px var(--font-mono);
+  white-space: pre;
+}
+.n {
+  flex: none;
+  width: 30px;
+  text-align: right;
+  color: var(--text-dim);
+  user-select: none;
+}
+.texto {
+  min-width: 0;
+  color: var(--text-1);
+}
+
+/* Los comentarios del guion llevan el aviso, así que se pintan por lo que
+   dicen: la línea que anuncia una sentencia destructiva se ve antes de leerla. */
+.lineaComentario .texto { color: var(--syn-com); }
+.lineaAviso {
+  background: var(--warning-quiet);
+}
+.lineaAviso .texto { color: var(--warning); }
+.lineaPeligro {
+  background: var(--danger-quiet);
+}
+.lineaPeligro .texto { color: var(--danger); }
+
+.corriendo {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.corriendoFila {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.corriendoTitulo {
+  font: 500 12px var(--font-ui);
+  color: var(--text-1);
+}
+.spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: kn-girar-preview 0.8s linear infinite;
+}
+@keyframes kn-girar-preview {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+}
+.progreso {
+  height: 4px;
+  background: var(--bg-inset);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progresoRelleno {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+.actual {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+}
+
+.resultado {
+  flex: none;
+  padding: 11px 12px;
+  border-top: 1px solid var(--border);
+  font: 400 12px/1.55 var(--font-ui);
+}
+.resultadoOk {
+  background: var(--success-quiet);
+  color: var(--success);
+}
+.resultadoMal {
+  background: var(--danger-quiet);
+  color: var(--text-1);
+}
+.resultadoTitulo {
+  margin: 0 0 5px;
+  font-weight: 500;
+  color: var(--danger);
+}
+.resultadoMsg {
+  margin: 0 0 6px;
+  color: var(--text-1);
+}
+.resultadoSql {
+  margin: 0 0 5px;
+  padding: 7px 9px;
+  background: var(--bg-inset);
+  border-radius: var(--r-sm);
+  font: 400 11.5px/1.6 var(--font-mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.resultadoDetalle {
+  margin: 0;
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+}
+.error {
+  flex: none;
+  margin: 0;
+  padding: 11px 12px;
+  border-top: 1px solid var(--border);
+  font: 400 12px var(--font-ui);
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.derecha {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+.panelCuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 13px;
+}
+.seccionTitulo {
+  margin-bottom: 8px;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.datos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  margin: 0;
+}
+.datos dt {
+  font: 400 12px var(--font-ui);
+  color: var(--text-2);
+}
+.datos dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+}
+.aviso { color: var(--warning); }
+.peligro { color: var(--danger); }
+
+.sinEstimacion,
+.sinRollback {
+  margin: 8px 0 0;
+  font: 400 11px/1.55 var(--font-ui);
+  color: var(--text-3);
+}
+.sinRollback {
+  margin: 0;
+  padding: 10px 11px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.tarjetas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tarjeta {
+  padding: 9px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.tarjetaPeligro { border-left: 2px solid var(--danger); }
+.tarjetaAviso { border-left: 2px solid var(--warning); }
+.tarjetaCabeza {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  min-width: 0;
+}
+.chip {
+  flex: none;
+  white-space: nowrap;
+  padding: 0 4px;
+  border-radius: 2px;
+  font: 600 9.5px var(--font-mono);
+}
+.chipPeligro { background: var(--danger-quiet); color: var(--danger); }
+.chipAviso { background: var(--warning-quiet); color: var(--warning); }
+.tarjetaObjeto {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11px var(--font-mono);
+  color: var(--text-1);
+}
+.tarjetaTexto {
+  margin: 0;
+  font: 400 10.5px/1.5 var(--font-ui);
+  color: var(--text-2);
+}
+
+.confirmar {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 12px;
+  background: var(--danger-quiet);
+  border: 1px solid var(--env-prod);
+  border-radius: var(--r-md);
+}
+.confirmarTitulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 12px var(--font-ui);
+  color: var(--text-1);
+}
+.bang {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--bg-app);
+  font: 700 10px/14px var(--font-mono);
+  text-align: center;
+}
+.confirmarTexto {
+  margin: 0;
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+}
+.okInput { border-color: var(--success); }
+.malInput { border-color: var(--env-prod); }
+
+.avisos {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+}
+
+.acciones {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 13px;
+  border-top: 1px solid var(--border);
+}

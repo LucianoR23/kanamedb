@@ -124,14 +124,16 @@ Iteración 5 junto con el resto de la generación de DDL.
 
 ### Iteración 5 — ERD escritura
 
-Edición en canvas → changeset pendiente → diff Atlas → preview SQL → aplicar →
-re-inspeccionar.
+Edición → changeset pendiente → **renderizado propio** → preview SQL → aplicar →
+re-inspeccionar. **Sin differ**: ver § 6.
 
 - **S13 ERD edit interactions** — completa.
-- **S14 Pending changes panel** — completa.
-- **S15 SQL preview & apply** — DDL numerado, marcado de destructivos, progreso
-  por sentencia. Sin banners MySQL/SQLite y sin dry run todavía.
-- **S11** — editable, alimentando el changeset.
+- ✅ **S14 Pending changes panel** — completa.
+- ✅ **S15 SQL preview & apply** — DDL numerado, marcado de destructivos,
+  progreso por sentencia. Sin banners MySQL/SQLite y sin dry run todavía.
+- ⏳ **S11** — editable, alimentando el changeset. Están las acciones de columna
+  —agregar, renombrar, nulabilidad, sacar default, borrar—; faltan índices,
+  claves y restricciones.
 - **S24** — variante "write on Production".
 
 **Hito usable: Postgres completo de punta a punta (~4 meses).**
@@ -356,6 +358,70 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 5 — 2026-09-09
+
+**No hay differ, y el motivo es más fuerte que el gate de Atlas.** El diseño de
+S14 lo dejó a la vista: **cada cambio pendiente ya es una sentencia**, no un
+modelo deseado. Un differ existe para averiguar la diferencia entre dos
+esquemas; acá quien edita la hizo a mano, operación por operación. Pasarla por
+un differ obliga a reconstruir el esquema entero, entregárselo y aceptar su
+interpretación de vuelta — que es exactamente por donde se pierde lo que su
+modelo no sabe representar.
+
+El segundo argumento está en la misma pantalla: la lista mezcla cambios de datos
+y de esquema, en una transacción y un solo apply. Atlas no tiene nada que decir
+sobre un `UPDATE`, así que construir esto alrededor de un differ significaría dos
+tuberías en paralelo y fusionarlas en la Iteración 7.
+
+Lo que se gana es estructural y no una verificación más: **una operación que no
+sabemos escribir es una operación que la interfaz no ofrece**. Son diecisiete, y
+agregar una capacidad obliga a agregar su renderizado en cada motor a la vez.
+
+Atlas sigue siendo candidato para los dos lugares donde el problema SÍ es un
+diff: los rebuilds de tabla de **SQLite** en la Iteración 6 y el **drift check**
+de S20 en la 9. El gate se volvió a correr el 2026-09-09 —sigue en v1.3.0, mismo
+resultado— y se vuelve a correr antes de decidir.
+
+**El test del renderizado no compara SQL contra una cadena esperada.** Renderiza,
+EJECUTA contra Postgres y vuelve a leer el catálogo para verificar que quedó lo
+que se pidió. Una sentencia puede verse perfecta, correr sin error y dejar otra
+cosa: es literalmente lo que hace Atlas con las columnas VIRTUAL.
+
+**PostgreSQL trunca los identificadores de más de 63 bytes sin avisar.** Lo
+encontró el test de inyección, que fallaba porque la columna «no existía»: se
+había truncado. Setenta caracteres entran, sesenta y tres salen, ningún error.
+Es un renombrado silencioso, y dos nombres largos distintos pueden colisionar. Se
+rechazan antes de generar la sentencia.
+
+**La confirmación de producción pide el nombre de LA BASE, no el de la conexión.**
+El de la conexión lo eligió quien la configuró y puede ser «prod» en las dos
+máquinas; el de la base es lo que de verdad se va a modificar. Y se verifica del
+lado de Go: una comprobación que vive solo en la interfaz no es una protección,
+es un cartel.
+
+**Nada se ejecuta si alguna sentencia del conjunto no se puede escribir.**
+Aplicar la mitad de un changeset porque la otra mitad no compila es la peor
+combinación posible.
+
+**El `statement_timeout` de la conexión no se sube por dentro.** Un `ALTER` que
+reescribe una tabla grande puede tardar más que el corte, y quedarse a medias en
+un DDL es peor que no empezar — pero subirlo en silencio sacaría una protección
+que alguien puso a propósito. El changeset avisa y quien aplica decide.
+
+**El progreso se consulta, no se recibe.** No hay eventos de Wails en este
+proyecto y un apply que puede tardar minutos no puede ser una espera sin
+información. Preguntar cada doscientos milisegundos cuesta leer tres campos bajo
+un lock.
+
+**Una verificación mía volvió a estar mal, y esta vez lo dijo un test verde.** Al
+inyectar las cinco violaciones del apply, cuatro pusieron su test en rojo y la
+del rollback quedó verde. La causa no era el test: inyecté en el lugar
+equivocado. Saqué el corte temprano al fallar una sentencia, que NO es lo que da
+la garantía — Postgres aborta la transacción por su cuenta y el `COMMIT` falla
+igual. La inyección que sí prueba la invariante es sacar la transacción y correr
+contra el pool; ahí el test se pone rojo con el mensaje exacto. **Inyectar en el
+lugar equivocado da un falso «este test no sirve».**
 
 ### Iteración 4 — 2026-09-08
 

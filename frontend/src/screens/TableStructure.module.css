@@ -211,3 +211,33 @@
   font: 400 12px var(--font-ui);
   color: var(--danger);
 }
+
+/* El pie de la pestaña de columnas: lo que se puede hacer, y la promesa de que
+   nada se aplica todavía. La promesa va acá y no en un cartel aparte porque es
+   justo donde alguien duda antes de tocar. */
+.pieAcciones {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.accion {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-elev);
+  color: var(--text-1);
+  white-space: nowrap;
+  font: 500 11px var(--font-ui);
+  cursor: pointer;
+}
+.accion:hover:not(:disabled) { background: var(--bg-active); }
+.accion:disabled { color: var(--text-dim); cursor: default; }
+.pieNota {
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+}

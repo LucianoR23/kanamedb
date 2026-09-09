@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/layout"
 	"github.com/LucianoR23/kanamedb/internal/postgres"
@@ -28,6 +29,12 @@ type Session struct {
 
 	mu      sync.RWMutex
 	current *openSession
+
+	// progreso es por dónde va el apply en curso. Va acá y no en la sesión
+	// abierta porque lo consulta la interfaz mientras Apply está bloqueado, y
+	// comparte el lock con el resto del estado.
+	progreso      ApplyProgress
+	progresoDesde time.Time
 }
 
 type openSession struct {
@@ -40,6 +47,14 @@ type openSession struct {
 	server   *postgres.ServerInfo
 	openedAt time.Time
 	snapshot *schema.Snapshot
+
+	// cambios son las ediciones pendientes de aplicar.
+	//
+	// Vive acá y no en el Session porque muere con la conexión: un changeset
+	// armado contra una base a la que ya no estás conectado no es útil, es
+	// peligroso — la siguiente conexión podría ser otra base con las mismas
+	// tablas.
+	cambios *change.Set
 }
 
 // NewSession arma el servicio.
@@ -189,6 +204,7 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 		pool:     pool,
 		server:   info,
 		openedAt: time.Now(),
+		cambios:  &change.Set{},
 	}
 	vista := s.viewLocked()
 	s.mu.Unlock()
@@ -359,21 +375,28 @@ func (s *Session) viewLocked() SessionView {
 		StatementTimeoutSeconds: int(c.Safety.StatementTimeout() / time.Second),
 	}
 
-	// La conexión puede ser de solo lectura por tres motivos distintos, y el
-	// usuario merece saber cuál: no es lo mismo haberlo elegido que descubrir
-	// que estás apuntando a una réplica.
-	switch {
-	case c.Safety.ReadOnly:
-		v.ReadOnly = true
-		v.ReadOnlyReason = "La conexión está configurada como solo lectura."
-	case s.current.server != nil && s.current.server.InRecovery:
-		v.ReadOnly = true
-		v.ReadOnlyReason = "El servidor es una réplica y no acepta escrituras."
-	case s.current.server != nil && s.current.server.DefaultReadOnly:
-		v.ReadOnly = true
-		v.ReadOnlyReason = "El servidor fuerza transacciones de solo lectura."
-	}
+	v.ReadOnly, v.ReadOnlyReason = soloLectura(s.current)
 	return v
+}
+
+// soloLectura dice si la sesión puede escribir, y por qué no si no puede.
+//
+// La conexión puede ser de solo lectura por tres motivos distintos y el usuario
+// merece saber cuál: no es lo mismo haberlo elegido que descubrir que estás
+// apuntando a una réplica.
+//
+// Lo usan la vista Y el apply, que es la razón de que no esté escrito adentro
+// de la vista: una comprobación que solo alimenta la interfaz no protege nada.
+func soloLectura(sesion *openSession) (bool, string) {
+	switch {
+	case sesion.conn.Safety.ReadOnly:
+		return true, "La conexión está configurada como solo lectura."
+	case sesion.server != nil && sesion.server.InRecovery:
+		return true, "El servidor es una réplica y no acepta escrituras."
+	case sesion.server != nil && sesion.server.DefaultReadOnly:
+		return true, "El servidor fuerza transacciones de solo lectura."
+	}
+	return false, ""
 }
 
 // connectOptions traduce las protecciones de la conexión a lo que el pool tiene

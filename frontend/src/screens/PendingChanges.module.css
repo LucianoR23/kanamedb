@@ -1,0 +1,311 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-app);
+}
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 13px;
+}
+.titulo {
+  margin: 0 0 5px;
+  font: 600 20px/1.2 var(--font-ui);
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+}
+.bajada {
+  margin: 0;
+  max-width: 64ch;
+  font: 400 12.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.numeros {
+  flex: none;
+  display: flex;
+  gap: 20px;
+}
+.numero {
+  text-align: right;
+}
+.numeroValor {
+  font: 600 19px var(--font-mono);
+}
+.numeroEtiqueta {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-ui);
+  color: var(--text-3);
+}
+.tono_accent { color: var(--accent); }
+.tono_warning { color: var(--warning); }
+.tono_danger { color: var(--danger); }
+
+.barra {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 20px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.enlace {
+  border: 0;
+  background: transparent;
+  white-space: nowrap;
+  font: 400 11px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+}
+.enlace:hover { text-decoration: underline; }
+.divider { width: 1px; height: 14px; background: var(--border); }
+.grow { flex: 1; }
+.hint {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.cuerpo {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+.lista {
+  overflow: auto;
+  min-height: 0;
+}
+
+.grupo {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 20px;
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.grupoNombre {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: 600 12px var(--font-mono);
+  color: var(--text-1);
+  cursor: pointer;
+}
+.grupoNombre:hover { text-decoration: underline; }
+.grupoMeta {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.fila {
+  display: grid;
+  grid-template-columns: 40px 92px minmax(0, 1fr) 150px;
+  align-items: start;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.fila:hover { background: var(--bg-hover); }
+
+/* Lo excluido se sigue leyendo pero se ve que no está en juego. Esconderlo
+   obligaría a recordar qué se sacó; apagarlo lo deja a la vista. */
+.filaFuera { background: var(--bg-inset); }
+.filaFuera .sql { color: var(--text-dim); }
+
+.filaCheck {
+  display: flex;
+  justify-content: center;
+  padding: 9px 0 0;
+}
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.filaOp { padding: 8px 0; }
+.op {
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font: 600 9.5px var(--font-mono);
+}
+.op_CREATE { background: var(--success-quiet); color: var(--success); }
+.op_ALTER { background: var(--accent-quiet); color: var(--accent); }
+.op_DROP { background: var(--danger-quiet); color: var(--danger); }
+
+.filaSql {
+  min-width: 0;
+  padding: 8px 10px 9px 0;
+}
+.sql {
+  margin: 0;
+  font: 400 12px/1.7 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.nota {
+  display: block;
+  margin: 6px 0 0;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  font: 400 11px/1.5 var(--font-ui);
+  color: var(--text-2);
+}
+.notaAviso { background: var(--warning-quiet); }
+.notaPeligro { background: var(--danger-quiet); }
+.filaError {
+  margin: 6px 0 0;
+  font: 400 11px var(--font-ui);
+  color: var(--danger);
+}
+
+.filaCosto {
+  padding: 9px 20px 9px 0;
+  text-align: right;
+}
+.costo {
+  display: block;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-2);
+}
+.fuente {
+  display: block;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+.peligro { color: var(--danger); }
+.aviso { color: var(--warning); }
+
+/* ------------------------------------------------------------------ panel */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  gap: 15px;
+  padding: 13px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+.seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.seccionTitulo {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.datos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  margin: 0;
+}
+.datos dt {
+  font: 400 12px var(--font-ui);
+  color: var(--text-2);
+}
+.datos dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+}
+
+.avisos {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+}
+
+.readonly {
+  margin: 0;
+  padding: 10px 11px;
+  background: var(--warning-quiet);
+  border-radius: var(--r-md);
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-1);
+}
+
+.orden {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-2);
+}
+.ordenNota {
+  margin: 0;
+  font: 400 11px/1.55 var(--font-ui);
+  color: var(--text-3);
+}
+
+.pie {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 20px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+
+.cargando,
+.error,
+.vacio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 20px;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+}
+.error { color: var(--danger); }
+.vacio {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.vacioTitulo {
+  margin: 0;
+  font: 500 14px var(--font-ui);
+  color: var(--text-1);
+}
+.vacioHint {
+  margin: 0;
+  max-width: 60ch;
+  font: 400 12px/1.6 var(--font-ui);
+  color: var(--text-3);
+}

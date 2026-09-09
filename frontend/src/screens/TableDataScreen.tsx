@@ -37,6 +37,7 @@ export function TableDataScreen({
   readOnly,
   snapshot,
   onShowInErd,
+  onStaged,
 }: {
   tabId: string;
   schema: string;
@@ -44,6 +45,8 @@ export function TableDataScreen({
   readOnly: boolean;
   snapshot: Snapshot | null;
   onShowInErd: (schema: string, table: string) => void;
+  /** Se llama cuando una edición entró al changeset. */
+  onStaged: () => void;
 }) {
   const [result, setResult] = useState<Result | null>(null);
   const [filas, setFilas] = useState<(string | null)[][]>([]);
@@ -243,6 +246,14 @@ export function TableDataScreen({
           detail={detalle}
           loading={detalleCargando}
           error={detalleError}
+          readOnly={readOnly}
+          onStage={(c) => {
+            void SessionSvc.Stage(c)
+              .then(() => onStaged())
+              .catch((err: unknown) =>
+                setDetalleError(err instanceof Error ? err.message : String(err)),
+              );
+          }}
         />
       ) : (
         <>

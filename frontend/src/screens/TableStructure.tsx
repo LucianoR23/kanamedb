@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { Type as OpType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
+import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import type {
   CheckConstraint,
   DetailColumn,
@@ -8,7 +10,10 @@ import type {
   TableDetail,
   Trigger,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import { Glyph, Spinner } from "../components/ui";
+import { ContextMenu, Glyph, Spinner } from "../components/ui";
+import type { MenuAnchor, MenuEntry } from "../components/ui";
+import { ColumnEditor } from "./ColumnEditor";
+import type { ColumnaNueva } from "./ColumnEditor";
 import { cx } from "../lib/cx";
 import styles from "./TableStructure.module.css";
 
@@ -16,11 +21,12 @@ import styles from "./TableStructure.module.css";
 export type StructureView = "structure" | "indexes" | "keys" | "constraints" | "triggers";
 
 /**
- * S11 Table structure, solo lectura.
+ * S11 Table structure.
  *
  * Cinco vistas sobre el mismo `TableDetail`: columnas, índices, claves,
- * restricciones y triggers. Editar llega en la Iteración 5; acá no hay ningún
- * control que prometa un cambio.
+ * restricciones y triggers. Las columnas se pueden editar: cada acción manda una
+ * operación al changeset y NO toca la base — la SQL la escribe Go y se aplica
+ * desde la pantalla de cambios pendientes, nunca desde acá.
  *
  * No hay virtualización a propósito. Una tabla con más de cien columnas existe
  * pero es rarísima, y cien filas de grilla las dibuja el navegador sin
@@ -31,11 +37,17 @@ export function TableStructure({
   detail,
   loading,
   error,
+  readOnly,
+  onStage,
 }: {
   view: StructureView;
   detail: TableDetail | null;
   loading: boolean;
   error: string;
+  /** Sin escritura no se ofrece ninguna edición: el menú explica por qué. */
+  readOnly: boolean;
+  /** Manda un cambio al changeset. La SQL la escribe Go. */
+  onStage: (c: Change) => void;
 }) {
   if (error) {
     return (
@@ -61,7 +73,15 @@ export function TableStructure({
 
   switch (view) {
     case "structure":
-      return <Columnas columnas={detail.columns ?? []} claves={detail.foreignKeys ?? []} />;
+      return (
+        <Columnas
+          detail={detail}
+          columnas={detail.columns ?? []}
+          claves={detail.foreignKeys ?? []}
+          readOnly={readOnly}
+          onStage={onStage}
+        />
+      );
     case "indexes":
       return <Indices indices={detail.indexes ?? []} />;
     case "keys":
@@ -81,7 +101,88 @@ export function TableStructure({
 
 /* ---------------------------------------------------------------- columnas */
 
-function Columnas({ columnas, claves }: { columnas: DetailColumn[]; claves: ForeignKey[] }) {
+function Columnas({
+  detail,
+  columnas,
+  claves,
+  readOnly,
+  onStage,
+}: {
+  detail: TableDetail;
+  columnas: DetailColumn[];
+  claves: ForeignKey[];
+  readOnly: boolean;
+  onStage: (c: Change) => void;
+}) {
+  const [menu, setMenu] = useState<{ ancla: MenuAnchor; col: DetailColumn } | null>(null);
+  const [editor, setEditor] = useState<{ modo: "agregar" | "renombrar"; col?: DetailColumn } | null>(
+    null,
+  );
+
+  // Todo cambio lleva de dónde salió: la pantalla de pendientes lo muestra para
+  // poder volver al lugar donde se hizo la edición.
+  const base = (extra: Partial<Change>): Change =>
+    ({
+      id: "",
+      type: OpType.AddColumn,
+      schema: detail.schema,
+      table: detail.name,
+      source: "structure",
+      ...extra,
+    }) as Change;
+
+  const entradas = (c: DetailColumn): MenuEntry[] => [
+    { kind: "label", id: "l", label: c.name },
+    {
+      id: "renombrar",
+      label: "Renombrar…",
+      disabled: readOnly,
+      disabledReason: "solo lectura",
+      onSelect: () => setEditor({ modo: "renombrar", col: c }),
+    },
+    {
+      id: "nulos",
+      label: c.nullable ? "Exigir que no sea nula" : "Permitir nulos",
+      disabled: readOnly,
+      disabledReason: "solo lectura",
+      onSelect: () =>
+        onStage(
+          base({
+            type: c.nullable ? OpType.SetNotNull : OpType.DropNotNull,
+            column: { name: c.name, dataType: c.dataType, nullable: c.nullable },
+          }),
+        ),
+    },
+    {
+      id: "default",
+      label: "Sacar el valor por defecto",
+      disabled: readOnly || c.default === "",
+      disabledReason: readOnly ? "solo lectura" : "no tiene",
+      onSelect: () =>
+        onStage(
+          base({
+            type: OpType.DropDefault,
+            column: { name: c.name, dataType: c.dataType, nullable: c.nullable },
+          }),
+        ),
+    },
+    { kind: "separator", id: "s" },
+    {
+      id: "borrar",
+      label: "Borrar la columna…",
+      destructive: true,
+      disabled: readOnly,
+      disabledReason: "solo lectura",
+      onSelect: () =>
+        onStage(
+          base({
+            type: OpType.DropColumn,
+            column: { name: c.name, dataType: c.dataType, nullable: c.nullable },
+          }),
+        ),
+    },
+  ];
+
   // A qué apunta cada columna que es clave foránea. Se arma una vez y no por
   // fila: una tabla con veinte columnas y cinco claves compuestas haría cien
   // recorridos para pintar veinte celdas.
@@ -93,7 +194,7 @@ function Columnas({ columnas, claves }: { columnas: DetailColumn[]; claves: Fore
     });
   }
 
-  return (
+  const tabla = (
     <Tabla
       vacia="Esta tabla no tiene columnas."
       filas={columnas.length}
@@ -101,7 +202,14 @@ function Columnas({ columnas, claves }: { columnas: DetailColumn[]; claves: Fore
       encabezados={["", "Nombre", "Tipo", "Nulos", "Default", "Clave", "Comentario"]}
     >
       {columnas.map((c) => (
-        <div key={c.name} className={styles.fila}>
+        <div
+          key={c.name}
+          className={styles.fila}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu({ ancla: { x: e.clientX, y: e.clientY }, col: c });
+          }}
+        >
           <div className={cx(styles.celda, styles.gutter)}>{c.position}</div>
           <div className={cx(styles.celda, styles.nombre)}>
             <span className={styles.mono} title={c.name}>
@@ -156,6 +264,71 @@ function Columnas({ columnas, claves }: { columnas: DetailColumn[]; claves: Fore
         </div>
       ))}
     </Tabla>
+  );
+
+  return (
+    <>
+      {tabla}
+
+      <div className={styles.pieAcciones}>
+        <button
+          type="button"
+          className={styles.accion}
+          disabled={readOnly}
+          title={readOnly ? "La conexión es de solo lectura" : undefined}
+          onClick={() => setEditor({ modo: "agregar" })}
+        >
+          Agregar una columna
+        </button>
+        <span className={styles.pieNota}>
+          Clic derecho sobre una columna para el resto. Nada toca la base hasta que se aplique.
+        </span>
+      </div>
+
+      <ContextMenu
+        anchor={menu?.ancla ?? null}
+        entries={menu ? entradas(menu.col) : []}
+        onClose={() => setMenu(null)}
+      />
+
+      {editor ? (
+        <ColumnEditor
+          modo={editor.modo}
+          {...(editor.col ? { columna: editor.col } : {})}
+          tabla={detail.name}
+          onCerrar={() => setEditor(null)}
+          onGuardar={(v: ColumnaNueva) => {
+            setEditor(null);
+            if (editor.modo === "renombrar" && editor.col) {
+              onStage(
+                base({
+                  type: OpType.RenameColumn,
+                  column: {
+                    name: editor.col.name,
+                    dataType: editor.col.dataType,
+                    nullable: editor.col.nullable,
+                  },
+                  newName: v.name,
+                }),
+              );
+              return;
+            }
+            onStage(
+              base({
+                type: OpType.AddColumn,
+                column: {
+                  name: v.name,
+                  dataType: v.dataType,
+                  nullable: v.nullable,
+                  ...(v.default ? { default: v.default } : {}),
+                  ...(v.comment ? { comment: v.comment } : {}),
+                },
+              }),
+            );
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

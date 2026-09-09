@@ -18,6 +18,7 @@ import { SchemaTree } from "./SchemaTree";
 import { SqlEditorScreen } from "./SqlEditorScreen";
 import { TableDataScreen } from "./TableDataScreen";
 import { ErdScreen } from "./ErdScreen";
+import { PendingChanges } from "./PendingChanges";
 import { cx } from "../lib/cx";
 import styles from "./Shell.module.css";
 
@@ -99,12 +100,27 @@ export function Shell({
     setActiveTab(id);
   }
 
+  const ID_CAMBIOS = "cambios:";
+
+  function openCambios() {
+    setTabs((prev) =>
+      prev.some((t) => t.id === ID_CAMBIOS)
+        ? prev
+        : [...prev, { id: ID_CAMBIOS, label: "Cambios pendientes", kind: "query" }],
+    );
+    setActiveTab(ID_CAMBIOS);
+  }
+
   // El diagrama es una pestaña por esquema: dos esquemas son dos diagramas
   // distintos y mezclarlos en uno solo daría un dibujo que nadie pidió.
   // A qué tabla ir cuando se abre el diagrama desde otra pantalla. El contador
   // es lo que distingue "pedilo de nuevo" de "ya está pedido": sin él, volver a
   // «Ver en el diagrama» sobre la misma tabla no haría nada.
   const [erdFoco, setErdFoco] = useState<{ tabla: string; pedido: number } | null>(null);
+
+  // Cuántos cambios hay sin aplicar. Se relee cuando algo los toca; no se
+  // consulta en cada render porque cruza el puente a Go.
+  const [pendientes, setPendientes] = useState(0);
 
   function openErd(schema: string, tabla?: string) {
     if (tabla) setErdFoco((prev) => ({ tabla, pedido: (prev?.pedido ?? 0) + 1 }));
@@ -169,6 +185,11 @@ export function Shell({
         )}
         <span className={styles.spacer} />
         {session?.readOnly ? <Badge tone="neutral">Solo lectura</Badge> : null}
+        {pendientes > 0 ? (
+          <Button size="sm" variant="secondary" onClick={openCambios}>
+            {pendientes} {pendientes === 1 ? "cambio" : "cambios"} sin aplicar
+          </Button>
+        ) : null}
         <Button
           size="sm"
           onClick={() => openErd(esquemaPrincipal())}
@@ -327,6 +348,15 @@ export function Shell({
                       readOnly={session?.readOnly ?? false}
                       snapshot={snapshot}
                       onShowInErd={openErd}
+                      onStaged={() => {
+                        void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
+                      }}
+                    />
+                  ) : t.id === ID_CAMBIOS ? (
+                    <PendingChanges
+                      onApplied={() => void load(true)}
+                      onCount={setPendientes}
+                      onOpenTable={openTable}
                     />
                   ) : erd ? (
                     <ErdScreen
