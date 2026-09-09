@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/LucianoR23/kanamedb/internal/appinfo"
+	"github.com/LucianoR23/kanamedb/internal/layout"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/service"
 	"github.com/LucianoR23/kanamedb/internal/store"
@@ -34,7 +35,8 @@ func main() {
 	connections := store.New(info.Paths.Connections)
 	keyring := secrets.New()
 	known := tunnel.NewKnownHosts(info.Paths.KnownHosts)
-	sesion := service.NewSession(connections, keyring, known)
+	diagramas := layout.New(info.Paths.Layouts)
+	sesion := service.NewSession(connections, keyring, known, diagramas)
 
 	app := application.New(application.Options{
 		Name:        "Kaname",

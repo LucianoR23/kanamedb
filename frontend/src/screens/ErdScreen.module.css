@@ -1,0 +1,371 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-app);
+}
+
+.barra {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.interruptor {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font: 400 11px var(--font-ui);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.grow {
+  flex: 1;
+}
+
+.divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoomBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-elev);
+  color: var(--text-2);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.zoomBtn:hover {
+  background: var(--bg-active);
+  color: var(--text-1);
+}
+
+.zoomLabel {
+  width: 42px;
+  text-align: center;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-2);
+}
+
+.cuerpo {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 292px;
+}
+
+.lienzo {
+  position: relative;
+  min-width: 0;
+  background: var(--bg-inset);
+}
+
+/* El SVG de los marcadores no dibuja nada por sí mismo: solo tiene que existir
+   en el documento para que las líneas puedan referenciarlos por id. */
+.marcadores {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.vacio {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.leyenda {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-menu);
+  pointer-events: none;
+}
+
+.leyendaTitulo {
+  font: 600 10px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.leyendaFila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font: 400 10.5px var(--font-ui);
+  color: var(--text-2);
+}
+
+.muestra {
+  flex: none;
+  width: 30px;
+  height: 0;
+}
+
+.muestraNormal {
+  border-top: 1.5px solid var(--border-strong);
+}
+
+.muestraPunteada {
+  border-top: 1.5px dashed var(--border-strong);
+}
+
+.muestraCascada {
+  border-top: 2px solid var(--warning);
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+
+.panelCabecera {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panelTitulo {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.panelMeta {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.panelCuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.seccionTitulo {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.selNombre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 14px var(--font-mono);
+  color: var(--text-1);
+}
+
+.datos {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+}
+
+.datos dt {
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+}
+
+.datos dd {
+  margin: 0;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-1);
+}
+
+.lista {
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.item:hover {
+  background: var(--bg-hover);
+}
+
+.itemOculto {
+  opacity: 0.5;
+}
+
+.itemNombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-2);
+}
+
+.itemMeta {
+  flex: none;
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.relaciones {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.relacion {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.relacion:hover {
+  background: var(--bg-hover);
+}
+
+.relacionCascada {
+  border-left-color: var(--warning);
+}
+
+.relacionCard {
+  margin-right: 6px;
+  white-space: nowrap;
+  font: 600 9.5px var(--font-mono);
+  color: var(--accent);
+}
+
+.relacionCascada .relacionCard {
+  color: var(--warning);
+}
+
+.relacionOtra {
+  font: 500 11px var(--font-mono);
+  color: var(--text-1);
+}
+
+.relacionDetalle {
+  display: block;
+  margin-top: 3px;
+  font: 400 10.5px/1.5 var(--font-mono);
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.acciones {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.accion {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font: 400 12px var(--font-ui);
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.accion:hover {
+  background: var(--bg-hover);
+}
+
+.sinResultados {
+  margin: 0;
+  padding: 4px 2px;
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+}
+
+.nota {
+  margin: 0;
+  padding: 10px 11px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font: 400 11px/1.6 var(--font-ui);
+  color: var(--text-3);
+}

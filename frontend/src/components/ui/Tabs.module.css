@@ -80,3 +80,8 @@
    que no hace nada. */
 .pill:disabled { color: var(--text-dim); cursor: default; }
 .pill:disabled:hover { background: transparent; color: var(--text-dim); }
+.pillCount {
+  margin-left: 5px;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}

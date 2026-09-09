@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
+	"github.com/LucianoR23/kanamedb/internal/layout"
 	"github.com/LucianoR23/kanamedb/internal/store"
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
@@ -49,9 +50,14 @@ func sesionDePrueba(t *testing.T) (*Session, *Connections, string) {
 		}
 	}
 
-	// known_hosts propio del test: ninguna conexión de prueba usa túnel, pero
-	// la sesión lo necesita para poder abrirlo si alguna lo usara.
-	sesion := NewSession(st, kr, tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")))
+	// known_hosts y diagramas propios del test: ninguna conexión de prueba usa
+	// túnel ni ERD, pero la sesión los necesita para poder usarlos si alguna lo
+	// hiciera. En un directorio temporal, para no tocar los del usuario.
+	sesion := NewSession(
+		st, kr,
+		tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")),
+		layout.New(filepath.Join(t.TempDir(), "layouts")),
+	)
 	t.Cleanup(sesion.Disconnect)
 	return sesion, &Connections{store: st, keyring: kr, known: tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "kh"))}, c.ID
 }
@@ -254,5 +260,108 @@ func TestConnectOptionsLlevaLasProteccionesAlPool(t *testing.T) {
 	if sin.StatementTimeout != 0 {
 		t.Errorf("StatementTimeout = %v: sin límite tiene que llegar como cero al pool",
 			sin.StatementTimeout)
+	}
+}
+
+// A diferencia del esquema, el detalle de una tabla NO se cachea: se mira justo
+// cuando alguien está por cambiar la estructura o acaba de hacerlo, que es
+// cuando una lectura vieja sale más cara.
+func TestTableDetailNoSeCacheaYVeLosCambios(t *testing.T) {
+	sesion, _, id := sesionDePrueba(t)
+	saltearSinBase(t, sesion.Connect(context.Background(), id))
+	ctx := context.Background()
+
+	abierta, err := sesion.abierta()
+	if err != nil {
+		t.Fatalf("abierta() error: %v", err)
+	}
+	const esq = "kn_detalle_servicio"
+	for _, sql := range []string{
+		"DROP SCHEMA IF EXISTS " + esq + " CASCADE",
+		"CREATE SCHEMA " + esq,
+		"CREATE TABLE " + esq + ".t (id bigint PRIMARY KEY)",
+	} {
+		if _, err := abierta.pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("no se pudo preparar la fixture (%s): %v", sql, err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = abierta.pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+esq+" CASCADE")
+	})
+
+	antes, err := sesion.TableDetail(ctx, esq, "t")
+	if err != nil {
+		t.Fatalf("TableDetail() error: %v", err)
+	}
+	if len(antes.Columns) != 1 {
+		t.Fatalf("la tabla arranca con %d columnas", len(antes.Columns))
+	}
+
+	if _, err := abierta.pool.Exec(ctx, "ALTER TABLE "+esq+".t ADD COLUMN nota text"); err != nil {
+		t.Fatalf("no se pudo alterar la tabla: %v", err)
+	}
+
+	despues, err := sesion.TableDetail(ctx, esq, "t")
+	if err != nil {
+		t.Fatalf("TableDetail() error: %v", err)
+	}
+	if len(despues.Columns) != 2 {
+		t.Errorf("después del ALTER hay %d columnas, se esperaban 2: la lectura vino de un caché",
+			len(despues.Columns))
+	}
+}
+
+func TestTableDetailSinConexionNoInventaNada(t *testing.T) {
+	sesion, _, _ := sesionDePrueba(t)
+	if _, err := sesion.TableDetail(context.Background(), "public", "cualquiera"); err == nil {
+		t.Fatal("TableDetail() sin conexión no devolvió error")
+	}
+}
+
+// El acomodado del diagrama sobrevive a cerrar la pestaña, y cada esquema tiene
+// el suyo.
+func TestErdLayoutSeGuardaPorEsquema(t *testing.T) {
+	sesion, _, id := sesionDePrueba(t)
+	saltearSinBase(t, sesion.Connect(context.Background(), id))
+
+	// Sin nada guardado no hay error: nunca haber abierto el diagrama es normal.
+	vacio, err := sesion.ErdLayout("public")
+	if err != nil {
+		t.Fatalf("ErdLayout() falló: %v", err)
+	}
+	if len(vacio) != 0 {
+		t.Errorf("ErdLayout() = %v en una conexión nueva", vacio)
+	}
+
+	if err := sesion.SaveErdLayout("public", layout.Positions{
+		"public.pedidos": {X: 12, Y: 34},
+	}); err != nil {
+		t.Fatalf("SaveErdLayout() falló: %v", err)
+	}
+	if err := sesion.SaveErdLayout("ventas", layout.Positions{
+		"ventas.facturas": {X: 99, Y: 0},
+	}); err != nil {
+		t.Fatalf("SaveErdLayout(ventas) falló: %v", err)
+	}
+
+	pub, err := sesion.ErdLayout("public")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub["public.pedidos"].X != 12 || pub["public.pedidos"].Y != 34 {
+		t.Errorf("public = %v", pub)
+	}
+	if _, hay := pub["ventas.facturas"]; hay {
+		t.Errorf("el diagrama de public trajo una tabla de ventas: %v", pub)
+	}
+}
+
+func TestErdLayoutSinConexionNoInventaNada(t *testing.T) {
+	sesion, _, _ := sesionDePrueba(t)
+	if _, err := sesion.ErdLayout("public"); err == nil {
+		t.Error("ErdLayout() sin conexión no devolvió error")
+	}
+	if err := sesion.SaveErdLayout("public", layout.Positions{}); err == nil {
+		t.Error("SaveErdLayout() sin conexión no devolvió error")
 	}
 }

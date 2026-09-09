@@ -1,0 +1,213 @@
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* La grilla entera es un solo `display: grid`, así que el encabezado y las
+   filas comparten las mismas pistas por construcción y no se pueden
+   desalinear. `max-content` con `min-width: 100%` deja que las columnas anchas
+   empujen el scroll horizontal sin que la tabla quede corta cuando sobra. */
+.grid {
+  display: grid;
+  grid-template-columns: var(--cols);
+  width: max-content;
+  min-width: 100%;
+  align-content: start;
+}
+
+/* Las filas son `display: contents`: los hijos participan de la grilla del
+   padre. Envolverlas en un div con su propia grilla es lo que desalinea. */
+.fila {
+  display: contents;
+}
+
+.celda {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Recorta el texto pero deja que las etiquetas de al lado se vean enteras: si
+   el recorte estuviera en la celda, un nombre largo empujaría la marca fuera de
+   la vista y "not null" se leería sin su "sin validar". */
+.recorte {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fila > .celda:last-child {
+  border-right: 0;
+}
+
+.fila:hover > .celda {
+  background: var(--bg-hover);
+}
+
+/* El tirador de ancho. Vive en el borde derecho del encabezado y se pinta solo
+   al pasar por encima: una línea visible por columna sería una reja. */
+.tirador {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.tirador::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+}
+.tirador:hover::after,
+.tirador:active::after {
+  background: var(--accent);
+}
+
+.cabecera > .celda,
+.cabecera:hover > .celda {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-top: 0;
+  padding-bottom: 0;
+  height: 26px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.gutter {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.nombre {
+  gap: 7px;
+}
+
+.mono {
+  font: 400 11.5px var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apagado {
+  color: var(--text-3);
+}
+
+.aviso {
+  color: var(--warning);
+}
+
+.ok {
+  color: var(--success);
+}
+
+/* Una fila apagada sigue leyéndose, pero se ve que no está en juego. Un trigger
+   deshabilitado que se ve igual que uno activo hace perder tardes enteras. */
+.filaApagada > .celda {
+  opacity: 0.55;
+}
+
+/* Etiqueta chica al lado de un nombre: "identity", "virtual", "entrante". */
+.marca {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  color: var(--text-3);
+  font: 600 9.5px var(--font-ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.marcaAviso {
+  background: var(--warning-quiet);
+  color: var(--warning);
+}
+
+/* Las tres partes de un índice se distinguen por color: las claves en el color
+   normal, lo que solo viaja adentro apagado, y la condición de un índice
+   parcial en el color de acento, porque es lo que cambia qué filas entran. */
+.incluidas {
+  flex: none;
+  color: var(--text-3);
+}
+.predicado {
+  flex: none;
+  color: var(--accent);
+}
+
+/* Un índice sin escaneos no es necesariamente inútil —las estadísticas se
+   pueden haber reiniciado—, así que se marca pero no se acusa. */
+.sinUsar {
+  color: var(--text-dim);
+  border-bottom: 1px dotted var(--border-strong);
+  cursor: help;
+}
+
+.vacia {
+  margin: 0;
+  padding: 18px;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+}
+
+.cargando {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 18px;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+}
+
+.nota {
+  margin: 0;
+  padding: 12px 18px;
+  max-width: 74ch;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-3);
+}
+
+.codigo {
+  font: 400 11px var(--font-mono);
+  color: var(--text-2);
+}
+
+.errorBox {
+  padding: 18px;
+}
+
+.errorMsg {
+  margin: 0;
+  font: 400 12px var(--font-ui);
+  color: var(--danger);
+}

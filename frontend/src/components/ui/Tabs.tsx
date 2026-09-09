@@ -96,6 +96,14 @@ export interface PillItem {
    *  no se construyeron: se ven, no se pueden elegir, y `title` explica por qué. */
   disabled?: boolean;
   title?: string;
+  /** Cuántos elementos hay detrás de la pestaña. Se muestra apagado al lado
+   *  del texto: sin el número hay que entrar a cada una para descubrir cuáles
+   *  tienen algo. Cero se muestra igual — decir "0 triggers" es informacion.
+   *
+   *  Acepta `undefined` explícito porque el proyecto compila con
+   *  `exactOptionalPropertyTypes`: quien todavía no sabe el número lo pasa sin
+   *  tener que armar el objeto de dos formas distintas. */
+  count?: number | undefined;
 }
 
 export function PillTabs({
@@ -123,6 +131,9 @@ export function PillTabs({
           onClick={() => onSelect(it.id)}
         >
           {it.label}
+          {it.count === undefined ? null : (
+            <span className={styles.pillCount}>{it.count}</span>
+          )}
         </button>
       ))}
     </div>

@@ -1,0 +1,30 @@
+.normal,
+.cascada,
+.activa {
+  fill: none;
+}
+
+.normal {
+  stroke: var(--border-strong);
+  stroke-width: 1.4;
+}
+
+/* Una clave que borra en cascada cambia filas en otra tabla sin preguntar. Es
+   la única que se pinta distinto por lo que hace, no por dónde está el foco. */
+.cascada {
+  stroke: var(--warning);
+  stroke-width: 2;
+}
+
+.activa {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* Ancha y transparente: le da blanco al mouse sin engordar la línea. */
+.zonaClic {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  cursor: pointer;
+}

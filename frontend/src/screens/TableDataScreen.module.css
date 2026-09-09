@@ -6,6 +6,32 @@
   background: var(--bg-app);
 }
 
+/* El encabezado del diseño: qué tabla es y sus tres datos duros. Vale para las
+   seis sub-pestañas, así que va arriba de la tira y no adentro de ninguna. */
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px 9px;
+}
+.titulo {
+  font: 600 15px var(--font-mono);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hechos,
+.leido {
+  white-space: nowrap;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-3);
+}
+.leido {
+  color: var(--text-dim);
+}
+
 .subtabs {
   flex: none;
   display: flex;

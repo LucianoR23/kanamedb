@@ -99,22 +99,28 @@ Túnel integrado, `known_hosts` con TOFU, soporte ssh-agent.
 
 ### Iteración 4 — ERD lectura
 
-> **Verificar antes de empezar:** que Atlas introspeccione las features de
-> esquema que agregó PostgreSQL 18 — columnas generadas `VIRTUAL`, restricciones
-> temporales con `WITHOUT OVERLAPS` y `NOT NULL NOT VALID`. No hay confirmación
-> en su documentación, y son exactamente el tipo de cosa que el differ ignora en
-> silencio: si Atlas no las ve, cada re-inspección propone borrarlas. Se comprueba
-> con una tabla de prueba, no leyendo el changelog.
+> **Verificado el 2026-09-08 — Atlas NO las soporta.** Las tres se probaron
+> contra una base 18 real: Atlas regenera la columna `VIRTUAL` como `STORED`
+> (SQL válida, tabla distinta), emite `PRIMARY KEY USING gist (...)` para la
+> clave temporal (error de sintaxis) y pierde el `NOT VALID` del `NOT NULL`.
+> Detalle y consecuencias en § 6.
 
+Introspección propia → modelo → canvas xyflow, auto-layout, posiciones
+persistidas por conexión. **Atlas no entra en esta iteración**: el ERD de solo
+lectura no genera DDL, y los datos que necesita ya salen del catálogo con la SQL
+que tenemos. Atlas se evalúa en la Iteración 5, que es donde el differ se gana
+el lugar.
 
-Atlas inspect → modelo → canvas xyflow, auto-layout, posiciones persistidas por
-conexión.
+- ✅ **S12 ERD canvas** — sin edición: nodos con columnas e indicadores, aristas
+  con cardinalidad, zoom, auto-layout, búsqueda, inspector, toggles de densidad,
+  esconder tablas y posiciones persistidas por conexión y esquema.
+- ✅ **S11 Table structure** — solo lectura (Estructura, Índices, Claves
+  foráneas, Restricciones, Triggers).
 
-- **S12 ERD canvas** — sin edición: nodos con columnas e indicadores, edges con
-  cardinalidad, minimapa, zoom, auto-layout, búsqueda, saved views, inspector,
-  toggle de densidad.
-- **S11 Table structure** — solo lectura (Columns, Indexes, FKs, Constraints,
-  Triggers).
+Tres diferencias con el enunciado original, decididas contra el diseño y
+anotadas en § 6: **leyenda en vez de minimapa**, **un acomodado guardado en vez
+de saved views con nombre**, y **sin «Copiar CREATE TABLE»**, que se pospone a la
+Iteración 5 junto con el resto de la generación de DDL.
 
 ### Iteración 5 — ERD escritura
 
@@ -192,32 +198,39 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
 
 | Pieza | Versión | Nota |
 |---|---|---|
-| Go | ✅ 1.26.0 | Un solo módulo. `CGO_ENABLED=0`, sin gcc |
+| Go | ✅ 1.26.8 | Un solo módulo. `CGO_ENABLED=0`, sin gcc |
 | Wails | ✅ v3.0.0-beta.17 | Bindings Go↔JS, sin servidor HTTP |
 | React | ✅ 19.2.8 | Con React Compiler 1.0.0, verificado activo |
 | TypeScript | ✅ 7.0.2 | Puerto nativo en Go, es el `latest` de npm |
 | Vite | ✅ 8.2.2 | `@vitejs/plugin-react` 6.1.1 |
 | pnpm | ✅ 10.33.2 | No npm. Lockfile commiteado |
+| pgx | ✅ v5.11.0 | Único driver por ahora. `pgConn.Exec` para lotes |
+| x/crypto/ssh | ✅ v0.56.0 | Túnel sin abrir puertos locales |
+| go-keyring | ✅ v0.2.8 | Secretos, MIT |
+| CodeMirror 6 | ✅ | `@codemirror/lang-sql` 6.10.0 |
+| TanStack Table + Virtual | ✅ 9.2.4 / 3.14.10 | Sobre CSS Grid propio |
+| @xyflow/react | ✅ 12.11.6 | Canvas ERD. MIT, nodos DOM |
+| @dagrejs/dagre | ✅ 3.1.1 | Auto-acomodado por capas. MIT |
 
 ### Pendiente por iteración
 
-- **Introspección / diff / plan:** `ariga.io/atlas` v1.3.0 (`sql/schema`,
-  `sql/postgres`, `sql/mysql`, `sql/sqlite`), pineada. Verificado que no arrastra
-  `cloud/` ni `cmd/`.
-- **Drivers:** `pgx/v5` v5.11.0 (vía `stdlib` para Atlas),
-  `go-sql-driver/mysql`, `modernc.org/sqlite` v1.58.0 (verificado en arm64).
-- **SSH:** `golang.org/x/crypto/ssh` + `ssh/knownhosts`; `go-winio` para el pipe
-  del agente de OpenSSH en Windows.
-- **Keychain:** `zalando/go-keyring` (MIT).
-- **Estado local** (historial, posiciones del ERD, config): SQLite en `%APPDATA%`,
-  sin secretos.
-- **Canvas ERD:** `@xyflow/react`.
-- **Layout:** `@dagrejs/dagre`; ELK solo si dagre no alcanza.
-- **Grilla:** CSS Grid propio, virtualizado con `@tanstack/react-virtual`
-  v3.14.10, pineada exacta. Reemplaza a `glide-data-grid` — ver el registro de
-  decisiones.
-- **Editor:** CodeMirror 6 + `@codemirror/lang-sql`.
-- **Estado UI:** Zustand.
+- **Diff / plan de migración (Iteración 5):** sin decidir. `ariga.io/atlas`
+  v1.3.0 es el candidato pero **no soporta tres features de PostgreSQL 18 y una
+  falla en silencio** — ver § 6. Alternativas a evaluar ahí: Atlas con un
+  guardarraíl que se niegue a generar DDL para lo que no sabe leer, un planificador
+  propio para el conjunto acotado de cambios que produce el editor de ERD, o
+  [sqldef](https://github.com/sqldef/sqldef). El gate queda como programa
+  reproducible y se vuelve a correr antes de decidir.
+- **Introspección:** SQL propia contra el catálogo. No hace falta Atlas: las
+  vistas materializadas, procedures, triggers, secuencias y RLS son de su plan Pro
+  y había que escribirlas igual.
+- **Drivers pendientes:** `go-sql-driver/mysql`, `modernc.org/sqlite` v1.58.0
+  (verificado en arm64).
+- **Estado local** (historial, config): en `%APPDATA%`, sin secretos. Las
+  posiciones del ERD ya no van acá: viven en `layouts/`, al lado de la libreta de
+  conexiones, para que se sincronicen con ella.
+- **Estado UI:** Zustand, cuando haga falta. Ojo: xyflow trae `zustand@4`, así que
+  agregar la 5 deja dos copias de ~1 KB. Es más barato que atarse a la mayor vieja.
 
 ### CI
 
@@ -343,6 +356,168 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 4 — 2026-09-08
+
+**Atlas no ve las features de esquema de PostgreSQL 18.** El gate que pedía esta
+iteración se corrió contra `ariga.io/atlas v1.3.0` y una base 18 real: se crean
+las tres cosas, se introspeccionan con Atlas y se le pide el DDL que generaría
+para recrearlas. Resultado, las tres fallan, y no todas del mismo modo:
+
+| Feature | Qué hace Atlas | Gravedad |
+|---|---|---|
+| `GENERATED ALWAYS AS (…) VIRTUAL` | La regenera como `STORED` | **Silenciosa.** La SQL es válida y aplica sin error; la tabla resultante es otra. |
+| `PRIMARY KEY (id, rango WITHOUT OVERLAPS)` | Emite `PRIMARY KEY USING gist (…)` | Ruidosa: es error de sintaxis en Postgres. |
+| `ADD CONSTRAINT … NOT NULL col NOT VALID` | Reporta la columna como `NOT NULL` a secas | Silenciosa: Atlas cree que el dato ya cumple cuando puede no cumplir. |
+
+No es un bug de borde: `VIRTUAL` no aparece en todo el paquete `sql/postgres`,
+`WITHOUT OVERLAPS` no aparece en todo el módulo, y `sqlspec.go` tiene literal
+`func generatedType(string) string { return "STORED" }` — una función que ignora
+su argumento. La información *sí* sobrevive a la introspección en un caso: Atlas
+guarda el operador `&&` de la parte `WITHOUT OVERLAPS` del índice. Lo que falta
+es el generador de DDL.
+
+Consecuencias:
+
+- **Iteración 4 no usa Atlas.** El ERD de solo lectura no genera DDL, así que
+  nada de esto lo afecta; y los datos que necesita —claves foráneas con sus
+  acciones, índices, constraints, triggers— salen del catálogo con la SQL que ya
+  tenemos. Meter una dependencia grande para después mapearla igual a
+  `schema.Snapshot` no compra nada.
+- **Iteración 5 arranca con un guardarraíl, no con confianza.** Antes de aplicar
+  cualquier DDL generado, la introspección tiene que marcar los objetos que usan
+  estas features y la ruta de apply tiene que **negarse y explicar**, no
+  intentar. Un preview que muestra SQL válida y equivocada es peor que un error.
+- **Re-verificar en la Iteración 5**, no dar por sentado este resultado: Atlas
+  llegó a v1.0 y sigue activo. El gate queda como programa reproducible, no como
+  una nota.
+
+**El esquema se lee en dos niveles, no en uno.** Las claves foráneas viajan en
+el `Snapshot` entero porque son las aristas del ERD y el diagrama las dibuja
+todas juntas: pedirlas tabla por tabla serían tantos viajes como tablas antes de
+mostrar la primera línea. Todo lo demás —índices, constraints, triggers,
+defaults, comentarios, tamaños— va en un `TableDetail` que se pide por tabla y a
+demanda. De doscientas tablas eso es un orden de magnitud más de datos que el
+árbol, y la pantalla de estructura muestra una por vez.
+
+**El detalle de una tabla son siete consultas en un solo lote.** No es
+microoptimización: con un túnel SSH de por medio cada viaje cuesta la latencia
+completa hasta el bastión, y siete viajes secuenciales contra un servidor a 50 ms
+son 350 ms de nada antes de la primera fila. El precio es que los resultados hay
+que consumirlos en el orden en que se encolaron.
+
+**Tres cosas del catálogo que no eran lo que parecían**, las tres encontradas por
+un test rojo y no leyendo documentación:
+
+- `pg_get_indexdef(oid, columna, true)` devuelve **solo la expresión** de la
+  columna: nunca el `DESC` ni el `NULLS`. Eso está en `pg_index.indoption`, un
+  vector de bits que —a diferencia del resto de los arrays de Postgres— se
+  **indexa desde cero**. Sin esto, un índice descendente se ve igual que uno
+  ascendente y parece servir para un `ORDER BY` que no cubre.
+- `pg_total_relation_size` **no recorre el árbol de particiones**. Sobre el padre
+  de una tabla particionada de 400 GB devuelve el tamaño del padre, que está
+  vacío. Hay que sumar `pg_partition_tree`.
+- Las columnas de `INCLUDE` van en un campo aparte de las claves. Mezclarlas hace
+  ver una columna incluida como si fuera clave, que es lo que lleva a creer que
+  un índice sirve para un `WHERE` que no cubre.
+
+**La introspección marca las features que Atlas no ve** —`Generated: "virtual"` y
+`NotNullNotValid`— aunque la Iteración 4 no las use para nada. Es lo que le va a
+permitir a la Iteración 5 negarse a generar DDL en vez de romper en silencio: el
+dato hay que tenerlo antes de necesitarlo.
+
+**xyflow y dagre siguen siendo la elección correcta, y esta vez se comprobó.**
+`@xyflow/react` 12.11.6 y `@dagrejs/dagre` 3.1.1 están vivos —el primero publicó
+hace una semana, el segundo hace un mes—, los dos MIT. No es el caso de
+glide-data-grid. De las alternativas, JointJS quedó abandonada en npm con ese
+nombre (último release 2023), GoJS, yFiles y Syncfusion son comerciales, y X6
+está viva pero dibuja los nodos en SVG.
+
+Lo que decide es lo mismo que decidió la grilla: **en xyflow cada nodo es un
+componente de React que se dibuja como DOM**, así que la tarjeta de tabla usa
+nuestros tokens y el tema claro de la Iteración 9 la va a alcanzar sin escribir
+una línea. En un canvas habría que releer los colores desde JavaScript y
+repintar a mano.
+
+ELK acomoda mejor que dagre —puertos de verdad, ruteo ortogonal— y pesa 7,7 MB
+de Java transpilado. Contra la regla de cuidar el tamaño y el arranque en frío,
+no cierra. Si dagre falla en un esquema real se revisa con evidencia, no antes.
+
+Aviso para el futuro: el paquete `reactflow` a secas es el nombre viejo y está
+muerto desde 2024. El vivo es `@xyflow/react`. Y xyflow arrastra `zustand@4`; el
+día que agreguemos Zustand para nuestro estado van a convivir dos copias de
+~1 KB, que es más barato que atarnos a la mayor vieja.
+
+**Las líneas del diagrama calculan su propia geometría.** Con conectores fijos,
+arrastrar una tabla a la izquierda de otra deja la línea saliendo por el lado
+equivocado y cruzando la tarjeta entera. Leyendo las posiciones desde la propia
+arista, elige el lado que mira al otro nodo y se reacomoda mientras se arrastra.
+Y sale de la FILA de la columna, no del medio de la tarjeta: en una tabla con
+tres claves foráneas, tres líneas naciendo del mismo punto no dicen cuál es cuál.
+
+**Tres diferencias con el diseño y el enunciado, decididas a propósito:**
+
+- **Leyenda en vez de minimapa.** El plan pedía minimapa; el diseño pone una
+  leyenda en ese mismo rincón. En un ERD la leyenda informa más —qué significa
+  punteada, qué significa naranja— y el minimapa sobra cuando el panel derecho
+  ya lista todas las tablas y lleva a cualquiera de un clic.
+- **Un acomodado guardado, no vistas con nombre.** El diseño dice «layout: saved
+  locally», en singular. Las vistas con nombre se agregan cuando alguien las
+  pida; guardar el acomodado es lo que evita rehacer trabajo.
+- **Sin «Copiar CREATE TABLE».** Postgres no tiene `pg_get_tabledef`, así que hay
+  que componerlo, y una clave primaria temporal con `WITHOUT OVERLAPS` saldría
+  como una clave común: SQL válida y una tabla distinta. Es exactamente el fallo
+  que este mismo registro documenta como inaceptable en Atlas. Hacerlo bien es un
+  generador de DDL con test de ida y vuelta y un camino de negarse para lo que no
+  sabe representar: maquinaria de la Iteración 5, que conviene construir una sola
+  vez y ahí.
+
+**Las posiciones del diagrama van al lado de la libreta de conexiones**, no en el
+directorio de estado. Es el mismo razonamiento que puso ahí la libreta: acomodar
+cuarenta tablas es trabajo, y quien sincroniza sus conexiones entre máquinas con
+Syncthing no quiere volver a hacerlo del otro lado. Un archivo JSON por conexión
+—JSON y no TOML porque lo escribe la máquina y un mapa de coordenadas en TOML es
+incómodo de leer—, con escritura atómica igual que las conexiones.
+
+El identificador de conexión **se valida aunque hoy lo genere la propia
+aplicación**: termina siendo un nombre de archivo y llega desde el proceso de la
+interfaz, así que un `../..` ahí escribiría donde quisiera. Hay un test que
+prueba diez formas de salirse del directorio.
+
+**La revisión de código encontró ocho cosas y las ocho eran ciertas.** Cuatro
+serias, y vale anotar el patrón: **tres de las cuatro son el mismo error repetido
+en otro lugar.**
+
+- `ReferencedBy` no decía qué tabla declara la clave. En las claves entrantes el
+  destino es siempre la tabla que se está mirando, así que sin el dueño dos
+  tablas apuntando a la misma con restricciones del mismo nombre —legal— daban
+  dos filas idénticas.
+- `fkEntrantesQuery` no excluía particiones. El filtro **existía** en la consulta
+  del snapshot y faltaba en esta: una tabla referenciada desde otra particionada
+  en cincuenta meses aparecía con cincuenta y una claves idénticas.
+- `a.attnum = ANY(i.indkey)` marcaba como clave primaria a las columnas de
+  `INCLUDE`. Estaba **en dos consultas**: la del detalle, nueva, y la del
+  snapshot, desde la Iteración 1, alimentando las etiquetas PK de la grilla. Al
+  arreglarlo casi meto la pata de nuevo: `(indkey::int2[])[1:n]` parece lo
+  correcto y devuelve **la columna equivocada**, porque `int2vector` empieza en
+  cero y el casteo conserva ese límite inferior. Se agarró probándolo contra la
+  base.
+- `pg_relation_size` daba 0 para los índices de una tabla particionada. Es el
+  mismo problema que ya se había resuelto para el tamaño de la tabla, un campo
+  más arriba, sin ver que se repetía.
+
+Las otras cuatro, menores y también ciertas: un índice inválido —el que deja un
+`CREATE INDEX CONCURRENTLY` que falló— se veía igual que uno bueno; dos lecturas
+superpuestas de la estructura podían dejar datos viejos con hora nueva; la
+pastilla decía «Estructura 0» mientras el snapshot no había llegado; y un
+comentario decía seis consultas donde hay siete.
+
+**Los cinco invariantes nuevos se verificaron rompiéndolos.** Orden de columnas
+de una clave compuesta, cálculo de `Optional`, suma del árbol de particiones,
+detección del `NOT NULL NOT VALID` y separación de `INCLUDE`: se inyectó la
+violación de cada uno y se confirmó que su test se pone rojo. Los cinco arreglos de la revisión tienen su propio test y se
+verificaron igual, reinyectando cada bug. Lo que importa es que ninguno es un
+test que no puede fallar.
 
 ### Iteración 3 — 2026-09-08
 

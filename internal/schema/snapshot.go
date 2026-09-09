@@ -89,6 +89,14 @@ type Table struct {
 	// escribir haría que la primera sugerencia de cada tabla llegue tarde, que
 	// es como se siente un autocompletado roto.
 	Columns []Column `json:"columns,omitempty"`
+
+	// ForeignKeys son las claves foráneas SALIENTES de esta tabla.
+	//
+	// Están en el snapshot y no en el detalle por tabla porque son las aristas
+	// del ERD, y el diagrama las necesita todas juntas para dibujar una vista.
+	// Pedirlas tabla por tabla serían tantos viajes como tablas antes de poder
+	// mostrar la primera línea.
+	ForeignKeys []ForeignKey `json:"foreignKeys,omitempty"`
 }
 
 // Column es una columna de una tabla.

@@ -43,8 +43,18 @@ type Paths struct {
 
 	// Config son las preferencias de la aplicación. Sin secretos.
 	Config string `json:"config"`
-	// State es el historial, las posiciones del ERD y el resto del estado
-	// local. SQLite. Sin secretos.
+
+	// Layouts es dónde quedó cada tabla en el diagrama ERD, un archivo por
+	// conexión.
+	//
+	// Va al lado de la libreta de conexiones y no en State por la misma razón
+	// por la que la libreta está donde está: acomodar cuarenta tablas es
+	// trabajo, y quien sincroniza sus conexiones entre máquinas no quiere
+	// volver a hacerlo del otro lado. No contiene nada de la base, solo
+	// coordenadas.
+	Layouts string `json:"layouts"`
+
+	// State es el historial y el resto del estado local. Sin secretos.
 	State string `json:"state"`
 	// Logs es donde van los diagnósticos. Nunca contienen credenciales,
 	// connection strings ni valores de filas.
@@ -125,6 +135,7 @@ func resolvePaths() (Paths, error) {
 
 	return Paths{
 		Connections: filepath.Join(base, "connections.toml"),
+		Layouts:     filepath.Join(base, "layouts"),
 		Config:      filepath.Join(base, "config.toml"),
 		State:       state,
 		Logs:        filepath.Join(state, "logs"),

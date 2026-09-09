@@ -1,0 +1,126 @@
+/* Las medidas tienen que coincidir con las constantes de lib/erd.ts: dagre
+   acomoda con números y el navegador dibuja con CSS, y si los dos no dicen lo
+   mismo el layout deja huecos o superpone tarjetas.
+   Encabezado 26px, fila 21px, resto 19px, más 1px de borde arriba y abajo. */
+
+.card {
+  width: 100%;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  cursor: pointer;
+  /* Sin transición en el borde: al arrastrar el nodo, animar el color hace que
+     el resaltado llegue tarde y parezca que la selección no respondió. */
+}
+
+.vecina {
+  border-color: var(--border-strong);
+}
+
+.activa {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-quiet), var(--shadow-menu);
+}
+
+.cabecera {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 9px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+
+.activa .cabecera {
+  background: var(--bg-sel);
+}
+
+.nombre {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 12px var(--font-mono);
+  color: var(--text-1);
+}
+
+.filas {
+  flex: none;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.fila {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 21px;
+  padding: 0 9px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.clave {
+  flex: none;
+  width: 16px;
+  white-space: nowrap;
+  font: 700 7.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.pk {
+  color: var(--env-stage);
+}
+
+.fk {
+  color: var(--accent);
+}
+
+.col {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-2);
+}
+
+.colClave {
+  color: var(--text-1);
+}
+
+.tipo {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.resto {
+  display: flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 9px;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* Los conectores existen para que xyflow sepa dónde nacen y mueren las líneas,
+   pero no se ven: en un ERD los puntos de anclaje son ruido, y además acá no se
+   dibuja arrastrando de uno a otro. Eso llega con la edición, en la Iteración 5. */
+.puerto {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}

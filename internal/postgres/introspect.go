@@ -31,6 +31,9 @@ func Introspect(ctx context.Context, pool *pgxpool.Pool) (*schema.Snapshot, erro
 	if err := readColumns(ctx, pool, esquemas); err != nil {
 		return nil, err
 	}
+	if err := readForeignKeys(ctx, pool, esquemas); err != nil {
+		return nil, err
+	}
 
 	snap := &schema.Snapshot{
 		Database:   database,
@@ -167,6 +170,13 @@ func readTables(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*sc
 // serían doscientos viajes para armar el autocompletado. Los LATERAL resuelven
 // PK y FK sin multiplicar filas, que es lo que pasaría con JOINs directos
 // contra pg_index y pg_constraint cuando una columna está en varias claves.
+//
+// El recorte de indkey a indnkeyatts es lo que distingue una columna clave de
+// una de INCLUDE: `indkey` las trae a las dos, así que preguntar por el vector
+// entero marca como clave primaria a una columna que solo viaja adentro del
+// índice. Y se recorta DESDE CERO: indkey es un int2vector, que a diferencia de
+// todos los demás arrays de Postgres empieza en 0, y el casteo conserva ese
+// límite inferior.
 const columnsQuery = `
 	SELECT n.nspname,
 	       c.relname,
@@ -183,7 +193,8 @@ const columnsQuery = `
 	LEFT JOIN LATERAL (
 	    SELECT true AS si
 	    FROM pg_catalog.pg_index i
-	    WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+	    WHERE i.indrelid = c.oid AND i.indisprimary
+	      AND a.attnum = ANY((i.indkey::int2[])[0:i.indnkeyatts - 1])
 	    LIMIT 1
 	) pk ON true
 	LEFT JOIN LATERAL (
@@ -208,15 +219,7 @@ func readColumns(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*s
 	}
 	defer rows.Close()
 
-	// Índice por esquema.tabla para no recorrer el slice de tablas en cada fila:
-	// con doscientas tablas por veinte columnas eso son ochocientas mil
-	// comparaciones para armar algo que ya viene ordenado.
-	porTabla := map[string]*schema.Table{}
-	for _, esq := range esquemas {
-		for i := range esq.Tables {
-			porTabla[esq.Name+"."+esq.Tables[i].Name] = &esq.Tables[i]
-		}
-	}
+	porTabla := indicePorTabla(esquemas)
 
 	for rows.Next() {
 		var nsp, tabla string
@@ -236,6 +239,26 @@ func readColumns(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*s
 		return fmt.Errorf("recorrer las columnas: %w", err)
 	}
 	return nil
+}
+
+// indicePorTabla arma un índice "esquema.tabla" → tabla para no recorrer el
+// slice en cada fila leída.
+//
+// Con doscientas tablas por veinte columnas, buscar linealmente serían
+// ochocientas mil comparaciones para armar algo que ya viene ordenado. Lo usan
+// las columnas y las claves foráneas, que llegan planas y hay que repartir.
+//
+// Los punteros apuntan dentro de los slices de `esquemas`, así que el mapa vale
+// solo mientras nadie agregue tablas: un append reasignaría el array y los
+// punteros quedarían apuntando al viejo.
+func indicePorTabla(esquemas map[string]*schema.Schema) map[string]*schema.Table {
+	porTabla := map[string]*schema.Table{}
+	for _, esq := range esquemas {
+		for i := range esq.Tables {
+			porTabla[esq.Name+"."+esq.Tables[i].Name] = &esq.Tables[i]
+		}
+	}
+	return porTabla
 }
 
 // ordenDeLectura devuelve los nombres del mapa en orden alfabético, para que

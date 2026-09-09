@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
+	"github.com/LucianoR23/kanamedb/internal/layout"
 	"github.com/LucianoR23/kanamedb/internal/postgres"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
@@ -23,6 +24,7 @@ type Session struct {
 	store   *store.Store
 	keyring Keyring
 	known   *tunnel.KnownHosts
+	layouts *layout.Store
 
 	mu      sync.RWMutex
 	current *openSession
@@ -41,8 +43,8 @@ type openSession struct {
 }
 
 // NewSession arma el servicio.
-func NewSession(st *store.Store, kr Keyring, known *tunnel.KnownHosts) *Session {
-	return &Session{store: st, keyring: kr, known: known}
+func NewSession(st *store.Store, kr Keyring, known *tunnel.KnownHosts, diagramas *layout.Store) *Session {
+	return &Session{store: st, keyring: kr, known: known, layouts: diagramas}
 }
 
 // SessionView es el estado de la conexión tal como lo ve la interfaz.
@@ -283,6 +285,59 @@ func (s *Session) Schema(ctx context.Context, refresh bool) (*schema.Snapshot, e
 	}
 	s.mu.Unlock()
 	return snap, nil
+}
+
+// TableDetail devuelve todo lo que el catálogo sabe de una tabla: columnas con
+// sus defaults y comentarios, índices, claves foráneas en las dos direcciones,
+// restricciones y triggers.
+//
+// A diferencia de Schema, esto NO se guarda. El esquema entero se cachea porque
+// el árbol se arma una vez y se mira todo el tiempo; la estructura de una tabla
+// se mira cuando alguien quiere saber cómo está hecha, y casi siempre es porque
+// está por cambiarla o acaba de hacerlo. Una estructura vieja en esa pantalla es
+// exactamente el momento en que más cara sale. Son siete consultas en un solo
+// viaje: no vale la pena mentir para ahorrarlo.
+func (s *Session) TableDetail(ctx context.Context, esquema, tabla string) (*schema.TableDetail, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return nil, err
+	}
+	d, err := postgres.Detail(ctx, sesion.pool, esquema, tabla)
+	if err != nil {
+		return nil, fmt.Errorf("leer la estructura de %s.%s: %w", esquema, tabla, err)
+	}
+	return d, nil
+}
+
+// ErdLayout devuelve dónde quedó cada tabla del diagrama de un esquema.
+//
+// El identificador de conexión sale de la sesión abierta y no lo pasa la
+// interfaz: es lo que termina siendo un nombre de archivo, así que cuanto menos
+// viaje por el puente, menos superficie hay que validar. (El paquete lo valida
+// igual.)
+func (s *Session) ErdLayout(esquema string) (layout.Positions, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return nil, err
+	}
+	p, err := s.layouts.Get(sesion.conn.ID, esquema)
+	if err != nil {
+		return nil, fmt.Errorf("leer el diagrama de %s: %w", esquema, err)
+	}
+	return p, nil
+}
+
+// SaveErdLayout guarda las posiciones del diagrama de un esquema. Un mapa vacío
+// las olvida, que es cómo se vuelve al acomodado automático.
+func (s *Session) SaveErdLayout(esquema string, posiciones layout.Positions) error {
+	sesion, err := s.abierta()
+	if err != nil {
+		return err
+	}
+	if err := s.layouts.Save(sesion.conn.ID, esquema, posiciones); err != nil {
+		return fmt.Errorf("guardar el diagrama de %s: %w", esquema, err)
+	}
+	return nil
 }
 
 // viewLocked arma la vista. Quien llama tiene el lock.

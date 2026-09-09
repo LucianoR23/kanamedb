@@ -5,12 +5,14 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 3 — SSH.** Se conecta a PostgreSQL directo o a través de un
-> bastión SSH —con verificación de la clave del host y sin abrir ningún puerto
-> local—, guarda la libreta de conexiones con los secretos en el keychain del
-> sistema operativo, lista el esquema real, y trae editor SQL con autocompletado,
-> grilla de resultados y datos de tabla con paginado. Solo lectura. El diagrama
-> ERD llega en la Iteración 4.
+> **Estado: Iteración 4 — ERD de lectura.** Se conecta a PostgreSQL directo o a
+> través de un bastión SSH —con verificación de la clave del host y sin abrir
+> ningún puerto local—, guarda la libreta de conexiones con los secretos en el
+> keychain del sistema operativo, y trae editor SQL con autocompletado, grilla de
+> resultados con paginado, la estructura completa de cada tabla (columnas,
+> índices, claves, restricciones y triggers) y el **diagrama ERD del esquema**,
+> con auto-acomodado y posiciones que se guardan. Todo solo lectura: editar el
+> esquema desde el diagrama llega en la Iteración 5.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---
@@ -69,7 +71,7 @@ wails3 task build ARCH=amd64       # win-x64
 wails3 task build ARCH=arm64       # win-arm64
 ```
 
-El binario queda en `bin/kaname.exe` (~14 MB con la Iteración 1: pgx, Atlas y el keychain).
+El binario queda en `bin/kaname.exe` (~14 MB: pgx, el cliente SSH y el keychain).
 
 > No uses `go build` directo. Se saltea el tag `production` —que deja el webview
 > en modo desarrollo— y el `.syso` con ícono, manifest de DPI y metadata de versión.
@@ -83,10 +85,24 @@ servidor SSH para el túnel:
 docker compose -f docker-compose.test.yml up -d
 ```
 
+Por defecto levanta PostgreSQL 18. Para probar contra otra versión de la matriz,
+`PG_VERSION` la elige — pero **hay que bajar el stack con `-v` antes de
+cambiarla**:
+
+```sh
+docker compose -f docker-compose.test.yml down -v
+PG_VERSION=17 docker compose -f docker-compose.test.yml up -d --wait
+```
+
+`--force-recreate` no alcanza: el contenedor nuevo puede quedarse con el
+directorio de datos del anterior y Postgres aborta con *"database files are
+incompatible with server"*. El `-v` es lo que lo borra. En CI no aparece porque
+cada pata de la matriz corre en una máquina limpia.
+
 ```sh
 gofmt -l .                         # formato de Go
 go vet ./...                       # análisis estático
-go test ./...                      # tests
+go test -p 1 ./...                 # tests (ver abajo por qué -p 1)
 govulncheck ./...                  # CVEs alcanzables desde nuestro código
 cd frontend && pnpm run typecheck  # tipos de TypeScript
 ```
@@ -95,6 +111,11 @@ cd frontend && pnpm run typecheck  # tipos de TypeScript
 `go install golang.org/x/vuln/cmd/govulncheck@v1.7.0`. Consulta `vuln.go.dev` al
 correr; es una herramienta de desarrollo, la aplicación no hace ninguna llamada
 de red por su cuenta.
+
+El `-p 1` no es opcional cuando hay base: `go test` corre los binarios de cada
+paquete **en paralelo**, y los de `internal/postgres` e `internal/service`
+escriben en la misma base de pruebas. Sin serializar, un test que cuenta las
+tablas visibles ve las que creó otro paquete y falla de manera intermitente.
 
 Es lo mismo que corre CI en cada push.
 
@@ -131,6 +152,7 @@ frontend/
   src/
     styles/          Tokens de diseño. La única fuente de color de la app.
     components/ui/   Componentes base de S00. Nada de elementos nativos.
+    components/erd/  Nodo y arista del diagrama. DOM, no canvas: usan los tokens.
     screens/         Pantallas Sxx.
     lib/             Utilidades chicas.
   bindings/          Generado por Wails. No se commitea.
@@ -148,13 +170,18 @@ kaname-plan.md       Plan por iteraciones y registro de decisiones.
 **React 19** con React Compiler · **TypeScript 7** · **Vite 8** · **pnpm** ·
 CSS Modules sobre variables CSS · Inter y JetBrains Mono autohospedadas
 
-A medida que avancen las iteraciones se suman
-[Atlas](https://atlasgo.io/) para introspección y diff de esquemas,
-[pgx](https://github.com/jackc/pgx) y demás drivers,
-[xyflow](https://reactflow.dev/) para el canvas del ERD,
+Más [pgx](https://github.com/jackc/pgx) para PostgreSQL,
 [CodeMirror 6](https://codemirror.net/) para el editor SQL y
-[TanStack Virtual](https://tanstack.com/virtual) para virtualizar la grilla de
-resultados, que es CSS Grid propio.
+[TanStack Table](https://tanstack.com/table) + [Virtual](https://tanstack.com/virtual)
+sobre una grilla de CSS Grid propia. El canvas del ERD usa
+[xyflow](https://reactflow.dev/) con [dagre](https://github.com/dagrejs/dagre)
+para el auto-layout.
+
+La introspección del esquema es SQL propia contra el catálogo, no
+[Atlas](https://atlasgo.io/). Atlas se evalúa para el *diff* de esquemas en la
+Iteración 5: hoy no sabe leer tres features de PostgreSQL 18 y una de ellas falla
+en silencio. El detalle, con el programa que lo comprueba, está en la sección 6
+de [`kaname-plan.md`](kaname-plan.md).
 
 ## Dependencias: dos cosas para saber
 

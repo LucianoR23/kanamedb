@@ -17,6 +17,7 @@ import type { TabItem } from "../components/ui";
 import { SchemaTree } from "./SchemaTree";
 import { SqlEditorScreen } from "./SqlEditorScreen";
 import { TableDataScreen } from "./TableDataScreen";
+import { ErdScreen } from "./ErdScreen";
 import { cx } from "../lib/cx";
 import styles from "./Shell.module.css";
 
@@ -55,6 +56,7 @@ export function Shell({
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [tabs, setTabs] = useState<TabItem[]>([]);
+
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
   async function load(refresh: boolean) {
@@ -94,6 +96,22 @@ export function Shell({
     setActiveTab(id);
   }
 
+  // El diagrama es una pestaña por esquema: dos esquemas son dos diagramas
+  // distintos y mezclarlos en uno solo daría un dibujo que nadie pidió.
+  // A qué tabla ir cuando se abre el diagrama desde otra pantalla. El contador
+  // es lo que distingue "pedilo de nuevo" de "ya está pedido": sin él, volver a
+  // «Ver en el diagrama» sobre la misma tabla no haría nada.
+  const [erdFoco, setErdFoco] = useState<{ tabla: string; pedido: number } | null>(null);
+
+  function openErd(schema: string, tabla?: string) {
+    if (tabla) setErdFoco((prev) => ({ tabla, pedido: (prev?.pedido ?? 0) + 1 }));
+    const id = `erd:${schema}`;
+    setTabs((prev) =>
+      prev.some((t) => t.id === id) ? prev : [...prev, { id, label: `ERD · ${schema}`, kind: "erd" }],
+    );
+    setActiveTab(id);
+  }
+
   // Cada consulta nueva es su propia pestaña con su propio identificador de
   // ejecución, para que cancelar en una no corte la de otra.
   function openQuery() {
@@ -113,6 +131,19 @@ export function Shell({
     return { schema: resto.slice(0, punto), table: resto.slice(punto + 1) };
   }
 
+  /** El esquema que dibuja una pestaña de diagrama, o null si no lo es. */
+  function esquemaDeErd(id: string): string | null {
+    return id.startsWith("erd:") ? id.slice("erd:".length) : null;
+  }
+
+  /** El esquema del que conviene abrir el diagrama: el de la tabla que está
+   *  seleccionada en el árbol, y si no hay ninguna, el primero —que siempre es
+   *  `public` en Postgres, porque el snapshot lo ordena así—. */
+  function esquemaPrincipal(): string {
+    const sel = selected?.includes(".") ? selected.slice(0, selected.indexOf(".")) : "";
+    return sel || snapshot?.schemas?.[0]?.name || "public";
+  }
+
   return (
     <div className={cx(styles.shell, envClass)}>
       <header className={styles.titlebar}>
@@ -130,6 +161,14 @@ export function Shell({
         )}
         <span className={styles.spacer} />
         {session?.readOnly ? <Badge tone="neutral">Solo lectura</Badge> : null}
+        <Button
+          size="sm"
+          onClick={() => openErd(esquemaPrincipal())}
+          disabled={!session?.connected || totalTablas === 0}
+          title={totalTablas === 0 ? "No hay tablas para dibujar" : "Ver el esquema como diagrama"}
+        >
+          Diagrama
+        </Button>
         <Button size="sm" onClick={openQuery} disabled={!session?.connected}>
           Nueva consulta
         </Button>
@@ -231,12 +270,14 @@ export function Shell({
               <div className={styles.empty}>
                 <p className={styles.emptyTitle}>Nada abierto</p>
                 <p className={styles.emptyHint}>
-                  Elegí una tabla del árbol, o abrí una consulta con «Nueva consulta».
+                  Elegí una tabla del árbol, mirá el esquema entero con «Diagrama», o abrí una
+                  consulta con «Nueva consulta».
                 </p>
               </div>
             ) : null}
             {tabs.map((t) => {
               const obj = objetoDe(t.id);
+              const erd = esquemaDeErd(t.id);
               return (
                 <div
                   key={t.id}
@@ -249,6 +290,14 @@ export function Shell({
                       table={obj.table}
                       readOnly={session?.readOnly ?? false}
                       snapshot={snapshot}
+                      onShowInErd={openErd}
+                    />
+                  ) : erd ? (
+                    <ErdScreen
+                      snapshot={snapshot}
+                      schema={erd}
+                      foco={erdFoco}
+                      onOpenTable={openTable}
                     />
                   ) : (
                     <SqlEditorScreen

@@ -16,7 +16,8 @@ export type ObjectKind =
   | "primaryKey"
   | "foreignKey"
   | "schema"
-  | "query";
+  | "query"
+  | "erd";
 
 const GLYPHS: Record<ObjectKind, { label: string; tone: string | undefined }> = {
   table:      { label: "TB", tone: styles.relation },
@@ -32,11 +33,13 @@ const GLYPHS: Record<ObjectKind, { label: string; tone: string | undefined }> = 
   foreignKey: { label: "FK", tone: styles.relation },
   schema:     { label: "SC", tone: styles.neutral },
   query:      { label: "SQ", tone: styles.neutral },
+  erd:        { label: "ER", tone: styles.view },
 };
 
 /** Nombre legible del tipo, para `title` y lectores de pantalla. */
 const NAMES: Record<ObjectKind, string> = {
   table: "Tabla",
+  erd: "Diagrama",
   view: "Vista",
   matview: "Vista materializada",
   function: "Función",
