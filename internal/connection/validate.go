@@ -156,9 +156,9 @@ func (c Connection) connectErrors() []FieldError {
 	switch {
 	case c.Engine == "":
 		add("engine", "Elegí un motor.")
-	case !c.Engine.Known():
+	case !Known(c.Engine):
 		add("engine", fmt.Sprintf("Motor desconocido: %q.", c.Engine))
-	case !c.Engine.Supports():
+	case !Supports(c.Engine):
 		add("engine", fmt.Sprintf("%s todavía no está implementado.", c.Engine))
 	}
 

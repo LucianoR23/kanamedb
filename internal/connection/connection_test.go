@@ -161,13 +161,94 @@ func TestDSNUsaElPuertoPorDefectoSiFaltaba(t *testing.T) {
 	}
 }
 
-func TestDSNRechazaMotoresNoImplementados(t *testing.T) {
-	for _, e := range []Engine{MySQL, MariaDB, SQLite} {
-		c := valid()
-		c.Engine = e
-		if _, err := c.DSN("x"); err == nil {
-			t.Errorf("DSN() con motor %s no devolvió error", e)
-		}
+// El DSN de cada motor tiene un formato propio, y no son variaciones del
+// mismo: el de MySQL no es una URI, y el de SQLite no tiene ni host ni usuario.
+// Confundirlos no da un error claro sino una conexión que no abre.
+func TestDSNPorMotor(t *testing.T) {
+	casos := []struct {
+		motor    Engine
+		ajuste   func(*Connection)
+		contiene []string
+		noTiene  []string
+	}{
+		{
+			motor:    Postgres,
+			contiene: []string{"postgres://", "sslmode=", "application_name=kaname", ":5432/"},
+		},
+		{
+			motor:    MySQL,
+			contiene: []string{"@tcp(", ":3306)/", "parseTime=true", "tls="},
+			// El formato de go-sql-driver NO es una URI. Si apareciera un
+			// esquema, es que se armó con el molde de Postgres.
+			noTiene: []string{"mysql://"},
+		},
+		{
+			motor:    MariaDB,
+			contiene: []string{"@tcp(", ":3306)/"},
+			noTiene:  []string{"mariadb://"},
+		},
+		{
+			motor:    SQLite,
+			ajuste:   func(c *Connection) { c.Database = "C:/tmp/local.db" },
+			contiene: []string{"file:", "C:/tmp/local.db", "foreign_keys%281%29"},
+			// Sin host, sin puerto y sin usuario: no existen para un archivo.
+			noTiene: []string{"@", "5432", "3306"},
+		},
+	}
+
+	for _, c := range casos {
+		t.Run(string(c.motor), func(t *testing.T) {
+			con := valid()
+			con.Engine = c.motor
+			con.Port = 0 // que use el default del motor
+			if c.ajuste != nil {
+				c.ajuste(&con)
+			}
+			dsn, err := con.DSN("secreta")
+			if err != nil {
+				t.Fatalf("DSN() error: %v", err)
+			}
+			for _, q := range c.contiene {
+				if !strings.Contains(dsn, q) {
+					t.Errorf("el DSN no contiene %q: %s", q, dsn)
+				}
+			}
+			for _, q := range c.noTiene {
+				if strings.Contains(dsn, q) {
+					t.Errorf("el DSN no debería contener %q: %s", q, dsn)
+				}
+			}
+		})
+	}
+}
+
+// Las claves foráneas de SQLite vienen APAGADAS por defecto y hay que
+// encenderlas por conexión. Sin eso el diagrama dibujaría relaciones que la
+// base no hace cumplir, que es peor que no dibujarlas.
+func TestDSNDeSQLiteEnciendeLasClavesForaneas(t *testing.T) {
+	c := valid()
+	c.Engine = SQLite
+	c.Database = "/tmp/x.db"
+	dsn, err := c.DSN("")
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if !strings.Contains(dsn, "foreign_keys%281%29") {
+		t.Errorf("el DSN no enciende foreign_keys: %s", dsn)
+	}
+}
+
+// Una contraseña con @ tiene que sobrevivir. El formato de MySQL no escapa
+// nada, pero el driver parte por el ÚLTIMO @, así que funciona igual.
+func TestDSNDeMySQLAguantaUnaContrasenaConArroba(t *testing.T) {
+	c := valid()
+	c.Engine = MySQL
+	dsn, err := c.DSN("pa@ss")
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	if !strings.Contains(dsn, "pa@ss@tcp(") {
+		t.Errorf("la contraseña no quedó antes del último @: %s", dsn)
 	}
 }
 
@@ -275,12 +356,12 @@ func TestDSNFallaSinBaseEnVezDeConectarACualquiera(t *testing.T) {
 // a mano y llega hasta acá sin garantías.
 func TestDSNValidaLoQueNecesitaParaConectar(t *testing.T) {
 	casos := map[string]func(*Connection){
-		"sin host":              func(c *Connection) { c.Host = "" },
-		"sin base":              func(c *Connection) { c.Database = "" },
-		"sin usuario":           func(c *Connection) { c.User = "" },
-		"puerto inválido":       func(c *Connection) { c.Port = 70000 },
-		"ssl desconocido":       func(c *Connection) { c.SSLMode = "sí-porfa" },
-		"motor sin implementar": func(c *Connection) { c.Engine = MySQL },
+		"sin host":          func(c *Connection) { c.Host = "" },
+		"sin base":          func(c *Connection) { c.Database = "" },
+		"sin usuario":       func(c *Connection) { c.User = "" },
+		"puerto inválido":   func(c *Connection) { c.Port = 70000 },
+		"ssl desconocido":   func(c *Connection) { c.SSLMode = "sí-porfa" },
+		"motor desconocido": func(c *Connection) { c.Engine = "oracle" },
 	}
 	for nombre, romper := range casos {
 		t.Run(nombre, func(t *testing.T) {

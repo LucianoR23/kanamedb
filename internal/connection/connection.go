@@ -22,24 +22,33 @@ import (
 	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
+
+	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
 // Engine es el motor de base de datos.
-type Engine string
+//
+// Es un alias de engine.Kind y no un tipo propio: eran dos enumeraciones con
+// exactamente los mismos cuatro valores, y dos enumeraciones iguales terminan
+// con una función de conversión en el medio que algún día se olvida un caso.
+type Engine = engine.Kind
 
 const (
-	Postgres Engine = "postgres"
-	MySQL    Engine = "mysql"
-	MariaDB  Engine = "mariadb"
-	SQLite   Engine = "sqlite"
+	Postgres = engine.Postgres
+	MySQL    = engine.MySQL
+	MariaDB  = engine.MariaDB
+	SQLite   = engine.SQLite
 )
 
-// Supported son los motores que la app puede usar hoy. Los demás están
-// definidos porque el modelo los contempla, pero todavía no se conectan.
-var Supported = []Engine{Postgres}
+// Supported son los motores que la app puede usar hoy.
+var Supported = []Engine{Postgres, MySQL, MariaDB, SQLite}
 
 // Supports dice si el motor está implementado.
-func (e Engine) Supports() bool {
+//
+// Es función y no método porque Engine es un alias de engine.Kind, y Go no deja
+// colgarle métodos a un tipo de otro paquete. La alternativa era tener dos
+// enumeraciones iguales, que es peor.
+func Supports(e Engine) bool {
 	for _, s := range Supported {
 		if s == e {
 			return true
@@ -49,24 +58,12 @@ func (e Engine) Supports() bool {
 }
 
 // Known dice si el motor existe en el modelo, esté implementado o no.
-func (e Engine) Known() bool {
+func Known(e Engine) bool {
 	switch e {
 	case Postgres, MySQL, MariaDB, SQLite:
 		return true
 	}
 	return false
-}
-
-// DefaultPort es el puerto habitual del motor. Cero para SQLite, que es un
-// archivo y no tiene puerto.
-func (e Engine) DefaultPort() int {
-	switch e {
-	case Postgres:
-		return 5432
-	case MySQL, MariaDB:
-		return 3306
-	}
-	return 0
 }
 
 // Environment clasifica contra qué está apuntando la conexión. Decide el color
@@ -311,9 +308,6 @@ func (c Connection) String() string {
 // El resultado ES UN SECRETO: no se loguea, no se muestra en la UI y no se
 // guarda. Se construye en el momento de conectar y se descarta.
 func (c Connection) DSN(password string) (string, error) {
-	if c.Engine != Postgres {
-		return "", fmt.Errorf("motor %q todavía no está implementado", c.Engine)
-	}
 	// El DSN es la última puerta antes de la red: se normaliza y se valida acá
 	// aunque quien llama ya debería haberlo hecho. El archivo de conexiones se
 	// edita a mano y llega hasta acá sin garantías.
@@ -326,28 +320,104 @@ func (c Connection) DSN(password string) (string, error) {
 		return "", fmt.Errorf("no se puede armar la conexión: %w", err)
 	}
 
-	port := c.Port
-	if port == 0 {
-		port = c.Engine.DefaultPort()
+	switch c.Engine {
+	case Postgres:
+		return c.dsnPostgres(password), nil
+	case MySQL, MariaDB:
+		return c.dsnMySQL(password), nil
+	case SQLite:
+		return c.dsnSQLite(), nil
 	}
-	sslMode := c.EffectiveSSLMode()
+	return "", fmt.Errorf("motor %q desconocido", c.Engine)
+}
 
+func (c Connection) dsnPostgres(password string) string {
 	u := url.URL{
 		Scheme: "postgres",
-		Host:   net.JoinHostPort(c.Host, strconv.Itoa(port)),
+		Host:   net.JoinHostPort(c.Host, strconv.Itoa(c.puerto())),
 		Path:   "/" + c.Database,
 	}
 	// url.UserPassword escapa usuario y contraseña. Sin eso, una contraseña con
 	// `@` o `/` rompería el DSN o, peor, lo redirigiría a otro host.
 	u.User = url.UserPassword(c.User, password)
 	u.RawQuery = url.Values{
-		"sslmode": {string(sslMode)},
+		"sslmode": {string(c.EffectiveSSLMode())},
 		// Identifica la app en pg_stat_activity, para que un DBA sepa de dónde
 		// vino una query. No lleva ningún dato del usuario.
 		"application_name": {"kaname"},
 	}.Encode()
+	return u.String()
+}
 
-	return u.String(), nil
+// dsnMySQL arma el DSN con el formato propio de go-sql-driver/mysql, que no es
+// una URI: `usuario:contraseña@tcp(host:puerto)/base?params`.
+//
+// Usuario y contraseña van SIN escapar de URL porque este formato no lo usa;
+// escaparlos rompería cualquier contraseña con un `%`. Lo que sí importa es que
+// una contraseña con `@` funcione, y funciona: el driver parte por el ÚLTIMO
+// `@`, que es el que separa las credenciales del host.
+func (c Connection) dsnMySQL(password string) string {
+	q := url.Values{
+		// Sin esto, DATE y DATETIME llegan como []byte y la grilla mostraría
+		// bytes crudos en vez de fechas.
+		"parseTime": {"true"},
+		"loc":       {"UTC"},
+		// Una sentencia por viaje. Con varias, el driver no puede asociar cada
+		// error a su sentencia, que es justo lo que la pantalla de apply
+		// necesita para decir cuál falló.
+		"multiStatements": {"false"},
+		"tls":             {tlsDeMySQL(c.EffectiveSSLMode())},
+	}
+	return fmt.Sprintf("%s:%s@tcp(%s)/%s?%s",
+		c.User, password,
+		net.JoinHostPort(c.Host, strconv.Itoa(c.puerto())),
+		c.Database, q.Encode())
+}
+
+// tlsDeMySQL traduce el modo SSL al vocabulario del driver de MySQL.
+//
+// No son los mismos nombres que en Postgres y la diferencia no es cosmética:
+// `require` en Postgres significa «cifrado sí, certificado no me importa», y en
+// el driver de MySQL eso se llama `skip-verify`. Traducirlo mal a `true` haría
+// fallar conexiones que el usuario pidió explícitamente que no verificaran.
+func tlsDeMySQL(m SSLMode) string {
+	switch m {
+	case SSLDisable:
+		return "false"
+	case SSLAllow, SSLPrefer:
+		return "preferred"
+	case SSLRequire:
+		return "skip-verify"
+	case SSLVerifyCA, SSLVerifyFull:
+		return "true"
+	}
+	return "preferred"
+}
+
+// dsnSQLite arma el DSN de un archivo. No hay host, puerto ni usuario: el
+// permiso lo da el sistema de archivos.
+func (c Connection) dsnSQLite() string {
+	q := url.Values{
+		// Las claves foráneas están APAGADAS por defecto en SQLite, y hay que
+		// encenderlas por conexión. Sin esto, el diagrama dibujaría relaciones
+		// que la base no hace cumplir: se podría borrar un padre con hijos y
+		// nadie diría nada.
+		"_pragma": {
+			"foreign_keys(1)",
+			// Espera en vez de fallar al toque si otro proceso está
+			// escribiendo. Un gestor de escritorio abre archivos que otras
+			// aplicaciones están usando.
+			"busy_timeout(5000)",
+		},
+	}
+	return "file:" + c.Database + "?" + q.Encode()
+}
+
+func (c Connection) puerto() int {
+	if c.Port != 0 {
+		return c.Port
+	}
+	return c.Engine.DefaultPort()
 }
 
 // Normalize completa lo que se pueda deducir y limpia espacios. Se llama antes
@@ -364,6 +434,11 @@ func (c Connection) Normalize() Connection {
 	// `engine = " Postgres"` da "Motor desconocido" y el motivo —un espacio de
 	// más, o una mayúscula— queda invisible en el mensaje.
 	c.Engine = Engine(strings.ToLower(strings.TrimSpace(string(c.Engine))))
+	// SQLite no tiene host ni usuario: dejarlos escritos sería configuración
+	// que no hace nada y que confunde a quien lea el archivo.
+	if c.Engine == SQLite {
+		c.Host, c.User, c.Port, c.SSLMode = "", "", 0, ""
+	}
 	c.Environment = Environment(strings.ToLower(strings.TrimSpace(string(c.Environment))))
 	c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(string(c.SSLMode))))
 

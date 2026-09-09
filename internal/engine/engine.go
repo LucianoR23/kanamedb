@@ -44,6 +44,23 @@ func (k Kind) Label() string {
 	return string(k)
 }
 
+// DefaultPort es el puerto habitual del motor. Cero para SQLite, que es un
+// archivo y no escucha en ningún lado.
+func (k Kind) DefaultPort() int {
+	switch k {
+	case Postgres:
+		return 5432
+	case MySQL, MariaDB:
+		return 3306
+	}
+	return 0
+}
+
+// EsArchivo dice si el motor es un archivo local en vez de un servidor. Cambia
+// el formulario entero de S03: sin host, sin puerto, sin usuario, sin SSL, y
+// con un selector de archivo donde iría el nombre de la base.
+func (k Kind) EsArchivo() bool { return k == SQLite }
+
 // Caps son las diferencias entre motores que la INTERFAZ tiene que saber.
 //
 // No es una lista de curiosidades: cada campo de acá apaga, enciende o cambia

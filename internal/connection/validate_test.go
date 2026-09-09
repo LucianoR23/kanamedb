@@ -59,7 +59,6 @@ func TestValidatePorCampo(t *testing.T) {
 		{"puerto negativo", func(c *Connection) { c.Port = -1 }, "port"},
 		{"puerto fuera de rango", func(c *Connection) { c.Port = 65536 }, "port"},
 		{"motor desconocido", func(c *Connection) { c.Engine = "oracle" }, "engine"},
-		{"motor sin implementar", func(c *Connection) { c.Engine = MySQL }, "engine"},
 		{"entorno desconocido", func(c *Connection) { c.Environment = "prod" }, "environment"},
 		{"ssl desconocido", func(c *Connection) { c.SSLMode = "maybe" }, "sslMode"},
 	}
@@ -83,14 +82,26 @@ func TestValidateNoPideHostNiPuertoParaSQLite(t *testing.T) {
 		Environment: Local,
 	}
 	got := fieldErrors(t, c)
-	for _, campo := range []string{"host", "port", "user"} {
+	for _, campo := range []string{"host", "port", "user", "sslMode", "engine"} {
 		if _, ok := got[campo]; ok {
-			t.Errorf("SQLite no debería exigir %q", campo)
+			t.Errorf("SQLite no debería exigir %q, y pidió: %v", campo, got)
 		}
 	}
-	// Sí debe quejarse de que todavía no está implementado.
-	if _, ok := got["engine"]; !ok {
-		t.Error("SQLite todavía no está implementado y debería avisarlo")
+}
+
+// Y al revés: los tres motores de servidor sí piden host y usuario. Sin esto,
+// aflojar la validación para SQLite la aflojaría para todos.
+func TestValidateSiPideHostYUsuarioParaLosMotoresDeServidor(t *testing.T) {
+	for _, e := range []Engine{Postgres, MySQL, MariaDB} {
+		t.Run(string(e), func(t *testing.T) {
+			c := Connection{Name: "x", Engine: e, Database: "d", Environment: Local}
+			got := fieldErrors(t, c)
+			for _, campo := range []string{"host", "user"} {
+				if _, ok := got[campo]; !ok {
+					t.Errorf("%s debería exigir %q; se obtuvo %v", e, campo, got)
+				}
+			}
+		})
 	}
 }
 
