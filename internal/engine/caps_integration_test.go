@@ -167,6 +167,86 @@ func TestDDLAtomicoEsCierto(t *testing.T) {
 	}
 }
 
+// TestElDDLEnElMedioCommiteaLoAnterior es el test más importante de este
+// archivo, porque documenta con código la trampa que obliga a partir el apply
+// en tramos.
+//
+// En MySQL y MariaDB un DDL en el medio de una transacción no solo no se
+// revierte: hace **commit implícito de todo lo anterior** y deja la conexión
+// fuera de la transacción, así que lo que venga después también se commitea
+// solo. Un ROLLBACK al final no revierte absolutamente nada.
+//
+// Es peor que «no hay DDL transaccional», porque la interfaz habría prometido
+// «todo o nada» y la base habría aplicado todo. Es exactamente el escenario de
+// la Iteración 7, donde el changeset mezcla datos y esquema en un solo apply.
+//
+// Si algún día un motor arregla esto, este test se pone rojo y hay que revisar
+// TramosDe: estaría partiendo de más.
+func TestElDDLEnElMedioCommiteaLoAnterior(t *testing.T) {
+	casos := []struct {
+		kind  engine.Kind
+		abrir func(t *testing.T) *sql.DB
+	}{
+		{engine.Postgres, abrirPostgres},
+		{engine.MySQL, abrirDSN("mysql", dsnMySQL)},
+		{engine.MariaDB, abrirDSN("mysql", dsnMariaDB)},
+		{engine.SQLite, abrirSQLite},
+	}
+
+	for _, c := range casos {
+		t.Run(c.kind.String(), func(t *testing.T) {
+			db := c.abrir(t)
+			tabla := "kn_mezcla"
+			t.Cleanup(func() { _, _ = db.Exec("DROP TABLE IF EXISTS " + tabla) })
+
+			for _, q := range []string{
+				"DROP TABLE IF EXISTS " + tabla,
+				"CREATE TABLE " + tabla + " (id integer primary key, n varchar(20))",
+				"INSERT INTO " + tabla + " VALUES (1,'ana'), (2,'beto')",
+			} {
+				if _, err := db.Exec(q); err != nil {
+					t.Fatalf("preparar %q: %v", q, err)
+				}
+			}
+
+			tx, err := db.Begin()
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			// Un dato, después estructura, después otro dato. El orden es el
+			// que importa: lo que se prueba es qué le pasa al PRIMERO.
+			for _, q := range []string{
+				"UPDATE " + tabla + " SET n='PRIMERO' WHERE id=1",
+				"ALTER TABLE " + tabla + " ADD COLUMN extra integer",
+				"UPDATE " + tabla + " SET n='SEGUNDO' WHERE id=2",
+			} {
+				if _, err := tx.Exec(q); err != nil {
+					t.Fatalf("dentro de la transacción, %q: %v", q, err)
+				}
+			}
+			_ = tx.Rollback()
+
+			var uno string
+			if err := db.QueryRow("SELECT n FROM " + tabla + " WHERE id=1").Scan(&uno); err != nil {
+				t.Fatalf("leer: %v", err)
+			}
+			revirtio := uno == "ana"
+
+			if engine.CapsOf(c.kind).TransactionalDDL && !revirtio {
+				t.Errorf("%s dice tener DDL transaccional, pero el UPDATE anterior al "+
+					"ALTER quedó commiteado (id1=%q). La casilla «Una sola "+
+					"transacción» estaría mintiendo.", c.kind.Label(), uno)
+			}
+			if !engine.CapsOf(c.kind).TransactionalDDL && revirtio {
+				t.Errorf("%s dice NO tener DDL transaccional, pero el ROLLBACK sí "+
+					"revirtió el UPDATE anterior al ALTER. El motor mejoró: hay que "+
+					"revisar TramosDe, que estaría partiendo el apply de más.",
+					c.kind.Label())
+			}
+		})
+	}
+}
+
 // TestLasCapacidadesEstanCompletas comprueba que ningún motor quedó sin
 // contestar las preguntas.
 //

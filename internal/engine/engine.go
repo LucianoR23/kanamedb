@@ -64,6 +64,20 @@ type Caps struct {
 	// las dos hacen commit implícito antes de cada DDL.
 	//
 	// Postgres y SQLite sí lo soportan de verdad.
+	//
+	// Y hay una consecuencia que no se deduce del nombre, que es la peligrosa:
+	// en MySQL y MariaDB el DDL no solo NO se revierte — además **commitea lo
+	// que venía antes**. Un ALTER en el medio de una transacción hace commit
+	// implícito de todo lo anterior y deja la conexión fuera de la
+	// transacción, así que lo que venga después también se commitea solo. Un
+	// ROLLBACK al final no revierte nada.
+	//
+	// Comprobado: BEGIN, UPDATE, ALTER, UPDATE, ROLLBACK deja los DOS updates
+	// aplicados. Es la trampa exacta que espera a la Iteración 7, donde el
+	// changeset mezcla datos y esquema en un solo apply.
+	//
+	// Por eso, cuando esto es false, las sentencias NO se mandan en un solo
+	// BEGIN: se parten en tramos. Ver TramosDe.
 	TransactionalDDL bool
 
 	// AtomicDDL dice que CADA sentencia, por separado, es todo o nada.

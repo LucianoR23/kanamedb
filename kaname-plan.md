@@ -150,6 +150,13 @@ que salieron de ahí están en § 6.
 
 ### Iteración 6 — Otros motores
 
+> **El apply va en tramos, no en una transacción.** Contra MySQL y MariaDB un
+> DDL en el medio de una transacción **commitea todo lo anterior** y deja la
+> conexión afuera, así que lo posterior también se commitea solo y el ROLLBACK
+> no revierte nada. Ver § 6. Los cambios de **datos** sí son transaccionales de
+> verdad en los cuatro motores, así que la grilla de la Iteración 7 tiene la
+> misma garantía en todos.
+
 MySQL, MariaDB y SQLite por el mismo pipeline, **cada uno contra su última
 versión estable**, igual que Postgres. Verificar cuál es en su momento en vez de
 asumir: el default del `docker-compose.test.yml` se elige ahí, y la matriz de CI
@@ -484,6 +491,42 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 6 — 2026-09-09
+
+**MySQL y MariaDB no solo no revierten el DDL: lo que hacen es peor.** Un DDL
+en el medio de una transacción hace **commit implícito de todo lo anterior** y
+deja la conexión fuera de la transacción, así que lo que venga después también
+se commitea solo y el ROLLBACK final no revierte nada.
+
+Comprobado contra 9.7.2 y 12.3.3, con esta secuencia:
+
+```
+BEGIN;
+UPDATE t SET n='PRIMERO' WHERE id=1;   -- dato
+ALTER TABLE t ADD COLUMN extra int;    -- commit implícito de lo de arriba
+UPDATE t SET n='SEGUNDO' WHERE id=2;   -- ya fuera de la transacción
+ROLLBACK;                              -- no revierte NADA
+```
+
+Los dos updates quedan aplicados. Es peor que «no hay DDL transaccional»,
+porque la interfaz habría prometido «todo o nada» y la base habría aplicado
+todo. Y es exactamente el escenario de la Iteración 7, donde el changeset
+mezcla datos y esquema en un solo apply.
+
+**Por eso el apply se parte en tramos y no manda todo en un BEGIN.** Con DDL
+transaccional —Postgres, SQLite— el tramo es uno solo y la casilla «Una sola
+transacción» cumple lo que promete. Sin él, cada corrida de sentencias de datos
+consecutivas es un tramo transaccional de verdad y cada DDL queda solo. Un DDL
+solo igual es todo o nada por AtomicDDL, así que lo único que se pierde es la
+garantía de agrupar — y esa se perdía igual, con la diferencia de que ahora se
+dice en vez de fingirse.
+
+**La buena noticia para la Iteración 7:** el DML de InnoDB es transaccional de
+verdad. Un changeset de puros cambios de datos —que es exactamente lo que
+produce la grilla editable— es **un solo tramo transaccional en los cuatro
+motores**. Editar celdas tiene la misma garantía contra MySQL que contra
+Postgres. La limitación es solo del esquema.
 
 ### Iteración 5 — correcciones de uso — 2026-09-09
 
