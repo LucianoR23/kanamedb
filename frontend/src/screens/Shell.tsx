@@ -193,7 +193,18 @@ export function Shell({
         <span className={styles.spacer} />
         {session?.readOnly ? <Badge tone="neutral">Solo lectura</Badge> : null}
         {pendientes > 0 ? (
-          <Button size="sm" variant="secondary" onClick={openCambios}>
+          /* La `key` es el contador a propósito: al cambiar, React remonta el
+           * botón y la animación de destello vuelve a correr. Es la única
+           * señal de que la edición llegó a algún lado — el diálogo se cierra
+           * y lo único que pasa es que este número sube, en la otra punta de
+           * la pantalla. */
+          <Button
+            key={pendientes}
+            size="sm"
+            variant="secondary"
+            className={styles.destello}
+            onClick={openCambios}
+          >
             {pendientes} {pendientes === 1 ? "cambio" : "cambios"} sin aplicar
           </Button>
         ) : null}

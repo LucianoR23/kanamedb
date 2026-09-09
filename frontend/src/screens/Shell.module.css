@@ -213,3 +213,8 @@
   font: 400 11.5px var(--font-ui);
   color: var(--text-3);
 }
+
+/* Destello del contador de cambios pendientes. Ver tokens.css. */
+.destello {
+  animation: kn-flash var(--dur-slow) var(--ease);
+}
