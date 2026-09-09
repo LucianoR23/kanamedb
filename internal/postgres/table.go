@@ -36,15 +36,20 @@ func TableData(ctx context.Context, pool *pgxpool.Pool, schema, table string, op
 	b.WriteString(QualifiedName(schema, table))
 
 	if len(opts.OrderBy) > 0 {
+		// El `desc` va pegado a CADA columna, no una sola vez al final.
+		// `order by a, b desc` ordena por `a` ASCENDENTE y solo desempata por
+		// `b` al revés, que no es «la página anterior»: con una clave primaria
+		// compuesta el orden deja de ser total, y el paginado por LIMIT/OFFSET
+		// empieza a repetir y a saltear filas.
 		b.WriteString(" order by ")
 		for i, col := range opts.OrderBy {
 			if i > 0 {
 				b.WriteString(", ")
 			}
 			b.WriteString(QuoteIdent(col))
-		}
-		if opts.Descending {
-			b.WriteString(" desc")
+			if opts.Descending {
+				b.WriteString(" desc")
+			}
 		}
 	}
 

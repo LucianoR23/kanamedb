@@ -3,10 +3,14 @@ import * as Connections from "../../bindings/github.com/LucianoR23/kanamedb/inte
 import type { ConnectionView, TestResult } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Connection } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
 import {
-  Engine,
   Environment,
   SSLMode,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
+// El enum de motores vive en el paquete `engine` desde la Iteración 6, y
+// `connection.Engine` quedó como un alias de tipo. Un alias de Go se genera
+// como `export type`, así que sirve para tipar y no para escribir
+// `Engine.Postgres`: los VALORES hay que traerlos de donde está el enum.
+import { Kind as Engine } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import { AuthMethod } from "../../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import {
   Badge,

@@ -58,11 +58,15 @@ func Open(
 		cfg.Net = red
 	}
 
-	conector, err := sqldriver.NewConnector(cfg)
+	base, err := sqldriver.NewConnector(cfg)
 	if err != nil {
 		return nil, Classify(err, desc)
 	}
-	db := sql.OpenDB(conector)
+	// La configuración de sesión va en el CONECTOR y no en un Exec después de
+	// abrir. Un `SET SESSION` vale para una sola conexión, y el pool abre
+	// varias: puesto después, la conexión siguiente no lo tiene. Ver sesion.go.
+	init, exigeUna := sesionDe(opts.ReadOnly, opts.StatementTimeout)
+	db := sql.OpenDB(&conector{base: base, init: init, alMenosUna: exigeUna})
 
 	max := int(opts.MaxConns)
 	if max <= 0 {
@@ -90,22 +94,7 @@ func Open(
 		return nil, f
 	}
 
-	c := &Conn{db: db, server: info, desc: desc, dialer: red}
-
-	// El modo solo lectura se lo pide AL SERVIDOR. Una comprobación nuestra
-	// sería un cartel: esto rechaza también las escrituras que no pasen por
-	// nuestro código.
-	if opts.ReadOnly {
-		if _, err := db.ExecContext(ctx,
-			"SET SESSION TRANSACTION READ ONLY"); err != nil {
-			db.Close()
-			return nil, Classify(err, desc)
-		}
-	}
-	if opts.StatementTimeout > 0 {
-		c.timeout = opts.StatementTimeout
-	}
-	return c, nil
+	return &Conn{db: db, server: info, desc: desc, dialer: red}, nil
 }
 
 // Probe abre una conexión, lee los datos del servidor y la cierra.

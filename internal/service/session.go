@@ -186,6 +186,26 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 		opciones.DialFunc = cli.DialContext
 	}
 
+	// Los cuatro motores ya validan y arman su DSN, y el editor de conexiones
+	// los ofrece deshabilitados; pero el archivo de conexiones se edita a mano,
+	// así que la comprobación no puede vivir solo en la interfaz. Sin esto, una
+	// conexión guardada con engine "mysql" le entrega a pgx un DSN con la forma
+	// `usuario:clave@tcp(...)` y el error que sale no dice nada útil. Ver
+	// CLAUDE.md: una comprobación que vive solo del lado de la interfaz no es
+	// una protección, es un cartel.
+	if c.Engine != connection.Postgres {
+		if tunelAbierto != nil {
+			tunelAbierto.Close()
+		}
+		return failed(&postgres.Failure{
+			Kind: postgres.FailureOther,
+			Message: fmt.Sprintf(
+				"Todavía no se puede conectar a %s desde esta versión.", c.Engine.Label()),
+			Hint: "El motor está implementado y probado, pero falta engancharlo acá. " +
+				"Llega en la Iteración 6.",
+		})
+	}
+
 	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), opciones)
 	if failure != nil {
 		// El túnel quedó abierto y ya no sirve: cerrarlo acá evita dejar una

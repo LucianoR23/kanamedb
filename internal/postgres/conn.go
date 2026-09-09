@@ -102,7 +102,12 @@ func (c *Conn) Count(ctx context.Context, esquema, tabla string) (int64, *engine
 	return TableCount(ctx, c.pool, esquema, tabla)
 }
 
-func (c *Conn) RenderDDL(ch change.Change) (change.Statement, error) { return RenderDDL(ch) }
+// RenderDDL ignora el contexto: en Postgres es una función pura. El parámetro
+// está en la interfaz por SQLite, que necesita leer la definición actual de la
+// tabla para reconstruirla.
+func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement, error) {
+	return RenderDDL(ch)
+}
 
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
@@ -113,7 +118,9 @@ func (c *Conn) Exec(ctx context.Context, sql string) error {
 	return err
 }
 
-func (c *Conn) Begin(ctx context.Context) (engine.Tx, error) {
+// Begin ignora las opciones: Postgres hace ALTER de verdad, así que nunca
+// reconstruye una tabla y no tiene nada que apagar antes del BEGIN.
+func (c *Conn) Begin(ctx context.Context, _ engine.TxOptions) (engine.Tx, error) {
 	tx, err := c.pool.Begin(ctx)
 	if err != nil {
 		return nil, err

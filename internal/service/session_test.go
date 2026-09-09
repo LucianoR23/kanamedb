@@ -365,3 +365,61 @@ func TestErdLayoutSinConexionNoInventaNada(t *testing.T) {
 		t.Error("SaveErdLayout() sin conexión no devolvió error")
 	}
 }
+
+// TestConectarAUnMotorQueNoEstaEnganchadoLoDiceClaro.
+//
+// El editor de conexiones ofrece los cuatro motores con tres deshabilitados,
+// pero el archivo de conexiones se edita a mano —está pensado para eso— así
+// que una conexión con `engine = "mysql"` llega igual hasta acá. Sin una
+// comprobación del lado del servicio, ese DSN —`usuario:clave@tcp(...)`— se le
+// entrega a pgx, que contesta con un error de parseo que no le dice nada a
+// nadie.
+//
+// Ver CLAUDE.md: una comprobación que vive solo del lado de la interfaz no es
+// una protección, es un cartel.
+func TestConectarAUnMotorQueNoEstaEnganchadoLoDiceClaro(t *testing.T) {
+	for _, motor := range []connection.Engine{
+		connection.MySQL, connection.MariaDB, connection.SQLite,
+	} {
+		t.Run(motor.String(), func(t *testing.T) {
+			st := store.New(filepath.Join(t.TempDir(), "connections.toml"))
+			c := connection.Connection{
+				ID: "x1", Name: "editada a mano", Engine: motor,
+				Host: "127.0.0.1", User: "kaname", Database: "kaname_test",
+				Environment: connection.Local,
+			}
+			if motor == connection.SQLite {
+				c.Host, c.User = "", ""
+				c.Database = filepath.ToSlash(filepath.Join(t.TempDir(), "a.db"))
+			}
+			if err := st.Add(c.Normalize()); err != nil {
+				t.Fatalf("el archivo de conexiones no aceptó la conexión: %v", err)
+			}
+
+			sesion := NewSession(st, newFakeKeyring(),
+				tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")),
+				layout.New(filepath.Join(t.TempDir(), "layouts")))
+			t.Cleanup(sesion.Disconnect)
+
+			res := sesion.Connect(context.Background(), c.ID)
+			if res.OK {
+				t.Fatal("dijo que conectó a un motor que el servicio todavía no despacha")
+			}
+			if res.Failure == nil {
+				t.Fatal("falló sin decir por qué")
+			}
+			if !strings.Contains(res.Failure.Message, motor.Label()) {
+				t.Errorf("el mensaje no nombra el motor, así que no se entiende qué pasó: %q",
+					res.Failure.Message)
+			}
+			// El error de pgx sobre un DSN que no es suyo es lo que había antes,
+			// y no se puede accionar.
+			for _, prohibido := range []string{"parse", "cannot parse", "keyword"} {
+				if strings.Contains(strings.ToLower(res.Failure.Message), prohibido) {
+					t.Errorf("el mensaje es el error crudo del driver de Postgres: %q",
+						res.Failure.Message)
+				}
+			}
+		})
+	}
+}

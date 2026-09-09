@@ -154,14 +154,20 @@ func page(
 	var b strings.Builder
 	fmt.Fprintf(&b, "SELECT * FROM %s", QualifiedName(base, tabla))
 	if len(opts.OrderBy) > 0 {
+		// El DESC va pegado a CADA columna, no una sola vez al final. `ORDER BY
+		// a, b DESC` ordena por `a` ASCENDENTE y solo desempata por `b` al
+		// revés, que no es «la página anterior»: con una clave primaria
+		// compuesta el orden deja de ser total, y el paginado por LIMIT/OFFSET
+		// empieza a repetir y a saltear filas.
 		cols := make([]string, 0, len(opts.OrderBy))
 		for _, c := range opts.OrderBy {
-			cols = append(cols, QuoteIdent(c))
+			q := QuoteIdent(c)
+			if opts.Descending {
+				q += " DESC"
+			}
+			cols = append(cols, q)
 		}
 		b.WriteString(" ORDER BY " + strings.Join(cols, ", "))
-		if opts.Descending {
-			b.WriteString(" DESC")
-		}
 	}
 	if opts.Limit > 0 {
 		fmt.Fprintf(&b, " LIMIT %d", opts.Limit)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"sync"
-	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/engine"
@@ -21,10 +20,6 @@ type Conn struct {
 	// hay. Se guarda para poder describirlo, no se desregistra: el driver no
 	// ofrece cómo, y son unas pocas entradas por sesión.
 	dialer string
-
-	// timeout se aplica por sentencia con SET STATEMENT ... FOR, que es lo más
-	// parecido que hay al statement_timeout de Postgres.
-	timeout time.Duration
 
 	unaVez sync.Once
 }
@@ -56,7 +51,9 @@ func (c *Conn) Exec(ctx context.Context, sql string) error {
 	return err
 }
 
-func (c *Conn) Begin(ctx context.Context) (engine.Tx, error) {
+// Begin ignora las opciones: MySQL y MariaDB hacen ALTER de verdad y no
+// reconstruyen la tabla, así que no tienen nada que apagar antes del BEGIN.
+func (c *Conn) Begin(ctx context.Context, _ engine.TxOptions) (engine.Tx, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -93,7 +90,8 @@ func (t *txMy) Rollback(ctx context.Context) error {
 	return err
 }
 
-func (c *Conn) RenderDDL(ch change.Change) (change.Statement, error) {
+// RenderDDL ignora el contexto: acá es una función pura. Ver engine.Conn.
+func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement, error) {
 	return RenderDDL(ch, c.server.Kind)
 }
 

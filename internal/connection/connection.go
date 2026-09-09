@@ -410,7 +410,29 @@ func (c Connection) dsnSQLite() string {
 			"busy_timeout(5000)",
 		},
 	}
-	return "file:" + c.Database + "?" + q.Encode()
+	return "file:" + rutaParaURI(c.Database) + "?" + q.Encode()
+}
+
+// rutaParaURI escapa lo que el analizador de URI de SQLite trata como especial.
+//
+// Hace falta porque el DSN es un URI de verdad —`file:` con parámetros— y
+// SQLite lo parsea como tal: la ruta TERMINA en el primer `?` o `#`, y las
+// secuencias `%HH` se decodifican. Una ruta escrita tal cual no es una ruta:
+// es un URI que casualmente se le parece.
+//
+// Lo comprobado, y por qué esto no es cosmética: con una base en
+// `…/notas#1/app.db`, SQLite corta en el `#`, se queda con `…/notas`, y como
+// el driver abre con SQLITE_OPEN_CREATE **crea un archivo vacío ahí y lo
+// abre**. No hay error: Kaname muestra una base vacía mientras la del usuario
+// sigue intacta en otro lado. Con `%20` en el nombre, directamente no abre.
+//
+// Se escapan exactamente tres caracteres y no se usa url.PathEscape, que
+// escaparía también las barras y los dos puntos de `C:/` y rompería toda ruta
+// de Windows. El `%` va primero: al revés, se escaparían los `%` recién
+// puestos.
+func rutaParaURI(ruta string) string {
+	r := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
+	return r.Replace(ruta)
 }
 
 func (c Connection) puerto() int {

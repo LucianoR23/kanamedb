@@ -31,6 +31,14 @@ los afecta, no después:
 
 1. `gofmt -l .` sin salida, `go vet ./...`, `go test ./...` y el typecheck del
    frontend en verde.
+
+   **El typecheck necesita los bindings regenerados**, con
+   `wails3 task common:generate:bindings`. `frontend/bindings/` está en
+   `.gitignore`, así que un cambio en un tipo de Go no se ve en `git status` y
+   `tsc` sigue leyendo los bindings viejos: da verde contra un contrato que ya
+   no existe. Pasó una vez —mover `Engine` a `engine.Kind` lo convirtió en un
+   alias de tipo, y el enum dejó de tener valores— y solo lo habría cazado CI,
+   que sí los genera antes de correr `tsc`.
 2. `/code-review` sobre el cambio.
 
 **Nivel del review: `high` para código sensible, `medium` para lo rutinario.**

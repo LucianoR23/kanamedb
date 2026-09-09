@@ -143,8 +143,12 @@ func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
 		}
 
 	case change.SetDefault:
+		// El valor sale de Column.Default y no de Expression: es lo que exige
+		// Validate y lo que usan los otros motores. Con Expression, un cambio
+		// perfectamente válido renderizaba «SET DEFAULT » y fallaba recién al
+		// aplicar, con un error de sintaxis.
 		st.SQL = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s",
-			tabla, QuoteIdent(c.Column.Name), c.Expression)
+			tabla, QuoteIdent(c.Column.Name), c.Column.Default)
 		st.Impact = change.ImpactMetadata
 		st.Lock = change.LockNone
 
@@ -169,10 +173,23 @@ func RenderDDL(c change.Change, k engine.Kind) (change.Statement, error) {
 		if !c.Column.Nullable {
 			nulo = "NOT NULL"
 		}
-		st.SQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s %s COMMENT %s",
-			tabla, QuoteIdent(c.Column.Name), c.Column.DataType, nulo, QuoteString(c.Comment))
+		// El valor por defecto se vuelve a escribir. MODIFY reemplaza la
+		// definición ENTERA de la columna, así que lo que no se repita se
+		// pierde: agregarle un comentario a `estado varchar(20) NOT NULL
+		// DEFAULT 'nuevo'` le borraba el default, en silencio y sin nada en la
+		// vista previa que lo dijera.
+		def := ""
+		if c.Column.Default != "" {
+			def = " DEFAULT " + c.Column.Default
+		}
+		st.SQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s %s%s COMMENT %s",
+			tabla, QuoteIdent(c.Column.Name), c.Column.DataType, nulo, def,
+			QuoteString(c.Comment))
 		st.Impact = change.ImpactMetadata
 		st.Lock = change.LockNone
+		st.Note = "MySQL no tiene COMMENT ON: el comentario es parte de la definición de la " +
+			"columna, así que hay que reescribirla entera. Lo que no aparezca en esta " +
+			"sentencia se pierde."
 
 	case change.AddPrimaryKey:
 		st.SQL = fmt.Sprintf("ALTER TABLE %s ADD PRIMARY KEY (%s)", tabla, listaDeIdent(c.Names))
@@ -339,9 +356,14 @@ func primero(vs ...string) string {
 // antes de renderizar.
 func identificadoresDe(c change.Change) map[string]string {
 	out := map[string]string{}
-	poner := func(que, v string) {
-		if v != "" {
-			out[que] = v
+	// La clave es el IDENTIFICADOR y el valor es cómo se llama, no al revés.
+	// Estaba dado vuelta, y con el bucle de quien llama —que pasa la clave
+	// como nombre y el valor como etiqueta— el resultado era que se validaba
+	// el largo de la DESCRIPCIÓN: un nombre de tabla de 300 caracteres, o con
+	// un salto de línea adentro, pasaba entero.
+	poner := func(que, nombre string) {
+		if nombre != "" {
+			out[nombre] = que
 		}
 	}
 	poner("el nombre de la tabla", c.Table)
