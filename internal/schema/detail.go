@@ -243,3 +243,33 @@ func (d TableDetail) IndexBytes() int64 {
 	}
 	return d.TotalBytes - d.TableBytes
 }
+
+// TypeOption es un tipo que se puede elegir para una columna.
+//
+// Sale del catálogo de la base conectada, no de una lista escrita a mano: los
+// tipos de PostgreSQL no son un conjunto cerrado. Cada extensión agrega los
+// suyos y cada enum o dominio definido en esta base es uno más, así que una
+// lista fija sería peor que dejar escribir a mano — no habría forma de elegir
+// un tipo propio.
+type TypeOption struct {
+	// Name es el nombre SQL canónico: "integer", no "int4"; "character
+	// varying", no "varchar". Es el que se lee en cualquier otra herramienta.
+	// Los tipos de otros esquemas vienen calificados.
+	Name string `json:"name"`
+
+	Schema string `json:"schema"`
+
+	// BuiltIn distingue lo que trae PostgreSQL de lo que definió esta base. Los
+	// propios se ofrecen primero: son los que nadie recuerda de memoria.
+	BuiltIn bool `json:"builtIn"`
+
+	// Kind es "base", "enum", "domain" o "range".
+	Kind string `json:"kind"`
+
+	// AcceptsModifier dice si el tipo admite paréntesis con parámetros:
+	// numeric(10,2), character varying(255), time(3). Decide si la interfaz
+	// ofrece el campo del modificador o lo esconde.
+	AcceptsModifier bool `json:"acceptsModifier"`
+
+	Comment string `json:"comment,omitempty"`
+}

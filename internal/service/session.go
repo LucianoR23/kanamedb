@@ -356,6 +356,23 @@ func (s *Session) SaveErdLayout(esquema string, posiciones layout.Positions) err
 	return nil
 }
 
+// ColumnTypes lee del catálogo los tipos que se pueden elegir para una columna.
+//
+// Se leen de LA BASE CONECTADA y no de una lista en el código: los enums y
+// dominios definidos ahí son tipos válidos, y las extensiones instaladas
+// agregan los suyos. Una lista fija no podría ofrecerlos.
+func (s *Session) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return nil, err
+	}
+	ts, err := postgres.ColumnTypes(ctx, sesion.pool)
+	if err != nil {
+		return nil, fmt.Errorf("leer los tipos de %s: %w", sesion.conn.Describe(), err)
+	}
+	return ts, nil
+}
+
 // viewLocked arma la vista. Quien llama tiene el lock.
 func (s *Session) viewLocked() SessionView {
 	if s.current == nil {

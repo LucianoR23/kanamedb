@@ -4,6 +4,9 @@ export type { ButtonVariant, ButtonSize } from "./Button";
 export { Badge, EnvBadge } from "./Badge";
 export type { BadgeTone, Environment } from "./Badge";
 
+export { Combobox } from "./Combobox";
+export type { ComboOption } from "./Combobox";
+
 export { ContextMenu } from "./ContextMenu";
 
 export { CopyButton } from "./CopyButton";

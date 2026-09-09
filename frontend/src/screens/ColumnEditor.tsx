@@ -1,6 +1,11 @@
-import { useState } from "react";
-import type { DetailColumn } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import { Button, Checkbox, Dialog, Field, Input } from "../components/ui";
+import { useEffect, useState } from "react";
+import type {
+  DetailColumn,
+  TypeOption,
+} from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
+import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
+import { Button, Checkbox, Combobox, Dialog, Field, Input } from "../components/ui";
+import type { ComboOption } from "../components/ui";
 import styles from "./ColumnEditor.module.css";
 
 /** Lo que el diálogo devuelve. La SQL la escribe Go, acá solo se junta el dato. */
@@ -15,10 +20,19 @@ export interface ColumnaNueva {
 /**
  * Alta de columna y renombrado.
  *
- * No valida el tipo contra el catálogo: Go rechaza lo que no sabe escribir y el
- * servidor rechaza lo que no existe, con su propio mensaje. Adivinar acá qué
- * tipos son válidos sería una lista que envejece mal —cada extensión agrega los
- * suyos— y que además impediría escribir uno legítimo.
+ * Los tipos salen del catálogo de LA BASE CONECTADA, no de una lista en el
+ * código. Los tipos de PostgreSQL no son un conjunto cerrado: cada extensión
+ * agrega los suyos y cada enum o dominio definido en esa base es uno más, así
+ * que una lista fija no podría ofrecer un tipo propio. Los de la base van
+ * primero, que son justamente los que nadie recuerda de memoria.
+ *
+ * El modificador —el `(10,2)` de `numeric`— va en un campo aparte y solo para
+ * los tipos que lo admiten. Es la parte que más se escribe mal, y separarla
+ * permite que el nombre del tipo venga siempre de la lista.
+ *
+ * Se puede escribir algo que no esté listado: si no, un tipo instalado después
+ * de conectar sería un callejón sin salida. Go rechaza lo que no sabe escribir y
+ * el servidor rechaza lo que no existe, con su propio mensaje.
  */
 export function ColumnEditor({
   modo,
@@ -36,17 +50,36 @@ export function ColumnEditor({
 }) {
   const [nombre, setNombre] = useState(modo === "renombrar" ? (columna?.name ?? "") : "");
   const [tipo, setTipo] = useState("text");
+  const [modificador, setModificador] = useState("");
+  const [arreglo, setArreglo] = useState(false);
   const [nullable, setNullable] = useState(true);
   const [porDefecto, setPorDefecto] = useState("");
   const [comentario, setComentario] = useState("");
+  const [tipos, setTipos] = useState<TypeOption[]>([]);
+
+  useEffect(() => {
+    void SessionSvc.ColumnTypes()
+      .then((ts) => setTipos(ts ?? []))
+      // Sin la lista el campo sigue sirviendo como texto libre: quedarse sin
+      // poder agregar una columna porque no se pudo leer el catálogo sería
+      // peor que perder la comodidad.
+      .catch(() => setTipos([]));
+  }, []);
 
   const renombrar = modo === "renombrar";
+  const elegido = tipos.find((t) => t.name === tipo);
+  // Si el tipo no está en la lista —porque se escribió a mano— se ofrece el
+  // modificador igual: no hay forma de saber si lo admite.
+  const admiteModificador = elegido ? elegido.acceptsModifier : tipo.trim() !== "";
+  const tipoCompleto =
+    tipo.trim() + (modificador.trim() ? `(${modificador.trim()})` : "") + (arreglo ? "[]" : "");
   const nombreVacio = nombre.trim() === "";
   // Una columna NOT NULL nueva sobre una tabla con filas necesita qué poner en
   // las que ya están. Se dice acá y no en el error de Postgres, que no explica
   // qué hacer.
   const faltaDefault = !renombrar && !nullable && porDefecto.trim() === "";
   const puede = !nombreVacio && (renombrar || tipo.trim() !== "") && !faltaDefault;
+
 
   return (
     <Dialog
@@ -65,7 +98,7 @@ export function ColumnEditor({
             onClick={() =>
               onGuardar({
                 name: nombre.trim(),
-                dataType: tipo.trim(),
+                dataType: tipoCompleto,
                 nullable,
                 default: porDefecto.trim(),
                 comment: comentario.trim(),
@@ -94,12 +127,35 @@ export function ColumnEditor({
         ) : (
           <>
             <Field label="Tipo">
-              <Input
+              <Combobox
                 value={tipo}
-                placeholder="text, bigint, numeric(10,2), timestamptz…"
-                onChange={(e) => setTipo(e.currentTarget.value)}
+                options={opcionesDeTipo(tipos)}
+                ariaLabel="Tipo de la columna"
+                placeholder="buscá un tipo…"
+                onChange={(v) => {
+                  setTipo(v);
+                  setModificador("");
+                }}
               />
             </Field>
+
+            {admiteModificador ? (
+              <Field label="Parámetros">
+                <Input
+                  value={modificador}
+                  placeholder={placeholderDeModificador(tipo)}
+                  onChange={(e) => setModificador(e.currentTarget.value)}
+                />
+              </Field>
+            ) : null}
+
+            <Checkbox checked={arreglo} onChange={setArreglo}>
+              Es un arreglo
+            </Checkbox>
+
+            <p className={styles.resultado}>
+              Queda como <code>{tipoCompleto || "…"}</code>
+            </p>
 
             <Checkbox checked={nullable} onChange={setNullable}>
               Admite nulos
@@ -136,4 +192,21 @@ export function ColumnEditor({
       </div>
     </Dialog>
   );
+}
+
+/** Los tipos, con lo de esta base marcado. */
+function opcionesDeTipo(tipos: TypeOption[]): ComboOption[] {
+  return tipos.map((t) => ({
+    value: t.name,
+    ...(t.builtIn ? {} : { tag: t.kind === "base" ? "de esta base" : t.kind }),
+    ...(t.comment ? { title: t.comment } : {}),
+  }));
+}
+
+/** Qué se espera adentro de los paréntesis, según el tipo. */
+function placeholderDeModificador(tipo: string): string {
+  if (tipo.startsWith("numeric") || tipo.startsWith("decimal")) return "10,2  ·  precisión, escala";
+  if (tipo.startsWith("character") || tipo.startsWith("bit")) return "255  ·  largo";
+  if (tipo.startsWith("time") || tipo.startsWith("interval")) return "3  ·  dígitos de segundo";
+  return "sin paréntesis si no hace falta";
 }

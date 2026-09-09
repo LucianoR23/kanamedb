@@ -414,6 +414,28 @@ proyecto y un apply que puede tardar minutos no puede ser una espera sin
 información. Preguntar cada doscientos milisegundos cuesta leer tres campos bajo
 un lock.
 
+**El tipo de una columna se elige de una lista LEÍDA DEL CATÁLOGO, no escrita
+en el código.** La primera versión era texto libre, que se tipea mal. Pero una
+lista fija habría sido peor: los tipos de PostgreSQL no son un conjunto cerrado
+—cada extensión agrega los suyos, y cada enum o dominio definido en esa base es
+uno más—, así que no habría forma de elegir un tipo propio. Se leen de
+`pg_type`, con los de la base primero, que son los que nadie recuerda de memoria.
+
+Tres detalles que hacen la diferencia:
+
+- El **modificador** —el `(10,2)` de `numeric`— va en un campo aparte y solo
+  para los tipos que lo admiten (`typmodin <> 0`). Es la parte que más se
+  escribe mal, y separarla deja que el nombre del tipo venga siempre de la lista.
+- Se **acepta lo que se escriba** aunque no esté listado. Una lista cerrada
+  sería más prolija y a veces impediría usar un tipo instalado después de
+  conectar.
+- Se muestra **cómo va a quedar** el tipo completo antes de aceptar, armado de
+  las tres partes. Ver `numeric(10.2)` en pantalla es más barato que descubrirlo
+  en el error de Postgres.
+
+Hizo falta un `Combobox` con búsqueda en el design system: el `<select>` nativo
+ignora el tema en Windows y además no busca, y son cientos de tipos.
+
 **Una verificación mía volvió a estar mal, y esta vez lo dijo un test verde.** Al
 inyectar las cinco violaciones del apply, cuatro pusieron su test en rojo y la
 del rollback quedó verde. La causa no era el test: inyecté en el lugar

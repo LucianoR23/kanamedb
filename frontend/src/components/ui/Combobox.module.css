@@ -1,0 +1,84 @@
+.caja {
+  position: relative;
+  min-width: 0;
+}
+
+.entrada {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-1);
+  font: 400 12.5px var(--font-mono);
+  outline: none;
+}
+.entrada:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-quiet);
+}
+.entrada:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+/* Se despliega por encima del formulario y no lo empuja: un desplegable que
+   corre los campos de abajo hace perder el que se estaba mirando. */
+.lista {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 3px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-menu);
+}
+
+.opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 8px;
+  height: 23px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.resaltada { background: var(--bg-sel); }
+
+.valor {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+}
+
+.tag {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  color: var(--text-3);
+  white-space: nowrap;
+  font: 600 9px var(--font-ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.vacio {
+  padding: 8px 9px;
+  font: 400 11px/1.5 var(--font-ui);
+  color: var(--text-3);
+}
