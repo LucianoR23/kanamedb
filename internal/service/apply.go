@@ -67,6 +67,30 @@ type ChangesetView struct {
 
 	// ReadOnly avisa que no se va a poder aplicar nada.
 	ReadOnly bool `json:"readOnly"`
+
+	// Engine es el motor de la conexión. La pantalla lo nombra en los avisos:
+	// «MariaDB no puede revertir esto» se entiende y «el motor» no.
+	Engine engine.Kind `json:"engine"`
+
+	// TransactionalDDL dice si la casilla «Una sola transacción» puede cumplir
+	// lo que promete.
+	//
+	// Es el campo por el que existe todo esto. La casilla decía «todo o nada»
+	// SIEMPRE, y contra MySQL y MariaDB eso es falso: un DDL en el medio de una
+	// transacción commitea todo lo anterior y el ROLLBACK final no revierte
+	// nada. Una interfaz que promete lo que la base no cumple es peor que una
+	// que no promete nada.
+	TransactionalDDL bool `json:"transactionalDdl"`
+
+	// Tramos es en cuántos pedazos se va a partir el apply CON la casilla
+	// puesta. Uno significa que el «todo o nada» es real.
+	Tramos int `json:"tramos"`
+
+	// RebuildsTables dice que alguna sentencia no modifica la tabla sino que la
+	// reconstruye entera: crea una nueva, copia las filas, tira la vieja y
+	// renombra. Es SQLite, y cambia el costo de «solo metadatos» al tamaño de
+	// la tabla.
+	RebuildsTables bool `json:"rebuildsTables"`
 }
 
 // soloLecturaBool es soloLectura cuando solo interesa el sí o el no.
@@ -237,6 +261,21 @@ func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 	for _, c := range sesion.cambios.Ordered() {
 		vista.Order = append(vista.Order, renderizar(ctx, sesion.db, c, sesion.snapshot))
 	}
+	// Lo que la pantalla necesita saber del motor. Se calcula acá y no en el
+	// frontend porque depende de las capacidades de la conexión abierta, que el
+	// frontend no tiene — y deducirlo del nombre del motor sería adivinar.
+	caps := sesion.db.Caps()
+	vista.Engine = sesion.db.Kind()
+	vista.TransactionalDDL = caps.TransactionalDDL
+	for _, c := range vista.Order {
+		if c.Statement.RebuildsTable {
+			vista.RebuildsTables = true
+		}
+	}
+	vista.Tramos = len(engine.TramosDe(len(vista.Order), caps, func(i int) bool {
+		return vista.Order[i].Change.Kind() == change.KindData
+	}))
+
 	vista.Warnings = avisos(sesion, vista.Order)
 	vista.Script = guion(vista.Order, true)
 	return vista, nil
@@ -370,6 +409,49 @@ func filasDe(snap *schema.Snapshot, esquema, tabla string) int64 {
 // avisos son las cosas que hay que decir del conjunto, no de una sentencia.
 func avisos(sesion *openSession, orden []ChangeView) []string {
 	var out []string
+
+	caps := sesion.db.Caps()
+
+	// El aviso que la interfaz NO daba y que cambia lo que hay que esperar de
+	// un fallo. La casilla «Una sola transacción» promete todo o nada; contra
+	// MySQL y MariaDB eso no se puede cumplir, y el usuario tiene que saberlo
+	// ANTES de aplicar, no cuando la mitad quedó puesta.
+	if !caps.TransactionalDDL {
+		hayEsquema := false
+		for _, v := range orden {
+			if v.Change.Kind() == change.KindSchema {
+				hayEsquema = true
+				break
+			}
+		}
+		if hayEsquema {
+			aviso := fmt.Sprintf(
+				"%s no puede revertir cambios de esquema: cada uno se confirma solo, "+
+					"aunque la casilla de transacción esté puesta. Si algo falla a la "+
+					"mitad, lo anterior queda aplicado.", sesion.db.Kind().Label())
+			if caps.AtomicDDL {
+				// La otra mitad de la verdad, que evita asustar de más: la
+				// sentencia que falla no deja nada a medias.
+				aviso += " La que falle no queda a medias: cada sentencia es todo o nada por su cuenta."
+			}
+			out = append(out, aviso)
+		}
+	}
+
+	// Y el de SQLite, que es de costo y no de garantía.
+	var reconstruyen int
+	for _, v := range orden {
+		if v.Statement.RebuildsTable {
+			reconstruyen++
+		}
+	}
+	if reconstruyen > 0 {
+		out = append(out, fmt.Sprintf(
+			"%d %s no modifican la tabla: la reconstruyen entera —tabla nueva, copiar las "+
+				"filas, tirar la vieja y renombrar—. Tarda en proporción al tamaño de la "+
+				"tabla y necesita lugar en disco para las dos copias mientras corre.",
+			reconstruyen, plural(reconstruyen, "operación", "operaciones")))
+	}
 
 	// El statement_timeout de la conexión mata la sentencia a mitad de camino.
 	// Un ALTER que reescribe una tabla grande tarda más que cualquier timeout
@@ -703,4 +785,13 @@ func (s *Session) correr(
 		}
 	}
 	return r, err
+}
+
+// plural elige la forma según el número. Un aviso que dice «1 operaciones» se
+// lee como un error de programa, y hace dudar del resto del mensaje.
+func plural(n int, uno, varios string) string {
+	if n == 1 {
+		return uno
+	}
+	return varios
 }

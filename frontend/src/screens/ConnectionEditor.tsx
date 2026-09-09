@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Dialogs } from "@wailsio/runtime";
 import * as Connections from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/connections";
 import type { ConnectionView, TestResult } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Connection } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
@@ -37,6 +38,15 @@ const TABS = [
 
 /** Los nombres se escriben como los escribe cada proyecto, no como salen del
  *  enum: "MySQL" y "MariaDB" llevan mayúsculas y "sqlite" no. */
+/** El puerto habitual de cada motor. SQLite es un archivo y no escucha en
+ *  ningún lado, así que su puerto es cero — y el formulario ni lo muestra. */
+const PUERTOS: Record<string, number> = {
+  [Engine.Postgres]: 5432,
+  [Engine.MySQL]: 3306,
+  [Engine.MariaDB]: 3306,
+  [Engine.SQLite]: 0,
+};
+
 const ENGINES: { value: Engine; label: string }[] = [
   { value: Engine.Postgres, label: "PostgreSQL" },
   { value: Engine.MySQL, label: "MySQL" },
@@ -197,6 +207,46 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
     setTest(null);
   }
 
+  /** cambiarMotor arrastra el puerto por defecto.
+   *
+   *  Sin esto, pasar de PostgreSQL a MySQL deja el 5432 escrito y la conexión
+   *  falla con un error de red que no dice que el puerto es el de otro motor.
+   *  Solo se pisa si el que había era el default del motor anterior: un puerto
+   *  que el usuario escribió a mano se respeta. */
+  function cambiarMotor(motor: Engine) {
+    setConn((c) => {
+      const eraDefault = c.port === 0 || c.port === (PUERTOS[c.engine] ?? 0);
+      return { ...c, engine: motor, port: eraDefault ? (PUERTOS[motor] ?? 0) : c.port };
+    });
+    tocar("engine");
+    setTest(null);
+  }
+
+  /** elegirArchivo abre el selector del sistema para una base de SQLite.
+   *
+   *  El diálogo lo abre el sistema operativo, no la página: el navegador no
+   *  puede dar una ruta de archivo, y una ruta es exactamente lo que SQLite
+   *  necesita. */
+  async function elegirArchivo() {
+    const ruta = await Dialogs.OpenFile({
+      Title: "Elegir una base de SQLite",
+      CanChooseFiles: true,
+      // Se pueden elegir archivos que no estén en los filtros: las bases de
+      // SQLite se llaman de cualquier forma, y muchas no tienen extensión.
+      AllowsOtherFiletypes: true,
+      Filters: [
+        { DisplayName: "Bases de SQLite", Pattern: "*.db;*.sqlite;*.sqlite3;*.db3" },
+        { DisplayName: "Todos los archivos", Pattern: "*" },
+      ],
+    });
+    if (ruta) {
+      set("database", ruta);
+    }
+  }
+
+  /** esArchivo decide la forma del formulario entero. */
+  const esArchivo = conn.engine === Engine.SQLite;
+
   async function runTest() {
     setIntentado(true);
     // Si falta algo, se salta a la pestaña donde está en vez de mostrar un
@@ -356,10 +406,8 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                       <button
                         key={value}
                         type="button"
-                        disabled={value !== Engine.Postgres}
-                        title={value === Engine.Postgres ? undefined : "Llega en la Iteración 6"}
                         className={cx(styles.chip, conn.engine === value && styles.chipOn)}
-                        onClick={() => set("engine", value)}
+                        onClick={() => cambiarMotor(value)}
                       >
                         {label}
                       </button>
@@ -367,6 +415,29 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                   </div>
                 </Field>
 
+                {esArchivo ? (
+                  /* SQLite no es un servidor: es un archivo, y el permiso lo da
+                     el sistema de archivos. Host, puerto, usuario, contraseña y
+                     SSL no existen — y dejarlos en pantalla deshabilitados sería
+                     peor que sacarlos: haría pensar que falta configurarlos. */
+                  <Field label="Archivo" error={problems.get("database")}>
+                    <div className={styles.fileRow}>
+                      <Input
+                        value={conn.database}
+                        invalid={problems.has("database")}
+                        placeholder="C:\Users\yo\datos\app.db"
+                        onChange={(e) => set("database", e.currentTarget.value)}
+                      />
+                      <Button variant="ghost" onClick={elegirArchivo}>
+                        Elegir…
+                      </Button>
+                    </div>
+                    <p className={styles.hint}>
+                      Si el archivo no existe, SQLite lo crea vacío al conectar.
+                    </p>
+                  </Field>
+                ) : (
+                  <>
                 <div className={styles.hostRow}>
                   <Field label="Host" error={problems.get("host")}>
                     <Input
@@ -436,6 +507,8 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                     ))}
                   </div>
                 </Field>
+                  </>
+                )}
 
                 <div className={styles.divider} />
 

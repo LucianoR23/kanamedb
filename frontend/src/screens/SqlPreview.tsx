@@ -23,6 +23,39 @@ const CADENCIA_MS = 180;
  * proyecto, y un `ALTER` que lee doce mil filas no puede ser una espera sin
  * información.
  */
+/** textoDeTxn dice lo que va a pasar de verdad, no lo que la casilla sugiere.
+ *
+ *  «una transacción · revierte si algo falla» era falso contra MySQL y MariaDB:
+ *  un DDL en el medio de una transacción commitea todo lo anterior y el
+ *  ROLLBACK final no revierte nada. El backend ya calculó en cuántos tramos se
+ *  parte; acá solo se dice. */
+function nombreDeMotor(k: string): string {
+  switch (k) {
+    case "postgres":
+      return "PostgreSQL";
+    case "mysql":
+      return "MySQL";
+    case "mariadb":
+      return "MariaDB";
+    case "sqlite":
+      return "SQLite";
+  }
+  return "El motor";
+}
+
+function textoDeTxn(vista: ChangesetView, transaccion: boolean): string {
+  if (!transaccion) {
+    return "sin transacción";
+  }
+  if (vista.transactionalDdl) {
+    return "una transacción · revierte si algo falla";
+  }
+  if (vista.tramos <= 1) {
+    return "no se revierte";
+  }
+  return `${vista.tramos} tramos · no se revierte`;
+}
+
 export function SqlPreview({
   vista,
   singleTransaction,
@@ -106,9 +139,7 @@ export function SqlPreview({
               {contarLineas(vista.script)} líneas · {r.included} sentencias
             </span>
             <span className={styles.grow} />
-            <span className={styles.txn}>
-              {singleTransaction ? "una transacción · revierte si algo falla" : "sin transacción"}
-            </span>
+            <span className={styles.txn}>{textoDeTxn(vista, singleTransaction)}</span>
             <CopyButton text={vista.script} />
           </div>
 
@@ -149,7 +180,7 @@ export function SqlPreview({
             </div>
           ) : null}
 
-          {resultado ? <Resultado res={resultado} transaccion={singleTransaction} /> : null}
+          {resultado ? <Resultado res={resultado} transaccion={singleTransaction} vista={vista} /> : null}
           {error ? <p className={styles.error}>{error}</p> : null}
         </div>
 
@@ -275,7 +306,15 @@ export function SqlPreview({
  * después por qué falló, después cómo arreglarlo, y al final la sentencia y el
  * texto original del motor, que es lo que se pega en un ticket.
  */
-function Resultado({ res, transaccion }: { res: ApplyResult; transaccion: boolean }) {
+function Resultado({
+  res,
+  transaccion,
+  vista,
+}: {
+  res: ApplyResult;
+  transaccion: boolean;
+  vista: ChangesetView;
+}) {
   if (res.ok) {
     return (
       <div className={cx(styles.resultado, styles.resultadoOk)}>
@@ -295,7 +334,20 @@ function Resultado({ res, transaccion }: { res: ApplyResult; transaccion: boolea
             : `Falló a la mitad. Las ${hechas} sentencias anteriores YA quedaron aplicadas y ` +
               "salieron de la lista."}
       </p>
-      {!res.rolledBack && hechas > 0 && !transaccion ? (
+      {/* Por qué quedó a medias, que no siempre es lo mismo.
+
+          Contra un motor sin DDL transaccional NO es que faltó marcar la
+          casilla: estaba marcada y no alcanza. Decirle a alguien «con una sola
+          transacción esto no habría pasado» cuando la tenía puesta lo manda a
+          buscar un error suyo que no existe. */}
+      {!res.rolledBack && hechas > 0 && !vista.transactionalDdl ? (
+        <p className={styles.resultadoParcial}>
+          {`${nombreDeMotor(vista.engine)} no revierte cambios de esquema, así que el apply fue en `}
+          {res.tramos} tramos y falló el {res.tramoFallido}.º. Marcar «Una sola transacción» no
+          habría cambiado nada: es una limitación del motor.
+        </p>
+      ) : null}
+      {!res.rolledBack && hechas > 0 && vista.transactionalDdl && !transaccion ? (
         <p className={styles.resultadoParcial}>
           Con «Una sola transacción» esto no habría pasado: se habría revertido todo.
         </p>

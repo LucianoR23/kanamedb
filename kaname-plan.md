@@ -177,10 +177,17 @@ Backend, por motor:
 
 Frontend y CI:
 
-- ⏳ **S03** — variantes de engine.
-- ⏳ **S15** — banners de DDL no transaccional (MySQL) y de rebuild de tabla
-  (SQLite); dry run en transacción para Postgres.
-- ⏳ **S01** — "Open SQLite file".
+- ✅ **S03** — los cuatro motores habilitados, el puerto por defecto se arrastra
+  al cambiar de motor, y con SQLite el formulario cambia de forma: desaparecen
+  host, puerto, usuario, contraseña y SSL, y aparece el selector de archivo del
+  sistema.
+- ✅ **S15** — la casilla «Una sola transacción» dice lo que el MOTOR va a
+  hacer, no lo que la casilla sugiere, y el resultado explica por qué quedó a
+  medias sin culpar al usuario de no haberla marcado. Aviso de reconstrucción
+  de tabla para SQLite.
+- ⏳ **S15** — dry run en transacción para Postgres.
+- ⏳ **S01** — "Open SQLite file" desde la lista de conexiones. El selector de
+  archivo ya está en S03, así que esto es un atajo, no una función que falte.
 - ✅ **CI** — `KANAME_REQUIRE_ENGINES` puesto, y las dos MariaDB en el compose.
 - ⏳ Ampliar la matriz de CI a las versiones anteriores de MySQL (8.4 LTS).
 

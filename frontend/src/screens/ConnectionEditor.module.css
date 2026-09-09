@@ -93,6 +93,13 @@
 
 .hostRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
 
+/* La ruta del archivo de SQLite, con el botón que abre el selector del
+   sistema. La ruta se lleva todo el ancho que sobre: es larga y verla entera
+   es lo único que permite darse cuenta de que apunta a otro lado. */
+.fileRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+
+.hint { margin: 6px 0 0; color: var(--text-3); font: 400 11.5px var(--font-ui); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   display: inline-flex;

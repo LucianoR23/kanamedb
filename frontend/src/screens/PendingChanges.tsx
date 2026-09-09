@@ -28,6 +28,41 @@ type Filtro = "all" | "schema" | "risk";
  * previa. Ver kaname-plan.md § 6 sobre por qué el changeset es un conjunto de
  * operaciones y no un diff.
  */
+/** textoDeTransaccion dice lo que el MOTOR va a hacer, no lo que la casilla
+ *  sugiere.
+ *
+ *  Antes decía «todo o nada» siempre. Contra MySQL y MariaDB eso es falso: un
+ *  DDL en el medio de una transacción hace commit implícito de todo lo anterior
+ *  y el ROLLBACK final no revierte nada, así que la casilla prometía algo que
+ *  la base no cumple. El backend ya calcula en cuántos tramos se va a partir;
+ *  acá solo se cuenta. */
+function textoDeTransaccion(vista: ChangesetView, transaccion: boolean): string {
+  if (!transaccion) {
+    return "cada sentencia se confirma sola; una falla deja lo anterior aplicado";
+  }
+  if (vista.transactionalDdl) {
+    return "todo o nada";
+  }
+  if (vista.tramos <= 1) {
+    return `${nombreDeMotor(vista.engine)} no revierte cambios de esquema`;
+  }
+  return `${nombreDeMotor(vista.engine)} no revierte cambios de esquema: van en ${vista.tramos} tramos`;
+}
+
+function nombreDeMotor(k: string): string {
+  switch (k) {
+    case "postgres":
+      return "PostgreSQL";
+    case "mysql":
+      return "MySQL";
+    case "mariadb":
+      return "MariaDB";
+    case "sqlite":
+      return "SQLite";
+  }
+  return "El motor";
+}
+
 export function PendingChanges({
   active,
   onApplied,
@@ -168,11 +203,7 @@ export function PendingChanges({
         <Checkbox checked={transaccion} onChange={setTransaccion}>
           Una sola transacción
         </Checkbox>
-        <span className={styles.hint}>
-          {transaccion
-            ? "todo o nada"
-            : "cada sentencia se confirma sola; una falla deja lo anterior aplicado"}
-        </span>
+        <span className={styles.hint}>{textoDeTransaccion(vista, transaccion)}</span>
       </div>
 
       <div className={styles.cuerpo}>

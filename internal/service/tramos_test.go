@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
@@ -216,4 +217,93 @@ func califica(c connection.Connection, esq, tabla string) string {
 		return "`" + esq + "`.`" + tabla + "`"
 	}
 	return `"` + esq + `"."` + tabla + `"`
+}
+
+// TestLaPantallaNoPrometeLoQueElMotorNoCumple.
+//
+// La casilla «Una sola transacción» decía «todo o nada» pasara lo que pasara.
+// Contra MySQL y MariaDB eso es falso, y la forma de fallar es la peor: la
+// interfaz promete que se revierte, el motor aplica todo, y el usuario se
+// entera mirando la base.
+//
+// Ahora `ChangesetView` trae lo que el motor de verdad puede, y la pantalla lo
+// usa en vez de suponerlo. Esto comprueba el dato, no el pixel: si el dato
+// miente, el pixel también.
+func TestLaPantallaNoPrometeLoQueElMotorNoCumple(t *testing.T) {
+	casos := []struct {
+		nombre        string
+		uri           string
+		transaccional bool
+	}{
+		{"postgres", "postgres://kaname:kaname@127.0.0.1:55432/kaname_test?sslmode=disable", true},
+		{"mysql", "mysql://kaname:kaname@127.0.0.1:53306/kaname_test", false},
+		{"mariadb", "mariadb://kaname:kaname@127.0.0.1:53307/kaname_test", false},
+		{"sqlite", "", true},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			sesion, c := sesionDe(t, caso.nombre, caso.uri)
+			ctx := context.Background()
+			esq := esquemaDeApply(t, sesion, c)
+			tipo := tipoEnteroDe(c.Engine)
+
+			for _, tabla := range []string{"kn_pr_a", "kn_pr_b"} {
+				if _, err := sesion.Stage(ctx, change.Change{
+					Type: change.CreateTable, Schema: esq, Table: tabla, Source: "test",
+					Columns: []change.Column{{Name: "id", DataType: tipo}},
+					Names:   []string{"id"},
+				}, ""); err != nil {
+					t.Fatalf("Stage(): %v", err)
+				}
+			}
+
+			vista, err := sesion.Changeset(ctx)
+			if err != nil {
+				t.Fatalf("Changeset(): %v", err)
+			}
+
+			if vista.TransactionalDDL != caso.transaccional {
+				t.Errorf("TransactionalDDL = %v y en %s tiene que ser %v",
+					vista.TransactionalDDL, caso.nombre, caso.transaccional)
+			}
+			if vista.Engine != c.Engine {
+				t.Errorf("Engine = %q y la conexión es %q", vista.Engine, c.Engine)
+			}
+
+			quiereTramos := 1
+			if !caso.transaccional {
+				quiereTramos = 2
+			}
+			if vista.Tramos != quiereTramos {
+				t.Errorf("Tramos = %d y en %s tienen que ser %d",
+					vista.Tramos, caso.nombre, quiereTramos)
+			}
+
+			// Y el aviso, que es lo que se lee antes de apretar Aplicar.
+			var avisa bool
+			for _, a := range vista.Warnings {
+				if strings.Contains(a, "no puede revertir cambios de esquema") {
+					avisa = true
+				}
+			}
+			if avisa == caso.transaccional {
+				t.Errorf("avisa=%v en %s, y tendría que ser %v.\nAvisos: %q",
+					avisa, caso.nombre, !caso.transaccional, vista.Warnings)
+			}
+			if avisa {
+				// El aviso tiene que nombrar el motor: «el motor no revierte»
+				// no le dice a nadie contra qué está trabajando.
+				var nombra bool
+				for _, a := range vista.Warnings {
+					if strings.Contains(a, c.Engine.Label()) {
+						nombra = true
+					}
+				}
+				if !nombra {
+					t.Errorf("el aviso no nombra el motor: %q", vista.Warnings)
+				}
+			}
+		})
+	}
 }
