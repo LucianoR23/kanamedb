@@ -491,6 +491,14 @@ intenta, y si Go dice que falta confirmar, pregunta y reintenta.
 un clic. La confirmación aclara lo que importa: no se pierde ningún dato —nada se
 aplicó—, pero las ediciones hay que rehacerlas.
 
+**Un `<datalist>` nativo se me coló en el editor de claves foráneas.** Elegir la
+tabla referenciada abría el desplegable del sistema operativo, que ignora el tema
+y no se parece a nada del resto. Es exactamente lo que la regla de no usar
+elementos nativos existe para evitar, y se me pasó porque `<input list>` se
+escribe como un input común. Ahora usa el `Combobox`, igual que el tipo de
+columna y el tipo de la clave primaria: si un campo elige entre opciones
+conocidas, elige con el mismo componente en toda la aplicación.
+
 **Dos veces me llevé puesto un archivo con un script de parcheo.** `io.open(p,
 "w")` trunca ANTES de validar sus argumentos, así que un `newline` inválido dejó
 `ErdScreen.tsx` en cero bytes. Se recuperó de git las dos veces, pero la lección

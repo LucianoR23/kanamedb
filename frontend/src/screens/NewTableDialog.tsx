@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, Dialog, Field, Input } from "../components/ui";
+import { Button, Combobox, Dialog, Field, Input } from "../components/ui";
+import { useColumnTypes } from "../lib/useColumnTypes";
 import styles from "./NewTableDialog.module.css";
 
 /** Lo que hace falta para crear una tabla desde el diagrama. */
@@ -31,6 +32,7 @@ export function NewTableDialog({
   const [nombre, setNombre] = useState("");
   const [pk, setPk] = useState("id");
   const [tipo, setTipo] = useState("bigint");
+  const { opciones } = useColumnTypes();
 
   const puede = nombre.trim() !== "" && pk.trim() !== "" && tipo.trim() !== "";
 
@@ -65,7 +67,13 @@ export function NewTableDialog({
           <Input value={pk} onChange={(e) => setPk(e.currentTarget.value)} />
         </Field>
         <Field label="Tipo de la clave">
-          <Input value={tipo} onChange={(e) => setTipo(e.currentTarget.value)} />
+          <Combobox
+            value={tipo}
+            options={opciones}
+            ariaLabel="Tipo de la clave primaria"
+            placeholder="buscá un tipo…"
+            onChange={setTipo}
+          />
         </Field>
         <p className={styles.nota}>
           Las demás columnas se agregan después, con la herramienta de columna o desde la pantalla

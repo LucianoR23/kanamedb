@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { DetailColumn } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Type as OpType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
-import { Button, Checkbox, Dialog, Field, Input } from "../components/ui";
+import { Button, Checkbox, Combobox, Dialog, Field, Input } from "../components/ui";
 import { cx } from "../lib/cx";
 import styles from "./ConstraintEditor.module.css";
 
@@ -187,18 +187,14 @@ export function ConstraintEditor({
             ) : (
               <>
                 <Field label="Apunta a la tabla">
-                  <Input
+                  <Combobox
                     value={refTabla}
-                    list="kn-tablas"
-                    placeholder="clientes"
-                    onChange={(e) => setRefTabla(e.currentTarget.value)}
+                    options={tablas.map((t) => ({ value: t }))}
+                    ariaLabel="Tabla referenciada"
+                    placeholder="buscá una tabla…"
+                    onChange={setRefTabla}
                   />
                 </Field>
-                <datalist id="kn-tablas">
-                  {tablas.map((t) => (
-                    <option key={t} value={t} />
-                  ))}
-                </datalist>
                 <Field label="A las columnas">
                   <Input
                     value={refColumnas}

@@ -1,11 +1,7 @@
-import { useEffect, useState } from "react";
-import type {
-  DetailColumn,
-  TypeOption,
-} from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
+import { useState } from "react";
+import type { DetailColumn } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Button, Checkbox, Combobox, Dialog, Field, Input } from "../components/ui";
-import type { ComboOption } from "../components/ui";
+import { useColumnTypes } from "../lib/useColumnTypes";
 import styles from "./ColumnEditor.module.css";
 
 /** Lo que el diálogo devuelve. La SQL la escribe Go, acá solo se junta el dato. */
@@ -55,16 +51,7 @@ export function ColumnEditor({
   const [nullable, setNullable] = useState(true);
   const [porDefecto, setPorDefecto] = useState("");
   const [comentario, setComentario] = useState("");
-  const [tipos, setTipos] = useState<TypeOption[]>([]);
-
-  useEffect(() => {
-    void SessionSvc.ColumnTypes()
-      .then((ts) => setTipos(ts ?? []))
-      // Sin la lista el campo sigue sirviendo como texto libre: quedarse sin
-      // poder agregar una columna porque no se pudo leer el catálogo sería
-      // peor que perder la comodidad.
-      .catch(() => setTipos([]));
-  }, []);
+  const { tipos, opciones } = useColumnTypes();
 
   const renombrar = modo === "renombrar";
   const elegido = tipos.find((t) => t.name === tipo);
@@ -129,7 +116,7 @@ export function ColumnEditor({
             <Field label="Tipo">
               <Combobox
                 value={tipo}
-                options={opcionesDeTipo(tipos)}
+                options={opciones}
                 ariaLabel="Tipo de la columna"
                 placeholder="buscá un tipo…"
                 onChange={(v) => {
@@ -194,14 +181,6 @@ export function ColumnEditor({
   );
 }
 
-/** Los tipos, con lo de esta base marcado. */
-function opcionesDeTipo(tipos: TypeOption[]): ComboOption[] {
-  return tipos.map((t) => ({
-    value: t.name,
-    ...(t.builtIn ? {} : { tag: t.kind === "base" ? "de esta base" : t.kind }),
-    ...(t.comment ? { title: t.comment } : {}),
-  }));
-}
 
 /** Qué se espera adentro de los paréntesis, según el tipo. */
 function placeholderDeModificador(tipo: string): string {
