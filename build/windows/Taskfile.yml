@@ -43,7 +43,11 @@ tasks:
             ref: .OBFUSCATED
           DEV:
             ref: .DEV
-      - task: common:generate:icons
+      # NO se genera el icono: windows/icon.ico esta commiteado y viene del
+      # brand kit, con los cuatro cortes hechos a mano. `wails3 generate icons`
+      # lo reescalaria desde appicon.png y ademas produce solo seis miembros
+      # (256,128,64,48,32,16): sin el de 20, que Windows usa en la barra de
+      # tareas, y sin el de 24. Ver kaname-plan.md.
     preconditions:
       - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
         msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
@@ -71,7 +75,11 @@ tasks:
         vars:
           OBFUSCATED:
             ref: .OBFUSCATED
-      - task: common:generate:icons
+      # NO se genera el icono: windows/icon.ico esta commiteado y viene del
+      # brand kit, con los cuatro cortes hechos a mano. `wails3 generate icons`
+      # lo reescalaria desde appicon.png y ademas produce solo seis miembros
+      # (256,128,64,48,32,16): sin el de 20, que Windows usa en la barra de
+      # tareas, y sin el de 24. Ver kaname-plan.md.
     preconditions:
       - sh: docker info > /dev/null 2>&1
         msg: "Docker is required for CGO cross-compilation. Please install Docker."

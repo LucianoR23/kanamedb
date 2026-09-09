@@ -262,6 +262,19 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 - **S03** — tabs TLS y Advanced.
 - **S24** — variante "unsaved changes on tab close".
 - Tema claro de S05, S06, S12 y S15 — al final, no al principio.
+- **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
+  (`Icon=kaname`, el nombre tiene que coincidir), y el ícono de macOS, que desde
+  macOS 26 **no es un PNG plano**: se compone por capas en Icon Composer con las
+  apariencias `default`, `dark`, `clear` y `tinted`. El brand kit ya entrega las
+  capas separadas y sin efectos horneados, que es como Apple las pide. No se
+  puede adelantar: esos builds no existen hasta esta iteración.
+- **Renombrar los tokens de color del ERD y del preview.** El kit define
+  `--erd-rel-cascade`, `--erd-pk`, `--schema-drop`… y el código usa genéricos:
+  hoy la línea de cascada es `--env-stage` y la clave foránea es `--accent`. Los
+  valores coinciden exactamente, así que no se ve nada mal — pero cambiar el
+  color de una cascada exige saber que se llama como un entorno de staging. Es
+  un renombre, no un rediseño.
+- **Pase de movimiento.** Ver § 6.
 - **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
   (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
   abren PRs solos; son funciones de la plataforma, no telemetría de la app, así
@@ -562,6 +575,60 @@ ofrece, en vez de ofrecerla y explicar el error después.
 **Cerrar pestañas con el botón del medio.** Lo que hace cualquier navegador o
 editor. El `preventDefault` en `mousedown` no es opcional en Windows: sin él, el
 sistema entra en modo autoscroll y deja el cursor de las flechitas dando vueltas.
+
+**La marca, y por qué el ícono de Windows se adelantó.** `build/appicon.png` y
+`build/windows/icon.ico` seguían siendo los de Wails, así que todo lo compilado
+hasta la Iteración 9 iba a llevar la identidad equivocada. Y el test que el
+propio kit define —el isotipo a 16px sobre taskbar clara y oscura— solo se
+puede correr con un build real.
+
+El `.ico` se arma **a mano con los cuatro cortes del kit**, no con
+`wails3 generate icons`. Dos motivos: esa tarea reescala desde `appicon.png`, y
+los tamaños chicos del kit son dibujos distintos —a 16px desaparece la varilla
+horizontal, y de 16 a 32 el eje se dibuja alineado a la grilla de píxeles—; y
+además genera solo seis miembros (`256,128,64,48,32,16`), sin el de **20**, que
+es el que Windows usa en la barra de tareas, ni el de 24. El `.ico` quedó con
+ocho. De 48 para arriba sí salen del maestro de 1024, que es lo que el kit
+indica: ahí no se simplifica nada y solo cambia la resolución.
+
+Por eso el build de Windows **ya no depende** de `common:generate:icons`: esa
+tarea sobreescribe `windows/icon.ico`, y su flag `-windowsfilename` tiene ese
+mismo valor por defecto, así que omitirlo no alcanzaba. El `.ico` pasa a ser un
+artefacto commiteado, no generado.
+
+**Movimiento: tres duraciones y una regla.** `--dur-fast` 90ms para menús y
+desplegables, `--dur` 140ms para diálogos y paneles, `--dur-slow` 400ms para
+destellos. La regla que las ordena: **se anima lo que cambia de existencia o de
+posición, nunca lo que cambia de contenido ni lo que se está por accionar.**
+
+Se adelantó una sola cosa, porque es un arreglo y no decoración: el **destello
+del contador de cambios pendientes**. Preparás un cambio, el diálogo se cierra,
+y lo único que pasa es que un número sube en la otra punta de la pantalla; sin
+el destello esa señal se pierde. (La barra de progreso del apply, que también
+estaba en la lista, ya tenía su transición: no hacía falta tocarla.)
+
+Lo que queda para el pase de la Iteración 9: salida de los diálogos con
+`@starting-style`, menús y desplegables, y los toasts de S24 —donde la
+animación es funcional, porque aparecen sin que los pidas y en el borde de la
+vista—. Lo que **no** se anima, y conviene que esté escrito para que nadie lo
+«arregle» después:
+
+- La grilla de resultados y cualquier lista virtualizada: las filas se
+  reciclan, así que animar la entrada haría parpadear filas que solo cambiaron
+  de posición.
+- El lienzo del ERD mientras se arrastra o se recalcula el layout: va a 60fps
+  contra la mano del usuario.
+- Abrir y cerrar pestañas, y plegar los paneles laterales: animar el ancho
+  reflowea de más. Si se intenta, se mide con el ERD abierto antes de aceptarlo.
+- **Las confirmaciones destructivas.** Un modal rojo que entra suave se lee como
+  menos serio que uno que aparece. La confirmación de producción tiene que
+  aparecer, no llegar. Es la única pantalla donde la ausencia de animación es la
+  decisión de diseño.
+
+`prefers-reduced-motion` ya está resuelto global en `tokens.css`, así que todo
+lo nuevo hereda el interruptor. Acá eso es más que accesibilidad: quien está
+aplicando DDL contra producción tiene derecho a apagar cualquier cosa que
+demore la respuesta.
 
 ### Iteración 5 — 2026-09-09
 

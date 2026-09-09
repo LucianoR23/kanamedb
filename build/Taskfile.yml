@@ -191,7 +191,7 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts -i
 
   generate:icons:
-    summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
+    summary: Generates Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms). NOTA - tambien sobreescribe windows/icon.ico, que en este proyecto viene del brand kit con los cortes hechos a mano, por lo que el build de Windows ya no depende de esta tarea. Si la corres suelta, reverti windows/icon.ico antes de commitear.
     run: once
     dir: build
     sources:
