@@ -205,8 +205,13 @@ tasks:
 
   dev:frontend:
     summary: Runs the frontend in development mode
-    deps:
-      - task: install:frontend:deps
+    # SIN `deps - install:frontend:deps` a proposito. `wails3 dev` corre
+    # `wails3 build DEV=true` como paso bloqueante ANTES de esto, y ese build ya
+    # instala las dependencias. Repetirlo cuesta ~2 s, y ahi no hay margen -
+    # Wails espera al dev server 10 intentos de 500 ms y despues aborta con
+    # "unable to connect to frontend server". Con la instalacion repetida el
+    # arranque medido daba 4,6 s contra 5,0 s de presupuesto, asi que fallaba en
+    # cuanto la maquina estuviera algo ocupada. Ver kaname-plan.md.
     cmds:
       - task: frontend:dev:{{.PACKAGE_MANAGER}}
 

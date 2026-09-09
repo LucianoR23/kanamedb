@@ -572,6 +572,31 @@ defecto» sobre `demo.pedidos.total`. La opción queda deshabilitada con el
 motivo. Es la regla de siempre: una operación que el motor va a rechazar no se
 ofrece, en vez de ofrecerla y explicar el error después.
 
+**La firma del autor va en About y en ningún otro lado.** Un enlace que aprieta
+una persona no rompe la regla de no phone-home: la aplicación no hace ninguna
+request, no manda identificador ni versión ni timing, y solo pasa si alguien
+decide. Pero **la URL va pelada**: un `?ref=kaname&v=1.3` convertiría el clic en
+telemetría —el servidor se enteraría de que alguien corre Kaname y cuál
+versión—, que es justo lo que la regla prohíbe, disfrazado de enlace.
+
+No son `<a href>`. Dentro de un webview eso **no** abre el navegador del
+sistema: según cómo esté configurado WebView2, navega el webview en el lugar
+—reemplaza la aplicación por una página web— o abre una ventana pelada. Va por
+`Browser.OpenURL` de `@wailsio/runtime`, que se lo entrega al sistema operativo.
+La aplicación nunca carga contenido remoto en su propio proceso.
+
+El wordmark se teclea solo, y eso choca de frente con la regla de movimiento de
+más abajo —anima CONTENIDO, para siempre—. La excepción se sostiene por dónde
+está: About es un diálogo que se abre a propósito, se mira y se cierra, así que
+no compite con nada. Si alguna vez va a un lugar permanente, va estático. Se
+detiene además cuando la ventana no está visible: acá eso no es cortesía como en
+la web, es que esta ventana queda abierta horas.
+
+**Sin contador de estrellas de GitHub.** Sería llamar a `api.github.com` cada vez
+que se abre About: GitHub aprendería la IP y que esa persona corre Kaname, cada
+vez. Es phone-home con otro nombre. Hornear el número en el build lo deja
+desactualizado, que es peor que no tenerlo. Queda el enlace solo.
+
 **Cerrar pestañas con el botón del medio.** Lo que hace cualquier navegador o
 editor. El `preventDefault` en `mousedown` no es opcional en Windows: sin él, el
 sistema entra en modo autoscroll y deja el cursor de las flechitas dando vueltas.
@@ -595,6 +620,24 @@ Por eso el build de Windows **ya no depende** de `common:generate:icons`: esa
 tarea sobreescribe `windows/icon.ico`, y su flag `-windowsfilename` tiene ese
 mismo valor por defecto, así que omitirlo no alcanzaba. El `.ico` pasa a ser un
 artefacto commiteado, no generado.
+
+**`wails3 task dev` fallaba por 400 milisegundos.** Abortaba con *«unable to
+connect to frontend server»* aunque Vite arrancara bien. Wails espera al dev
+server **10 intentos de 500 ms y después mata la aplicación**, y las dos cosas
+—el host `localhost` y ese presupuesto— están escritas en su código, no son
+configurables.
+
+Se descartó primero la sospecha obvia: `vite.config.ts` ata el server a
+`127.0.0.1` a propósito y `localhost` resuelve a `::1` primero en Windows. Pero
+resuelve a **las dos**, y el cliente de Go hace fallback a IPv4 en 64 ms. No era
+eso.
+
+Era que `dev:frontend` traía `deps: install:frontend:deps`, o sea un
+`pnpm install` de más: `wails3 dev` ya corre `wails3 build DEV=true` como paso
+bloqueante, que instala las dependencias segundos antes. Medido, el arranque del
+dev server tardaba **4607 ms contra 5000 de presupuesto** — fallaba en cuanto la
+máquina estuviera algo ocupada, que es exactamente lo que pasa durante un build.
+Sin la instalación repetida son **1312 ms**, y el margen pasa de 400 ms a 3,7 s.
 
 **Movimiento: tres duraciones y una regla.** `--dur-fast` 90ms para menús y
 desplegables, `--dur` 140ms para diálogos y paneles, `--dur-slow` 400ms para
