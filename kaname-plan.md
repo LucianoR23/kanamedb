@@ -366,6 +366,52 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
 
+### Iteración 5 — correcciones de uso — 2026-09-09
+
+Todo esto salió de probar la iteración a mano contra `docker/demo.sql`. Ninguno
+lo habría encontrado un test de los que había: cuatro de los cinco son estados
+que solo existen cuando alguien usa dos pantallas seguidas.
+
+**Un error de sentencia no se explica con el vocabulario de una conexión.** El
+apply clasificaba sus fallos con `postgres.Classify`, que contesta «¿por qué no
+llegué al servidor?». Un `SET NOT NULL` sobre una columna con nulos —un 23502
+perfectamente identificado, con el nombre de la tabla y de la columna adentro—
+salía como **«No se pudo conectar con usuario@host:5432/base»**. Además de
+inútil, es falso: el servidor contestó.
+
+Había dos bugs encimados y el segundo tapaba al primero. `Apply` guardaba el
+texto del error y después lo reconstruía con `errors.New` para clasificarlo, lo
+que tira el `*pgconn.PgError`: el clasificador nunca veía un SQLSTATE, así que
+*ningún* código llegaba a interpretarse y todo caía en el mismo cajón. Ahora
+`correr` devuelve el error crudo junto al resultado, y lo interpreta
+`postgres.ClassifyStatement`, que conoce treinta SQLSTATE de DDL y, cuando no
+conoce uno, contesta por la clase del código en vez de rendirse.
+
+Lo que cambia para quien lo lee: el mensaje nombra la columna, el `DETAIL` de
+PostgreSQL da el valor que chocó —`(codigo)=(AAA)`— y el Hint trae la consulta
+para encontrar las filas culpables. Es la diferencia entre saber que falló y
+saber dónde mirar en una tabla de doce mil filas.
+
+**Lo que quedó aplicado tiene que salir de la lista de pendientes.** `Apply`
+vaciaba el changeset solo si el apply completo salía bien, así que el único caso
+donde la lista y la base pueden discrepar —sin transacción, falla la tercera de
+cinco— era justo el que quedaba mal. No es cosmético: al reintentar, las dos
+primeras se vuelven a correr y un `ADD COLUMN` que ya corrió hace fallar el
+conjunto entero por algo que ya estaba hecho. Ahora se mira sentencia por
+sentencia, y `RolledBack` decide: con transacción única una sentencia puede
+haber corrido bien y aun así no existir más.
+
+**`0A000` es un cajón, no un error.** Probando salió `ADD COLUMN cliente_id
+bigint DEFAULT id`, que PostgreSQL rechaza con *«cannot use column reference in
+DEFAULT expression»*. El código `0A000` cubre por lo menos tres cosas que se
+arreglan de tres maneras distintas —default que nombra una columna, default que
+es una subconsulta, y cambiar el tipo de una columna que usa una vista— así que
+dejarlas con la misma frase no ayuda a ninguna. Se separan mirando el texto del
+mensaje, que es frágil, y por eso se hace al final y degrada al mensaje general
+si no coincide. Lo mismo con el `42601`, que PostgreSQL usa además para «esa
+columna es generada»: darle el mensaje de error de sintaxis acusaba a Kaname de
+un bug que no existe.
+
 ### Iteración 5 — 2026-09-09
 
 **No hay differ, y el motivo es más fuerte que el gate de Atlas.** El diseño de

@@ -499,10 +499,13 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	// Lo que se aplicó deja de estar pendiente. Lo que no —porque falló, o
 	// porque se revirtió— se queda: perder el changeset después de un error
 	// obligaría a rehacer todas las ediciones.
-	if res.OK {
-		for _, c := range pendientes {
-			sesion.cambios.Remove(c.ID)
-		}
+	//
+	// Se mira sentencia por sentencia y no «salió todo bien o no salió nada».
+	// Sin transacción, un apply que falla en la tercera deja las dos primeras
+	// aplicadas de verdad, y dejarlas en la lista es peor que un detalle
+	// cosmético: al reintentar se vuelven a correr, y una columna que ya existe
+	// hace fallar el apply entero por algo que ya estaba hecho.
+	if n := s.olvidarAplicados(sesion, res); n > 0 {
 		// El esquema cambió, así que el snapshot que tiene el árbol quedó viejo.
 		s.mu.Lock()
 		if s.current == sesion {
@@ -511,6 +514,24 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		s.mu.Unlock()
 	}
 	return res, nil
+}
+
+// olvidarAplicados saca del changeset los cambios que quedaron en la base, y
+// devuelve cuántos fueron.
+//
+// RolledBack es la palabra clave: con transacción única, una sentencia puede
+// haber corrido bien y aun así no existir más. Ahí no se saca nada.
+func (s *Session) olvidarAplicados(sesion *openSession, res ApplyResult) int {
+	if res.RolledBack {
+		return 0
+	}
+	n := 0
+	for _, r := range res.Results {
+		if r.Applied && sesion.cambios.Remove(r.ChangeID) {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *Session) aplicarEnTransaccion(
@@ -528,19 +549,21 @@ func (s *Session) aplicarEnTransaccion(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	for i, st := range sts {
-		r := s.correr(ctx, tx, i, st)
+		r, err := s.correr(ctx, tx, i, st)
 		res.Results = append(res.Results, r)
-		if !r.Applied {
+		if err != nil {
 			res.OK = false
 			res.RolledBack = true
-			res.Failure = postgres.Classify(errors.New(r.Error), sesion.conn.Describe())
+			res.Failure = postgres.ClassifyStatement(err, sesion.conn.Describe())
 			return res
 		}
 	}
+	// El commit también puede fallar, y con una razón propia: las claves
+	// DEFERRABLE se comprueban recién acá.
 	if err := tx.Commit(ctx); err != nil {
 		res.OK = false
 		res.RolledBack = true
-		res.Failure = postgres.Classify(err, sesion.conn.Describe())
+		res.Failure = postgres.ClassifyStatement(err, sesion.conn.Describe())
 	}
 	return res
 }
@@ -550,11 +573,11 @@ func (s *Session) aplicarSuelto(
 ) ApplyResult {
 	res := ApplyResult{OK: true}
 	for i, st := range sts {
-		r := s.correr(ctx, sesion.pool, i, st)
+		r, err := s.correr(ctx, sesion.pool, i, st)
 		res.Results = append(res.Results, r)
-		if !r.Applied {
+		if err != nil {
 			res.OK = false
-			res.Failure = postgres.Classify(errors.New(r.Error), sesion.conn.Describe())
+			res.Failure = postgres.ClassifyStatement(err, sesion.conn.Describe())
 			// Sin transacción, lo anterior YA quedó aplicado. Se corta acá: si
 			// una sentencia falló, las que venían después casi siempre dependían
 			// de ella.
@@ -571,7 +594,17 @@ type ejecutor interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-func (s *Session) correr(ctx context.Context, ej ejecutor, i int, st change.Statement) StatementResult {
+// correr ejecuta una sentencia y devuelve cómo le fue MÁS el error crudo.
+//
+// Los dos, y no solo el resultado: el error de pgx lleva adentro un
+// *pgconn.PgError con el SQLSTATE y los nombres del objeto que falló, y eso es
+// lo único que permite decir «la columna apodo tiene nulos» en vez de «falló».
+// Antes se guardaba únicamente el texto y después se reconstruía con
+// errors.New, que tira el tipo: el clasificador nunca veía un SQLSTATE y por
+// eso todo terminaba en el cajón de «no se pudo conectar».
+func (s *Session) correr(
+	ctx context.Context, ej ejecutor, i int, st change.Statement,
+) (StatementResult, error) {
 	s.avanzarApply(i, st)
 
 	inicio := time.Now()
@@ -583,11 +616,11 @@ func (s *Session) correr(ctx context.Context, ej ejecutor, i int, st change.Stat
 		Applied:   err == nil,
 	}
 	if err != nil {
-		r.Error = err.Error()
+		r.Error = postgres.Redact(err.Error())
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			r.SQLState = pgErr.Code
 		}
 	}
-	return r
+	return r, err
 }

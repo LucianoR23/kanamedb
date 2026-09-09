@@ -133,9 +133,68 @@ func TestApplyEnUnaTransaccionRevierteTodoSiAlgoFalla(t *testing.T) {
 		t.Error("la tabla de la primera sentencia quedó creada: no se revirtió nada")
 	}
 
-	// Y el changeset se conserva: perderlo obligaría a rehacer las ediciones.
+	// Y el changeset se conserva ENTERO: no se aplicó nada, así que no hay nada
+	// que sacar. Es lo contrario del caso sin transacción.
 	if v, _ := sesion.Changeset(); v.Summary.Total != 2 {
 		t.Errorf("el changeset quedó con %d cambios después de fallar", v.Summary.Total)
+	}
+}
+
+// El fallo se explica en el vocabulario de la sentencia, no en el de la
+// conexión.
+//
+// Este test existe por un bug concreto: Apply reconstruía el error con
+// errors.New(texto) antes de clasificarlo, lo que tiraba el *pgconn.PgError y
+// con él el SQLSTATE. El clasificador de conexiones se quedaba sin nada que
+// mirar y contestaba «el servidor rechazó la conexión con usuario@host/base»
+// para cualquier fallo, incluida una columna con nulos.
+func TestApplyExplicaElFalloDeLaSentenciaYNoElDeLaConexion(t *testing.T) {
+	sesion, esq := sesionConEsquema(t)
+	ctx := context.Background()
+
+	abierta, err := sesion.abierta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{
+		"CREATE TABLE " + esq + ".con_nulos (id int PRIMARY KEY, apodo text)",
+		"INSERT INTO " + esq + ".con_nulos VALUES (1, 'ana'), (2, NULL)",
+	} {
+		if _, err := abierta.pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("preparar %q: %v", sql, err)
+		}
+	}
+
+	if _, err := sesion.Stage(change.Change{
+		Type: change.SetNotNull, Schema: esq, Table: "con_nulos", Source: "test",
+		Column: &change.Column{Name: "apodo"},
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := sesion.Apply(ctx, ApplyOptions{SingleTransaction: true})
+	if err != nil {
+		t.Fatalf("Apply() error de programa: %v", err)
+	}
+	if res.OK {
+		t.Fatal("Apply() dijo que salió bien sobre una columna con nulos")
+	}
+	if res.Failure == nil {
+		t.Fatal("Apply() no clasificó el fallo")
+	}
+	if res.Failure.SQLState != "23502" {
+		t.Errorf("SQLState = %q, se esperaba 23502", res.Failure.SQLState)
+	}
+	for _, quiere := range []string{"apodo", "NULL"} {
+		if !strings.Contains(res.Failure.Message, quiere) {
+			t.Errorf("el mensaje no dice %q: %s", quiere, res.Failure.Message)
+		}
+	}
+	if strings.Contains(res.Failure.Message, "conexión") {
+		t.Errorf("el mensaje habla de la conexión: %s", res.Failure.Message)
+	}
+	if res.Results[0].SQLState != "23502" {
+		t.Errorf("el resultado de la sentencia perdió el SQLSTATE: %+v", res.Results[0])
 	}
 }
 
@@ -164,6 +223,24 @@ func TestApplySinTransaccionDejaLoAnteriorAplicado(t *testing.T) {
 	}
 	if _, err := sesion.TableDetail(ctx, esq, "buena"); err != nil {
 		t.Errorf("sin transacción, la primera sentencia tenía que quedar aplicada: %v", err)
+	}
+
+	// Y lo que quedó aplicado tiene que SALIR de la lista de pendientes.
+	//
+	// No es cosmético: si se queda, el próximo apply la vuelve a correr, y un
+	// CREATE TABLE que ya corrió hace fallar el conjunto entero por algo que ya
+	// estaba hecho. Antes se vaciaba el changeset solo cuando el apply completo
+	// salía bien, así que este caso —el único donde la lista y la base pueden
+	// discrepar— era justo el que quedaba mal.
+	v, err := sesion.Changeset()
+	if err != nil {
+		t.Fatalf("Changeset() error: %v", err)
+	}
+	if v.Summary.Total != 1 {
+		t.Fatalf("quedaron %d cambios pendientes, se esperaba 1 (el que falló)", v.Summary.Total)
+	}
+	if v.Changes[0].Change.Table != "no_existe" {
+		t.Errorf("quedó pendiente %q y tenía que quedar el que falló", v.Changes[0].Change.Table)
 	}
 }
 

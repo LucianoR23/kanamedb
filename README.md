@@ -114,7 +114,13 @@ Deja tres esquemas: **`demo`** con identidad, columnas generadas, restricciones
 sin validar, índices de todas las formas y triggers activos y deshabilitados;
 **`aristas`** con una tabla por cada forma de relación, para comparar cómo se
 dibuja cada una; y tres tablas preparadas para que ciertas operaciones **fallen**
-al aplicarse, y poder ver que el error se explica y que la transacción revierte.
+al aplicarse, y poder ver que el error se explica y que la transacción revierte:
+
+| Tabla | Qué hacerle | Por qué falla |
+|---|---|---|
+| `demo.con_nulos` | exigir que `apodo` no sea nula | la fila 2 tiene NULL |
+| `demo.con_repetidos` | índice único sobre `codigo` | `'AAA'` está dos veces |
+| `demo.huerfanos` | clave foránea de `cliente_id` a `demo.clientes.id` | el cliente 999999 no existe |
 
 Se puede correr las veces que haga falta. La base vive en tmpfs, así que bajar el
 stack se lleva todo y hay que volver a correrlo.
