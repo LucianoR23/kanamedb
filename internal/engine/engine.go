@@ -66,6 +66,23 @@ type Caps struct {
 	// Postgres y SQLite sí lo soportan de verdad.
 	TransactionalDDL bool
 
+	// AtomicDDL dice que CADA sentencia, por separado, es todo o nada.
+	//
+	// Es distinto de TransactionalDDL y confundirlas sería injusto con MySQL y
+	// MariaDB: las dos tienen «atomic DDL» desde hace años —MySQL 8.0, MariaDB
+	// 10.6— y eso significa que un ALTER que agrega dos columnas y falla en la
+	// segunda no deja puesta la primera. Comprobado contra las dos.
+	//
+	// Cambia lo que S15 dice al fallar. Sin transacción, «las anteriores YA
+	// quedaron aplicadas» es cierto, pero «la que falló quedó a medias» sería
+	// falso y asusta de más: la que falló no dejó nada.
+	AtomicDDL bool
+
+	// Sequences dice si existen como objeto propio. Postgres y MariaDB sí;
+	// MySQL no las tiene y SQLite tampoco. El árbol de objetos muestra un nodo
+	// que en dos de los cuatro motores no puede existir.
+	Sequences bool
+
 	// RebuildsTableOnAlter dice que cambiar una columna reescribe la tabla
 	// entera en vez de tocar metadatos. Es SQLite, que para casi cualquier
 	// ALTER crea una tabla nueva, copia, y renombra. Cambia lo que S15 tiene

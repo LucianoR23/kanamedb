@@ -93,6 +93,80 @@ func TestDDLTransaccionalEsCierto(t *testing.T) {
 	}
 }
 
+// TestDDLAtomicoEsCierto comprueba la otra mitad de la historia.
+//
+// AtomicDDL y TransactionalDDL son cosas distintas, y confundirlas sería
+// injusto con MySQL y MariaDB. Las dos hacen commit implícito antes de cada DDL
+// —así que no hay «todo o nada» sobre un conjunto— pero cada sentencia POR
+// SEPARADO sí es todo o nada desde MySQL 8.0 y MariaDB 10.6.
+//
+// Importa porque cambia lo que S15 dice al fallar. «Falló a la mitad» es cierto
+// para el conjunto; decir además que la sentencia que falló quedó a medias
+// sería falso, y asustaría de más justo cuando alguien necesita pensar claro.
+//
+// Se comprueba con un ALTER que agrega DOS columnas y falla en la segunda: si
+// el DDL es atómico, la primera no puede haber quedado.
+func TestDDLAtomicoEsCierto(t *testing.T) {
+	casos := []struct {
+		kind    engine.Kind
+		abrir   func(t *testing.T) *sql.DB
+		columna func(db *sql.DB, tabla, col string) (bool, error)
+	}{
+		{engine.Postgres, abrirPostgres, columnaPostgres},
+		{engine.MySQL, abrirDSN("mysql", dsnMySQL), columnaMySQL},
+		{engine.MariaDB, abrirDSN("mysql", dsnMariaDB), columnaMySQL},
+		{engine.SQLite, abrirSQLite, columnaSQLite},
+	}
+
+	for _, c := range casos {
+		t.Run(c.kind.String(), func(t *testing.T) {
+			db := c.abrir(t)
+			tabla := "kn_ddl_atom"
+			if _, err := db.Exec("DROP TABLE IF EXISTS " + tabla); err != nil {
+				t.Fatalf("limpiar: %v", err)
+			}
+			t.Cleanup(func() { _, _ = db.Exec("DROP TABLE IF EXISTS " + tabla) })
+			if _, err := db.Exec("CREATE TABLE " + tabla + " (id integer)"); err != nil {
+				t.Fatalf("CREATE: %v", err)
+			}
+			// Con una fila adentro. Sin ella el caso de SQLite no prueba nada:
+			// un ADD COLUMN NOT NULL sobre una tabla vacía es perfectamente
+			// válido, así que el ALTER no fallaba y el test daba verde sin
+			// haber comprobado nada.
+			if _, err := db.Exec("INSERT INTO " + tabla + " (id) VALUES (1)"); err != nil {
+				t.Fatalf("INSERT: %v", err)
+			}
+
+			// La segunda columna choca con la que ya existe, así que el ALTER
+			// entero tiene que fallar. SQLite no acepta dos ADD COLUMN en una
+			// sentencia; ahí se prueba lo mismo de la única forma que existe,
+			// con una sentencia sola que falla por las filas que ya están.
+			sql := "ALTER TABLE " + tabla + " ADD COLUMN nueva integer, ADD COLUMN id integer"
+			if c.kind == engine.SQLite {
+				sql = "ALTER TABLE " + tabla + " ADD COLUMN nueva integer NOT NULL"
+			}
+			if _, err := db.Exec(sql); err == nil {
+				t.Fatalf("el ALTER no falló, así que el caso no prueba nada: %s", sql)
+			}
+
+			quedo, err := c.columna(db, tabla, "nueva")
+			if err != nil {
+				t.Fatalf("comprobar la columna: %v", err)
+			}
+			if engine.CapsOf(c.kind).AtomicDDL && quedo {
+				t.Errorf("Caps dice que %s tiene DDL atómico, pero un ALTER que falló "+
+					"dejó puesta la primera columna. S15 estaría diciendo que la "+
+					"sentencia fallida no dejó nada, y sí dejó.", c.kind.Label())
+			}
+			if !engine.CapsOf(c.kind).AtomicDDL && !quedo {
+				t.Errorf("Caps dice que %s NO tiene DDL atómico, pero el ALTER "+
+					"fallido no dejó nada. El motor mejoró y la tabla quedó vieja.",
+					c.kind.Label())
+			}
+		})
+	}
+}
+
 // TestLasCapacidadesEstanCompletas comprueba que ningún motor quedó sin
 // contestar las preguntas.
 //
@@ -171,6 +245,41 @@ func existeMySQL(db *sql.DB, tabla string) (bool, error) {
 		"SELECT count(*) FROM information_schema.tables "+
 			"WHERE table_schema = DATABASE() AND table_name = ?", tabla).Scan(&n)
 	return n > 0, err
+}
+
+func columnaPostgres(db *sql.DB, tabla, col string) (bool, error) {
+	var n int
+	err := db.QueryRow(
+		"SELECT count(*) FROM information_schema.columns "+
+			"WHERE table_name = $1 AND column_name = $2", tabla, col).Scan(&n)
+	return n > 0, err
+}
+
+func columnaMySQL(db *sql.DB, tabla, col string) (bool, error) {
+	var n int
+	err := db.QueryRow(
+		"SELECT count(*) FROM information_schema.columns "+
+			"WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
+		tabla, col).Scan(&n)
+	return n > 0, err
+}
+
+func columnaSQLite(db *sql.DB, tabla, col string) (bool, error) {
+	rows, err := db.Query("SELECT name FROM pragma_table_info(?)", tabla)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return false, err
+		}
+		if n == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func existeSQLite(db *sql.DB, tabla string) (bool, error) {

@@ -10,6 +10,8 @@ package engine
 var capacidades = map[Kind]Caps{
 	Postgres: {
 		TransactionalDDL:      true,
+		AtomicDDL:             true,
+		Sequences:             true,
 		RebuildsTableOnAlter:  false,
 		Schemas:               true,
 		MultipleDatabases:     true,
@@ -24,7 +26,11 @@ var capacidades = map[Kind]Caps{
 		// Comprobado contra MySQL 9.7.2: un CREATE TABLE dentro de una
 		// transacción sobrevive al ROLLBACK. Hay commit implícito antes de
 		// cada DDL y no hay forma de apagarlo.
-		TransactionalDDL:      false,
+		TransactionalDDL: false,
+		// Pero sí atómico por sentencia, desde MySQL 8.0: un ALTER que agrega
+		// dos columnas y falla en la segunda no deja puesta la primera.
+		AtomicDDL:             true,
+		Sequences:             false,
 		RebuildsTableOnAlter:  false,
 		Schemas:               false,
 		MultipleDatabases:     true,
@@ -34,9 +40,18 @@ var capacidades = map[Kind]Caps{
 		DeferrableConstraints: false,
 		MaxIdentifier:         64,
 	},
+	// MariaDB no es «MySQL con otro nombre», y probando las dos quedó a la
+	// vista: 12.3 tiene secuencias, UUID, INET6, RETURNING y períodos de
+	// tiempo de aplicación; 9.7 no tiene ninguno. Y hasta donde coinciden
+	// difieren: agrandar un varchar es INSTANT en MariaDB y reescribe la tabla
+	// en MySQL, que es justo la diferencia entre «solo metadatos» y «reescribe
+	// doce mil filas» en la pantalla de preview.
 	MariaDB: {
-		// Comprobado contra MariaDB 12.3.3: igual que MySQL.
-		TransactionalDDL:      false,
+		TransactionalDDL: false,
+		// Atomic DDL desde MariaDB 10.6, y a diferencia de MySQL funciona con
+		// todos los motores de almacenamiento, no solo InnoDB.
+		AtomicDDL:             true,
+		Sequences:             true,
 		RebuildsTableOnAlter:  false,
 		Schemas:               false,
 		MultipleDatabases:     true,
@@ -48,6 +63,8 @@ var capacidades = map[Kind]Caps{
 	},
 	SQLite: {
 		TransactionalDDL: true,
+		AtomicDDL:        true,
+		Sequences:        false,
 		// Casi cualquier ALTER que no sea agregar o renombrar una columna se
 		// hace creando una tabla nueva, copiando y renombrando. El costo no es
 		// «solo metadatos» sino el tamaño de la tabla, y eso se avisa.
