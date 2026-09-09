@@ -43,6 +43,28 @@
 /* Cuerpo: sidebar | main | rail */
 .body { flex: 1; display: flex; min-height: 0; }
 
+/* La forma de traer de vuelta un panel plegado, en el borde por el que se fue.
+   Es una franja angosta y no un botón flotante: ocupa el lugar que dejó el
+   panel, así que nada se corre cuando aparece o desaparece. */
+.borde {
+  flex: none;
+  width: 18px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+.borde:last-child {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+.borde:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
 .sidebar {
   flex: none;
   display: flex;
@@ -51,7 +73,7 @@
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
 }
-.sidebarNav { flex: none; display: flex; gap: 2px; padding: 7px 8px 0; }
+.sidebarNav { flex: none; display: flex; align-items: center; gap: 2px; padding: 7px 8px 0; }
 .sidebarSearch { flex: none; padding: 8px; }
 .sidebarBody { flex: 1; min-height: 0; overflow: auto; }
 .sidebarFoot {

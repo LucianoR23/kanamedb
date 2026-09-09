@@ -150,6 +150,13 @@
 
 * { box-sizing: border-box; }
 
+/* El `display: none` que trae `hidden` del navegador es la regla de menor
+   prioridad que existe, así que CUALQUIER clase con `display` lo anula sin que
+   nadie se entere: el elemento sigue en pantalla y encima queda escondido para
+   los lectores de pantalla. Se refuerza una vez acá para que `hidden` signifique
+   lo que dice en toda la aplicación. */
+[hidden] { display: none !important; }
+
 html, body, #root { height: 100%; }
 
 body {

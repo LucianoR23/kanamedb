@@ -15,6 +15,10 @@ interface TreeRowProps {
   expanded?: boolean;
   /** Conteo de filas, tipo de objeto, lo que la fila quiera decir a la derecha. */
   meta?: string;
+  /** Explicación del `meta` al pasar por encima. Algunos son ambiguos por lo
+   *  cortos que son —«sin analizar» se lee como «vacía»— y la fila no tiene
+   *  lugar para más texto. */
+  metaTitle?: string;
   /** Tiene cambios pendientes en el changeset. */
   dirty?: boolean;
   loading?: boolean;
@@ -29,6 +33,7 @@ export function TreeRow({
   selected = false,
   expanded,
   meta,
+  metaTitle,
   dirty = false,
   loading = false,
   onClick,
@@ -70,7 +75,11 @@ export function TreeRow({
       {dirty && !loading ? (
         <span className={styles.dirty} title="Cambios pendientes" />
       ) : null}
-      {meta && !loading ? <span className={styles.meta}>{meta}</span> : null}
+      {meta && !loading ? (
+        <span className={styles.meta} {...(metaTitle ? { title: metaTitle } : {})}>
+          {meta}
+        </span>
+      ) : null}
     </div>
   );
 }

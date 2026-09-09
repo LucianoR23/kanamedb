@@ -28,3 +28,26 @@
   stroke-width: 14;
   cursor: pointer;
 }
+
+/* La etiqueta de una clave compuesta. Va sobre el lienzo, no adentro del SVG:
+   así usa los tokens y la misma tipografía que el resto, en vez de un <text>
+   que hay que estilar aparte. `pointer-events: all` porque el contenedor de
+   etiquetas de xyflow los desactiva para no robarle el arrastre al lienzo, y
+   sin eso el título al pasar por encima no aparece. */
+.etiqueta {
+  position: absolute;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-panel);
+  color: var(--text-3);
+  white-space: nowrap;
+  font: 400 9.5px var(--font-mono);
+  pointer-events: all;
+  cursor: default;
+}
+
+.etiquetaActiva {
+  border-color: var(--accent);
+  color: var(--text-1);
+}

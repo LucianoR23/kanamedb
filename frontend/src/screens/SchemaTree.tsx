@@ -76,6 +76,7 @@ export function SchemaTree({
                       depth={1}
                       selected={id === selected}
                       meta={metaTabla(t)}
+                      metaTitle={explicarMeta(t)}
                       onClick={() => onSelect(sc.name, t.name)}
                       {...(onContextMenu
                         ? { onContextMenu: (e: React.MouseEvent) => onContextMenu(sc.name, t.name, e) }
@@ -116,6 +117,26 @@ function metaTabla(t: Table): string {
   if (t.rowEstimate < 0) return "sin analizar";
   if (t.rowEstimate === 0) return "vacía";
   return "~" + agrupar(t.rowEstimate);
+}
+
+/** Lo que la etiqueta no tiene lugar para decir.
+ *
+ *  «sin analizar» se lee como «no tiene filas», y es lo contrario de lo que
+ *  significa: una tabla con millones de filas recién creada dice exactamente lo
+ *  mismo. La que sí está vacía dice «vacía». */
+function explicarMeta(t: Table): string {
+  if (!t.readable) {
+    return "La tabla existe y aparece en el catálogo, pero este usuario no puede hacerle SELECT.";
+  }
+  if (t.rowEstimate < 0) {
+    return (
+      "Nunca se le corrió ANALYZE, así que el planificador no tiene una estimación. " +
+      "No dice nada sobre cuántas filas tiene: puede tener millones. La tabla que " +
+      "de verdad está vacía dice «vacía»."
+    );
+  }
+  if (t.rowEstimate === 0) return "El planificador estima cero filas.";
+  return "Estimación del planificador, no un conteo. Un count(*) exacto recorrería la tabla entera.";
 }
 
 /** Formatea con separador de miles SIEMPRE.

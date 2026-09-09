@@ -47,6 +47,9 @@ export function Shell({
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
   const [railWidth, setRailWidth] = useState(RAIL.initial);
   const [railOpen, setRailOpen] = useState(true);
+  // La barra lateral se pliega, no solo se angosta. Con el diagrama abierto, sus
+  // 260 píxeles son la diferencia entre ver el esquema entero y no.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [nav, setNav] = useState<string>("objects");
   const [query, setQuery] = useState("");
 
@@ -136,12 +139,17 @@ export function Shell({
     return id.startsWith("erd:") ? id.slice("erd:".length) : null;
   }
 
-  /** El esquema del que conviene abrir el diagrama: el de la tabla que está
-   *  seleccionada en el árbol, y si no hay ninguna, el primero —que siempre es
-   *  `public` en Postgres, porque el snapshot lo ordena así—. */
+  /** El esquema del que conviene abrir el diagrama.
+   *
+   *  El de la tabla seleccionada en el árbol, y si no hay ninguna, el primero
+   *  QUE TENGA TABLAS. El snapshot pone `public` primero porque es donde está
+   *  casi todo, pero en una base donde no se usa queda vacío y el diagrama
+   *  abría en blanco: elegir el primero a secas es correcto y molesto. */
   function esquemaPrincipal(): string {
     const sel = selected?.includes(".") ? selected.slice(0, selected.indexOf(".")) : "";
-    return sel || snapshot?.schemas?.[0]?.name || "public";
+    if (sel) return sel;
+    const conTablas = (snapshot?.schemas ?? []).find((sc) => (sc.tables ?? []).length > 0);
+    return conTablas?.name ?? snapshot?.schemas?.[0]?.name ?? "public";
   }
 
   return (
@@ -180,7 +188,23 @@ export function Shell({
       </header>
 
       <div className={styles.body}>
-        <aside className={styles.sidebar} style={{ width: sidebarWidth }}>
+        {sidebarOpen ? null : (
+          <button
+            type="button"
+            className={styles.borde}
+            title="Mostrar los objetos"
+            aria-label="Mostrar los objetos"
+            onClick={() => setSidebarOpen(true)}
+          >
+            &gt;
+          </button>
+        )}
+
+        <aside
+          className={styles.sidebar}
+          style={{ width: sidebarWidth }}
+          hidden={!sidebarOpen}
+        >
           <div className={styles.sidebarNav}>
             <PillTabs
               items={NAV}
@@ -188,6 +212,16 @@ export function Shell({
               onSelect={setNav}
               ariaLabel="Secciones de la barra lateral"
             />
+            <span className={styles.spacer} />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Plegar la barra lateral"
+              title="Plegar la barra lateral"
+              onClick={() => setSidebarOpen(false)}
+            >
+              &lt;
+            </Button>
           </div>
           <div className={styles.sidebarSearch}>
             <SearchInput
@@ -233,14 +267,16 @@ export function Shell({
           </div>
         </aside>
 
-        <Splitter
-          size={sidebarWidth}
-          onResize={setSidebarWidth}
-          min={SIDEBAR.min}
-          max={SIDEBAR.max}
-          side="left"
-          label="Ancho de la barra lateral"
-        />
+        {sidebarOpen ? (
+          <Splitter
+            size={sidebarWidth}
+            onResize={setSidebarWidth}
+            min={SIDEBAR.min}
+            max={SIDEBAR.max}
+            side="left"
+            label="Ancho de la barra lateral"
+          />
+        ) : null}
 
         <main className={styles.main}>
           <TabStrip
@@ -316,6 +352,18 @@ export function Shell({
           </div>
         </main>
 
+        {railOpen ? null : (
+          <button
+            type="button"
+            className={styles.borde}
+            title="Mostrar la conexión"
+            aria-label="Mostrar la conexión"
+            onClick={() => setRailOpen(true)}
+          >
+            &lt;
+          </button>
+        )}
+
         {railOpen ? (
           <>
             <Splitter
@@ -378,11 +426,6 @@ export function Shell({
         {session?.readOnly ? (
           <span className={styles.statusDim}>solo lectura</span>
         ) : null}
-        {railOpen ? null : (
-          <button type="button" className={styles.statusLink} onClick={() => setRailOpen(true)}>
-            show connection
-          </button>
-        )}
         <button
           type="button"
           className={styles.statusLink}

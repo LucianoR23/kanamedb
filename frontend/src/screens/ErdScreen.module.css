@@ -77,6 +77,12 @@
   grid-template-columns: minmax(0, 1fr) 292px;
 }
 
+/* Con el panel plegado el lienzo se queda con todo. Es una sola columna y no un
+   292px en cero, para que el borde izquierdo del panel no deje una línea. */
+.cuerpoSolo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .lienzo {
   position: relative;
   min-width: 0;
@@ -169,8 +175,50 @@
   align-items: center;
   gap: 8px;
   height: 30px;
-  padding: 0 11px;
+  padding: 0 6px 0 11px;
   border-bottom: 1px solid var(--border);
+}
+
+.plegar,
+.desplegar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.plegar {
+  width: 20px;
+  height: 20px;
+}
+
+.plegar:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* Cuando el panel está plegado, la única forma de traerlo de vuelta. Va pegado
+   al borde donde estaba, que es donde la mano lo va a buscar. */
+.desplegar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-color: var(--border-strong);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-menu);
+  z-index: 5;
+}
+
+.desplegar:hover {
+  background: var(--bg-active);
+  color: var(--text-1);
 }
 
 .panelTitulo {

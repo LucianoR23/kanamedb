@@ -52,6 +52,16 @@ export interface DatosDeArista extends Record<string, unknown> {
   filaOrigen: number;
   filaDestino: number;
   activa: boolean;
+
+  /** Cuántas claves unen este mismo par de tablas, y cuál de ellas es esta.
+   *
+   *  Dos claves entre las mismas dos tablas suelen apuntar a la MISMA columna
+   *  del otro lado —`autor` y `revisor` van los dos a `id`—, así que salen de
+   *  filas distintas y convergen en el mismo punto: en el último tramo se
+   *  superponen y parecen una sola. Con estos dos números cada una se corre un
+   *  poco y las dos se ven. */
+  paralelas: number;
+  indiceParalela: number;
 }
 
 export type NodoErd = Node<DatosDeNodo, "tabla">;
@@ -147,6 +157,11 @@ export function construirGrafo(
 
   const aristas: AristaErd[] = [];
   let fueraDelEsquema = 0;
+  // Cuántas claves van ya entre cada par de tablas, para poder correr las que se
+  // superpondrían. La clave del mapa no distingue dirección: dos tablas unidas
+  // en los dos sentidos también se pisan.
+  const porPar = new Map<string, number>();
+
   for (const t of visibles) {
     const origen = idDeTabla(esquema, t.name);
     for (const fk of t.foreignKeys ?? []) {
@@ -159,6 +174,10 @@ export function construirGrafo(
       // arista existe igual; xyflow la dibuja como un bucle.
       const primeraLocal = (fk.columns ?? [])[0] ?? "";
       const primeraRemota = (fk.refColumns ?? [])[0] ?? "";
+      const par = [origen, destino].sort().join("|");
+      const indice = porPar.get(par) ?? 0;
+      porPar.set(par, indice + 1);
+
       aristas.push({
         id: `${origen}:${fk.name}`,
         type: "relacion",
@@ -169,9 +188,18 @@ export function construirGrafo(
           filaOrigen: filaDe.get(origen)?.get(primeraLocal) ?? -1,
           filaDestino: filaDe.get(destino)?.get(primeraRemota) ?? -1,
           activa: origen === opts.seleccionada || destino === opts.seleccionada,
+          paralelas: 1,
+          indiceParalela: indice,
         },
       });
     }
+  }
+
+  // El total por par se sabe recién cuando se recorrieron todas, así que se
+  // completa al final.
+  for (const a of aristas) {
+    const par = [a.source, a.target].sort().join("|");
+    if (a.data) a.data.paralelas = porPar.get(par) ?? 1;
   }
 
   return { nodos, aristas, fueraDelEsquema };

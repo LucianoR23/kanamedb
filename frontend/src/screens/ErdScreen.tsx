@@ -72,6 +72,9 @@ function Canvas({
   const [ocultas, setOcultas] = useState<ReadonlySet<string>>(new Set());
   const [busqueda, setBusqueda] = useState("");
   const [zoom, setZoom] = useState(1);
+  // El panel se pliega: son 292 píxeles que en un esquema grande se extrañan más
+  // que el inspector.
+  const [panelAbierto, setPanelAbierto] = useState(true);
 
   // Las posiciones vivas. Arrancan vacías, se llenan con lo que haya guardado y
   // las pisa el arrastre.
@@ -225,7 +228,7 @@ function Canvas({
         </div>
       </div>
 
-      <div className={styles.cuerpo}>
+      <div className={cx(styles.cuerpo, !panelAbierto && styles.cuerpoSolo)}>
         <div className={styles.lienzo}>
           <Marcadores />
           <ReactFlow
@@ -254,6 +257,18 @@ function Canvas({
             </p>
           ) : null}
 
+          {panelAbierto ? null : (
+            <button
+              type="button"
+              className={styles.desplegar}
+              title="Mostrar el panel"
+              aria-label="Mostrar el panel"
+              onClick={() => setPanelAbierto(true)}
+            >
+              &lt;
+            </button>
+          )}
+
           <div className={styles.leyenda}>
             <div className={styles.leyendaTitulo}>Referencias</div>
             <div className={styles.leyendaFila}>
@@ -271,13 +286,22 @@ function Canvas({
           </div>
         </div>
 
-        <aside className={styles.panel}>
+        <aside className={styles.panel} hidden={!panelAbierto}>
           <div className={styles.panelCabecera}>
             <span className={styles.panelTitulo}>{sel ? "Tabla" : "Diagrama"}</span>
             <span className={styles.grow} />
             <span className={styles.panelMeta}>
               {sel ? relacionesDe(grafo, sel.id) : `${nodos.length} tablas`}
             </span>
+            <button
+              type="button"
+              className={styles.plegar}
+              aria-label="Plegar el panel"
+              title="Plegar el panel"
+              onClick={() => setPanelAbierto(false)}
+            >
+              &gt;
+            </button>
           </div>
 
           <div className={styles.panelCuerpo}>
@@ -384,28 +408,50 @@ function Canvas({
  * aplicación. Por eso el tema claro los va a alcanzar igual que a todo lo demás.
  */
 function Marcadores() {
-  const punta = "M2 2 L11 7 L2 12";
+  // Pata de gallo de verdad: tres dedos que se abren TOCANDO la caja de la
+  // tabla, y el vértice sobre la línea. La forma anterior era la inversa —una
+  // flecha apuntando hacia adentro de la tarjeta con las plumas hacia afuera— y
+  // por eso se veía como una punta fuera de lugar.
+  //
+  // El anclaje va en el VÉRTICE (refX 1) y no en los dedos, porque la línea se
+  // retira RETIRO_PATA píxeles del borde: así el marcador hace el último tramo
+  // en vez de superponerse a una línea que llega igual hasta la caja.
+  //
+  // `orient="auto-start-reverse"` deja el +x del dibujo apuntando HACIA la
+  // tarjeta, así que la x que crece se acerca a la caja: el vértice en 1 y los
+  // dedos en 13, doce píxeles más adentro, que es justo el retiro.
+  const pata = "M1 7 L13 1 M1 7 L13 7 M1 7 L13 13";
   return (
     <svg className={styles.marcadores} aria-hidden="true">
       <defs>
         {[
-          ["kn-muchos", "var(--border-strong)", 1.4],
+          ["kn-muchos", "var(--border-strong)", 1.3],
           ["kn-muchos-activo", "var(--accent)", 1.6],
           ["kn-muchos-cascada", "var(--warning)", 1.6],
         ].map(([id, color, ancho]) => (
           <marker
             key={id as string}
             id={id as string}
+            /* Sin userSpaceOnUse el marcador escala con el grosor de la línea, y
+               las de cascada son de 2px: la pata quedaba un 40% más grande solo
+               en esas. */
+            markerUnits="userSpaceOnUse"
             markerWidth="14"
             markerHeight="14"
-            refX="12"
+            refX="1"
             refY="7"
-            /* auto-start-reverse deja usar el mismo dibujo en el arranque de la
-               línea. Hace falta porque la pata de gallo va del lado de «muchos»,
-               que es la tabla que DECLARA la clave, y la línea nace ahí. */
+            /* La pata de gallo va del lado de «muchos», que es la tabla que
+               DECLARA la clave, y la línea nace ahí. Sin el reverse el dibujo
+               cae para el lado contrario. */
             orient="auto-start-reverse"
           >
-            <path d={punta} stroke={color as string} strokeWidth={ancho as number} fill="none" />
+            <path
+              d={pata}
+              stroke={color as string}
+              strokeWidth={ancho as number}
+              strokeLinecap="round"
+              fill="none"
+            />
           </marker>
         ))}
       </defs>
@@ -437,10 +483,16 @@ function Inspector({
         </div>
         <dl className={styles.datos}>
           <dt>filas</dt>
-          <dd>
+          <dd
+            title={
+              nodo.data.rowEstimate >= 0
+                ? "Estimación del planificador, no un conteo."
+                : "Nunca se le corrió ANALYZE. No dice nada sobre cuántas filas tiene."
+            }
+          >
             {nodo.data.rowEstimate >= 0
               ? `≈ ${nodo.data.rowEstimate.toLocaleString("es")}`
-              : "sin estimar"}
+              : "sin analizar"}
           </dd>
           <dt>columnas</dt>
           <dd>{nodo.data.columnas.length + nodo.data.ocultas}</dd>

@@ -472,6 +472,60 @@ tres claves foráneas, tres líneas naciendo del mismo punto no dicen cuál es c
   sabe representar: maquinaria de la Iteración 5, que conviene construir una sola
   vez y ahí.
 
+**La pata de gallo estaba dibujada al revés, y la línea la atravesaba.** Dos
+cosas distintas que se veían como una sola fealdad, las dos encontradas mirando
+el diagrama y no el código:
+
+- El marcador que venía del diseño es una flecha cuyo vértice toca la tarjeta y
+  cuyos brazos se abren hacia afuera: apunta *hacia adentro* de la tabla. La pata
+  de gallo de verdad es al revés — los **tres dedos tocan la caja** y el vértice
+  queda sobre la línea. Es la notación estándar y además es la que se lee: los
+  tres dedos «en» la tabla son literalmente el «muchos».
+- Los marcadores de SVG se dibujan ENCIMA del trazo, pero el trazo sigue llegando
+  hasta donde termina. Así que la línea corría por debajo de los dedos y tocaba
+  el recuadro igual. La línea arranca ahora `RETIRO_PATA` píxeles afuera del
+  borde y el marcador hace el último tramo; el anclaje del marcador va en el
+  vértice y no en los dedos para que encaje. Los dos números tienen que
+  coincidir, y por eso están comentados uno en función del otro.
+
+**Las líneas eligen lado por la separación entre CAJAS, no entre centros.** Dos
+tablas apiladas una arriba de la otra tienen los centros casi alineados en
+horizontal, así que unirlas por los costados obliga a la línea a salir, bajar por
+afuera y volver a entrar. Comparando el hueco entre las cajas en cada eje —hueco
+negativo significa que se solapan— la línea corta derecho por arriba o por abajo
+cuando corresponde. Por los costados sigue apuntando a la fila de la columna; por
+arriba y abajo sale del centro, porque ahí la coordenada que manda es la
+horizontal y la fila no tiene dónde expresarse.
+
+**Dos cosas que se veían iguales y no lo son.** Dos claves entre las mismas dos
+tablas casi siempre apuntan a la misma columna del otro lado —`autor` y `revisor`
+van los dos a `id`—, así que salían de filas distintas pero convergían en un
+punto y el último tramo quedaba superpuesto: ahora se reparten alrededor del
+centro, corriendo LAS DOS puntas (correr una sola las cruza en vez de
+separarlas). Y una clave compuesta es *una* relación, así que se dibuja con *una*
+línea, indistinguible de una de una columna: lleva una etiqueta con las columnas,
+solo cuando son más de una, para no llenar de ruido las simples.
+
+**`hidden` no funcionaba en toda la aplicación.** El `display: none` que trae el
+atributo es la regla de menor prioridad que existe, así que cualquier clase con
+`display` lo anula sin que nadie se entere: el elemento se sigue viendo *y* queda
+escondido para los lectores de pantalla. Se refuerza una vez en los tokens. Salió
+al plegar paneles, pero estaba latente para cualquiera que usara el atributo.
+
+**Los paneles se reabren desde el borde por el que se fueron**, con una franja de
+18 px que ocupa el lugar que dejó el panel. Los enlaces en la barra de estado se
+sacaron: reabrir un panel desde el otro extremo de la ventana no se le ocurre a
+nadie.
+
+**«Diagrama» abre el primer esquema CON TABLAS**, no el primero a secas. El
+snapshot pone `public` primero porque es donde está casi todo, pero en una base
+donde no se usa queda vacío y el diagrama abría en blanco.
+
+**«sin analizar» no significa «vacía», y se leía así.** Es que a esa tabla nunca
+se le corrió `ANALYZE`, así que el planificador no tiene estimación: puede tener
+millones de filas. La que sí está vacía dice «vacía». La etiqueta es correcta y
+demasiado corta para explicarse, así que `TreeRow` ganó un `metaTitle`.
+
 **Las posiciones del diagrama van al lado de la libreta de conexiones**, no en el
 directorio de estado. Es el mismo razonamiento que puso ahí la libreta: acomodar
 cuarenta tablas es trabajo, y quien sincroniza sus conexiones entre máquinas con
