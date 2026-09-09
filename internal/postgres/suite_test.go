@@ -15,10 +15,11 @@ const dsnPrueba = "postgres://kaname:kaname@127.0.0.1:55432/kaname_test?sslmode=
 // tres. Es lo que hace que «está implementado» signifique lo mismo para todos.
 func TestSuiteDeMotor(t *testing.T) {
 	enginetest.Correr(t, enginetest.Fixture{
-		Abrir:      abrirPG,
-		Esquema:    func(engine.Conn) string { return esquemaDePrueba },
-		TipoTexto:  "text",
-		TipoEntero: "bigint",
+		Abrir:          abrirPG,
+		Esquema:        func(engine.Conn) string { return esquemaDePrueba },
+		TipoTexto:      "text",
+		TipoEntero:     "bigint",
+		TiposEsperados: []string{"text", "bigint"},
 	})
 }
 

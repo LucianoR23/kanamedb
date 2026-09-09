@@ -51,6 +51,25 @@ implementan `Stringer` — `fmt` rutea también `%+v` por `String()`, así que
 inspeccionar la salida formateada no prueba nada sobre los campos. Para eso,
 reflexionar sobre el tipo.
 
+### Contexto: cortar entre tareas, nunca en el medio
+
+Cuando el contexto llegue a **~80%**, frenar. No seguir «un poco más» y que la
+compactación caiga en la mitad de un refactor: lo que se pierde ahí no es el
+texto sino el hilo — qué se había decidido y por qué, qué faltaba probar, qué
+inyección de fallo quedó sin revertir.
+
+Al llegar a ese punto, terminar la unidad de trabajo que esté abierta —dejarla
+compilando, con los tests en verde y commiteada si corresponde— y recién ahí
+elegir una de las dos:
+
+1. **Compactar y seguir**: escribir el resumen del estado y continuar.
+2. **Parar y pedirle al usuario que compacte**: cuando lo que viene es lo
+   bastante grande como para que convenga arrancarlo con el contexto limpio.
+
+En los dos casos el resumen dice lo mismo: qué quedó hecho, qué falta, cuál es
+el siguiente paso concreto, y cualquier estado raro que haya quedado (un
+contenedor levantado, una rama sin pushear, un archivo temporal).
+
 ### Instalaciones
 
 - **Avisar antes de instalar algo que requiera interacción** (login, UAC, prompts).

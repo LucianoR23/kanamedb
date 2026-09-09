@@ -30,11 +30,17 @@ type Fixture struct {
 	// de verdad; en MySQL y MariaDB es la base; en SQLite es "".
 	Esquema func(c engine.Conn) string
 
-	// TipoTexto y TipoEntero son cómo se llaman en este motor. No se puede
-	// suponer «text» e «integer»: MySQL quiere varchar con largo para poder
-	// indexarlo.
+	// TipoTexto y TipoEntero son cómo se ESCRIBEN en un CREATE TABLE de este
+	// motor, con modificador incluido. No se puede suponer «text» e «integer»:
+	// MySQL rechaza `varchar` sin largo, y un TEXT no se indexa sin decirle
+	// cuántos caracteres.
 	TipoTexto  string
 	TipoEntero string
+
+	// TiposEsperados son los nombres que ColumnTypes tiene que ofrecer. Van
+	// aparte de los de arriba porque el catálogo lista el tipo sin modificador:
+	// se crea con `varchar(64)` y se ofrece `varchar`.
+	TiposEsperados []string
 }
 
 // Correr ejecuta la batería completa.
@@ -158,7 +164,7 @@ func tipos(t *testing.T, f Fixture) {
 		t.Fatal("ColumnTypes() vacío: el selector de tipos no tendría nada que ofrecer")
 	}
 	// Los tipos que cualquier motor tiene. Sin ellos, la lista está mal armada.
-	for _, quiere := range []string{f.TipoTexto, f.TipoEntero} {
+	for _, quiere := range f.TiposEsperados {
 		var hay bool
 		for _, ty := range ts {
 			if strings.EqualFold(ty.Name, quiere) {
@@ -473,8 +479,13 @@ func crearTabla(t *testing.T, c engine.Conn, f Fixture, esq, base string) string
 	t.Cleanup(limpiar)
 
 	exec(t, c, fmt.Sprintf("CREATE TABLE %s (id %s PRIMARY KEY)", nomPadre, f.TipoEntero))
+	// La clave foránea va como restricción DE TABLA y no pegada a la columna.
+	// No es estilo: MySQL ACEPTA la forma inline y después la IGNORA en
+	// InnoDB —no da error, simplemente no crea la clave— así que una suite
+	// escrita con esa forma daría verde creyendo que probó la relación.
 	exec(t, c, fmt.Sprintf(
-		"CREATE TABLE %s (id %s PRIMARY KEY, nombre %s, padre_id %s REFERENCES %s (id))",
+		"CREATE TABLE %s (id %s PRIMARY KEY, nombre %s, padre_id %s, "+
+			"FOREIGN KEY (padre_id) REFERENCES %s (id))",
 		nomHija, f.TipoEntero, f.TipoTexto, f.TipoEntero, nomPadre))
 	exec(t, c, fmt.Sprintf("CREATE INDEX kn_idx_%s ON %s (nombre)", base, nomHija))
 	return base
