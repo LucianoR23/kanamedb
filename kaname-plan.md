@@ -401,6 +401,35 @@ conjunto entero por algo que ya estaba hecho. Ahora se mira sentencia por
 sentencia, y `RolledBack` decide: con transacción única una sentencia puede
 haber corrido bien y aun así no existir más.
 
+**«Refrescar» tiene que refrescar lo que se está mirando.** Releía el árbol del
+esquema y dejaba la pestaña de la tabla mostrando el catálogo de antes; la única
+salida era cerrarla y volver a abrirla. Las pestañas quedan montadas y
+escondidas a propósito —para no perder lo que tienen adentro—, y eso es
+exactamente lo que las dejaba viejas. Ahora el Shell lleva un contador de
+recarga que sube con el botón y **también después de un apply que dejó algo
+aplicado**, y las pestañas lo miran.
+
+Por lo mismo, la pantalla de cambios pendientes leía el changeset al montarse y
+nunca más: volver a ella mostraba la lista de cuando se abrió, muchas veces
+vacía. Ahora relee al volverse la pestaña activa.
+
+**El editor de claves no ofrecía las columnas preparadas.** El orden natural es
+crear la columna y después colgarla de otra tabla; la lista salía del catálogo,
+que no la tiene ni la va a tener hasta aplicar. Kaname ya sabía ordenar las
+sentencias para que ese orden funcione — lo que faltaba era poder pedirlo. Ahora
+las columnas y las tablas preparadas aparecen marcadas como pendientes.
+
+**El desplegable estiraba el diálogo.** La lista del `Combobox` estaba
+posicionada dentro de un cuerpo con `overflow: auto`, así que contaba como
+contenido: crecía el alto del diálogo y aparecía una segunda barra. Va en un
+portal sobre `<body>`, con coordenadas de pantalla, alto máximo según el espacio
+que de verdad hay y apertura hacia arriba cuando abajo no entra.
+
+**El botón decía «Agregar» y agregaba a una lista.** En el alta de columna, el
+único de los tres diálogos que no decía «Preparar». Prometía que la columna
+quedaba puesta, y quien lo aprieta después no entiende por qué no está en la
+tabla.
+
 **`0A000` es un cajón, no un error.** Probando salió `ADD COLUMN cliente_id
 bigint DEFAULT id`, que PostgreSQL rechaza con *«cannot use column reference in
 DEFAULT expression»*. El código `0A000` cubre por lo menos tres cosas que se
@@ -411,6 +440,22 @@ mensaje, que es frágil, y por eso se hace al final y degrada al mensaje general
 si no coincide. Lo mismo con el `42601`, que PostgreSQL usa además para «esa
 columna es generada»: darle el mensaje de error de sintaxis acusaba a Kaname de
 un bug que no existe.
+
+Y del lado de la interfaz: un valor por defecto que es una palabra suelta es casi
+siempre el nombre de otra columna. Ahora se avisa al escribirlo, sin bloquear
+—`current_date` es una palabra suelta y es válida—, para no descubrirlo recién al
+aplicar con el changeset entero armado.
+
+**Una columna generada no tiene «valor por defecto» que sacar.** PostgreSQL
+guarda su expresión en `pg_attrdef`, el mismo lugar que un default, así que
+`DetailColumn.Default` venía lleno y el menú ofrecía «Sacar el valor por
+defecto» sobre `demo.pedidos.total`. La opción queda deshabilitada con el
+motivo. Es la regla de siempre: una operación que el motor va a rechazar no se
+ofrece, en vez de ofrecerla y explicar el error después.
+
+**Cerrar pestañas con el botón del medio.** Lo que hace cualquier navegador o
+editor. El `preventDefault` en `mousedown` no es opcional en Windows: sin él, el
+sistema entra en modo autoscroll y deja el cursor de las flechitas dando vueltas.
 
 ### Iteración 5 — 2026-09-09
 

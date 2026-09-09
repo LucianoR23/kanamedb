@@ -28,11 +28,15 @@ export function SqlPreview({
   singleTransaction,
   onClose,
   onApplied,
+  onFalloParcial,
 }: {
   vista: ChangesetView;
   singleTransaction: boolean;
   onClose: () => void;
   onApplied: () => void;
+  /** Falló, pero alguna sentencia quedó aplicada. Sin transacción es lo normal
+   *  y hay que releer igual: el esquema cambió aunque el apply no terminara. */
+  onFalloParcial: () => void;
 }) {
   const [confirmacion, setConfirmacion] = useState("");
   const [corriendo, setCorriendo] = useState(false);
@@ -68,7 +72,11 @@ export function SqlPreview({
         confirm: confirmacion.trim(),
       });
       setResultado(res);
-      if (res.ok) onApplied();
+      if (res.ok) {
+        onApplied();
+      } else if (!res.rolledBack && (res.results ?? []).some((r) => r.applied)) {
+        onFalloParcial();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -259,6 +267,14 @@ export function SqlPreview({
   );
 }
 
+/**
+ * Cómo terminó el apply.
+ *
+ * Cuando falla, el orden de lo que se cuenta no es casual: primero QUÉ QUEDÓ
+ * —revertido, aplicado a medias—, porque es lo que decide qué hacer ahora;
+ * después por qué falló, después cómo arreglarlo, y al final la sentencia y el
+ * texto original del motor, que es lo que se pega en un ticket.
+ */
 function Resultado({ res, transaccion }: { res: ApplyResult; transaccion: boolean }) {
   if (res.ok) {
     return (
@@ -267,19 +283,34 @@ function Resultado({ res, transaccion }: { res: ApplyResult; transaccion: boolea
       </div>
     );
   }
+  const hechas = (res.results ?? []).filter((r) => r.applied).length;
   const fallada = (res.results ?? []).find((r) => !r.applied);
   return (
     <div className={cx(styles.resultado, styles.resultadoMal)}>
       <p className={styles.resultadoTitulo}>
         {res.rolledBack
           ? "Falló y se revirtió todo: la base quedó como estaba."
-          : transaccion
-            ? "Falló."
-            : "Falló a la mitad. Las sentencias anteriores YA quedaron aplicadas."}
+          : hechas === 0
+            ? "Falló en la primera sentencia: no quedó nada aplicado."
+            : `Falló a la mitad. Las ${hechas} sentencias anteriores YA quedaron aplicadas y ` +
+              "salieron de la lista."}
       </p>
+      {!res.rolledBack && hechas > 0 && !transaccion ? (
+        <p className={styles.resultadoParcial}>
+          Con «Una sola transacción» esto no habría pasado: se habría revertido todo.
+        </p>
+      ) : null}
       {res.failure ? <p className={styles.resultadoMsg}>{res.failure.message}</p> : null}
+      {res.failure?.hint ? <p className={styles.resultadoHint}>{res.failure.hint}</p> : null}
       {fallada ? <pre className={styles.resultadoSql}>{fallada.sql}</pre> : null}
-      {fallada?.error ? <p className={styles.resultadoDetalle}>{fallada.error}</p> : null}
+      {res.failure?.detail ? (
+        <p className={styles.resultadoDetalle}>
+          {res.failure.sqlState ? (
+            <span className={styles.resultadoCodigo}>{res.failure.sqlState}</span>
+          ) : null}
+          {res.failure.detail}
+        </p>
+      ) : null}
     </div>
   );
 }

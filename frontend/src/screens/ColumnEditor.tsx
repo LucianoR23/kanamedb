@@ -65,6 +65,11 @@ export function ColumnEditor({
   // las que ya están. Se dice acá y no en el error de Postgres, que no explica
   // qué hacer.
   const faltaDefault = !renombrar && !nullable && porDefecto.trim() === "";
+  // Un default que es una palabra suelta es, casi siempre, el nombre de otra
+  // columna. PostgreSQL lo rechaza —el default se evalúa sin ninguna fila a la
+  // vista, así que no hay de dónde sacar el otro valor— y el error llega recién
+  // al aplicar, cuando ya se armó todo el changeset.
+  const defaultSospechoso = !renombrar && pareceNombreDeColumna(porDefecto);
   const puede = !nombreVacio && (renombrar || tipo.trim() !== "") && !faltaDefault;
 
 
@@ -82,6 +87,7 @@ export function ColumnEditor({
           <Button
             size="sm"
             disabled={!puede}
+            {...(puede ? {} : { title: razonDeBloqueo(nombreVacio, faltaDefault, tipo) })}
             onClick={() =>
               onGuardar({
                 name: nombre.trim(),
@@ -92,7 +98,7 @@ export function ColumnEditor({
               })
             }
           >
-            {renombrar ? "Renombrar" : "Agregar"}
+            {renombrar ? "Preparar el renombrado" : "Preparar"}
           </Button>
         </>
       }
@@ -168,6 +174,16 @@ export function ColumnEditor({
               </p>
             ) : null}
 
+            {defaultSospechoso ? (
+              <p className={styles.error}>
+                <code>{porDefecto.trim()}</code> se va a leer como el nombre de otra columna, y un
+                valor por defecto <strong>no puede nombrar columnas</strong>: se calcula sin
+                ninguna fila a la vista. Si querías el texto, va entre comillas simples; si el
+                valor tiene que salir de otra columna, lo que hace falta es una columna generada,
+                no un default.
+              </p>
+            ) : null}
+
             <Field label="Comentario">
               <Input
                 value={comentario}
@@ -181,6 +197,49 @@ export function ColumnEditor({
   );
 }
 
+
+/**
+ * Las funciones del estándar SQL que se escriben sin paréntesis.
+ *
+ * Son la razón por la que esto avisa en vez de bloquear: `current_date` es una
+ * palabra suelta y es un default perfectamente válido.
+ */
+const SIN_PARENTESIS = new Set([
+  "true",
+  "false",
+  "null",
+  "current_date",
+  "current_time",
+  "current_timestamp",
+  "localtime",
+  "localtimestamp",
+  "current_user",
+  "session_user",
+  "user",
+  "current_catalog",
+  "current_schema",
+]);
+
+/** Si lo escrito es un identificador pelado, que PostgreSQL va a leer como columna. */
+function pareceNombreDeColumna(v: string): boolean {
+  const s = v.trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_$]*$/.test(s)) return false;
+  return !SIN_PARENTESIS.has(s.toLowerCase());
+}
+
+/**
+ * Por qué el botón está bloqueado.
+ *
+ * Va en el `title` porque un botón deshabilitado sin motivo es una pared: la
+ * explicación de la columna sin default está más abajo en el formulario y puede
+ * quedar fuera de la vista.
+ */
+function razonDeBloqueo(nombreVacio: boolean, faltaDefault: boolean, tipo: string): string {
+  if (nombreVacio) return "Falta el nombre de la columna";
+  if (tipo.trim() === "") return "Falta el tipo";
+  if (faltaDefault) return "Una columna que no admite nulos necesita un valor por defecto";
+  return "";
+}
 
 /** Qué se espera adentro de los paréntesis, según el tipo. */
 function placeholderDeModificador(tipo: string): string {

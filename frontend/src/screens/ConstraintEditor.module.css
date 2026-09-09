@@ -41,6 +41,20 @@
   color: var(--accent);
 }
 
+/* Una columna preparada se puede elegir igual, pero tiene que verse que todavía
+   no existe: si no, no hay forma de distinguirla de una del catálogo. */
+.chipPendiente {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  color: var(--text-3);
+  font: 600 8.5px var(--font-ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
 .nota {
   margin: 0;
   font: 400 11px/1.6 var(--font-ui);

@@ -23,15 +23,14 @@
   cursor: default;
 }
 
-/* Se despliega por encima del formulario y no lo empuja: un desplegable que
-   corre los campos de abajo hace perder el que se estaba mirando. */
+/* Se dibuja en un portal sobre <body>, así que la posición y el alto los pone
+   el componente en línea: dependen de dónde quedó el campo en la pantalla.
+   Acá va solo lo que no cambia.
+
+   El z-index tiene que ganarle al diálogo (100): la lista sale de un campo que
+   casi siempre está adentro de uno. */
 .lista {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 3px);
-  left: 0;
-  right: 0;
-  max-height: 260px;
+  z-index: 200;
   overflow: auto;
   padding: 3px;
   background: var(--bg-elev);

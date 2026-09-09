@@ -164,10 +164,38 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Qué hacer al respecto. Va después del mensaje y antes de la SQL: el mensaje
+   dice qué pasó, esto dice por dónde salir, y recién ahí interesa el texto
+   exacto del motor. */
+.resultadoHint {
+  margin: 0 0 7px;
+  font: 400 12px/1.55 var(--font-ui);
+  color: var(--text-2);
+}
+
+/* Que se haya aplicado la mitad no es un detalle del error: es lo que cambia
+   qué hacer ahora. */
+.resultadoParcial {
+  margin: 0 0 6px;
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-3);
+}
+
 .resultadoDetalle {
   margin: 0;
-  font: 400 11px var(--font-mono);
+  font: 400 11px/1.5 var(--font-mono);
   color: var(--text-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.resultadoCodigo {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--bg-inset);
+  color: var(--text-2);
+  font: 600 10px var(--font-mono);
 }
 .error {
   flex: none;

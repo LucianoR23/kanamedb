@@ -29,11 +29,17 @@ type Filtro = "all" | "schema" | "risk";
  * operaciones y no un diff.
  */
 export function PendingChanges({
+  active,
   onApplied,
   onCount,
   onOpenTable,
 }: {
-  /** Se llama cuando el apply terminó bien: el esquema cambió. */
+  /** Si es la pestaña que se está viendo. Las pestañas quedan montadas y
+   *  escondidas para no perder lo que tienen adentro, así que volver a esta no
+   *  la remonta: sin esto mostraba la lista de cuando se abrió, que muchas
+   *  veces estaba vacía. */
+  active: boolean;
+  /** Se llama cuando el apply terminó, con algo aplicado: el esquema cambió. */
   onApplied: () => void;
   /** Cuántos cambios quedan. Se avisa después de CADA lectura y no solo al
    *  aplicar: descartar todo también cambia el número, y un contador que se
@@ -64,8 +70,9 @@ export function PendingChanges({
   }, [onCount]);
 
   useEffect(() => {
+    if (!active) return;
     void leer();
-  }, [leer]);
+  }, [active, leer]);
 
   if (cargando && !vista) {
     return (
@@ -285,6 +292,13 @@ export function PendingChanges({
           onClose={() => setPreviewAbierta(false)}
           onApplied={() => {
             setPreviewAbierta(false);
+            void leer();
+            onApplied();
+          }}
+          onFalloParcial={() => {
+            // Falló, pero algo quedó aplicado. La lista y el árbol tienen que
+            // reflejarlo igual: es justo el momento en que la pantalla y la
+            // base más pueden discrepar.
             void leer();
             onApplied();
           }}

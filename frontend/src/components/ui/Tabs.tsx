@@ -48,6 +48,19 @@ export function TabStrip({
           aria-selected={t.id === activeId}
           className={cx(styles.tab, t.id === activeId && styles.active)}
           onClick={() => onSelect?.(t.id)}
+          // Botón del medio para cerrar, como en cualquier navegador o editor.
+          // `onAuxClick` y no `onMouseUp` porque es el evento que existe para
+          // esto; el `preventDefault` del `onMouseDown` es lo que evita que
+          // Windows entre en modo autoscroll y deje el cursor de las flechitas
+          // dando vueltas.
+          onMouseDown={(e) => {
+            if (e.button === 1) e.preventDefault();
+          }}
+          onAuxClick={(e) => {
+            if (e.button !== 1 || !onClose) return;
+            e.preventDefault();
+            onClose(t.id);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();

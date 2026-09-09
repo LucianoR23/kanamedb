@@ -23,6 +23,13 @@
   font: 400 11.5px/1.55 var(--font-ui);
   color: var(--text-1);
 }
+.error code {
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--bg-inset);
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-1);
+}
 
 /* Lo que va a quedar escrito, armado de las tres partes. Verlo antes de aceptar
    es lo que evita descubrir el `numeric(10.2)` recién en el error de Postgres. */

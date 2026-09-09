@@ -63,6 +63,12 @@ export function Shell({
 
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
+  // Sube cada vez que hay que releer la base. Las pestañas abiertas lo miran y
+  // se recargan solas: sin esto, «Refrescar» releía el árbol y dejaba la
+  // pestaña de la tabla mostrando el esquema de antes, y la única salida era
+  // cerrarla y volver a abrirla.
+  const [recarga, setRecarga] = useState(0);
+
   async function load(refresh: boolean) {
     setLoading(true);
     setSchemaError(null);
@@ -73,6 +79,7 @@ export function Shell({
       ]);
       setSession(s);
       setSnapshot(snap);
+      if (refresh) setRecarga((n) => n + 1);
     } catch (err) {
       setSchemaError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -347,6 +354,7 @@ export function Shell({
                       table={obj.table}
                       readOnly={session?.readOnly ?? false}
                       snapshot={snapshot}
+                      recarga={recarga}
                       onShowInErd={openErd}
                       onStaged={() => {
                         void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
@@ -354,6 +362,7 @@ export function Shell({
                     />
                   ) : t.id === ID_CAMBIOS ? (
                     <PendingChanges
+                      active={t.id === activeTab}
                       onApplied={() => void load(true)}
                       onCount={setPendientes}
                       onOpenTable={openTable}

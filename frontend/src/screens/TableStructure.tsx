@@ -16,6 +16,8 @@ import type {
   Trigger,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { ContextMenu, Glyph, Spinner } from "../components/ui";
+import { columnasElegibles, tablasElegibles, sinPendientes } from "../lib/pendientesDeTabla";
+import type { PendientesDeTabla } from "../lib/pendientesDeTabla";
 import type { MenuAnchor, MenuEntry } from "../components/ui";
 import { ColumnEditor } from "./ColumnEditor";
 import { ConstraintEditor } from "./ConstraintEditor";
@@ -46,6 +48,7 @@ export function TableStructure({
   error,
   readOnly,
   tablas,
+  pendientes = sinPendientes(),
   onStage,
 }: {
   view: StructureView;
@@ -56,6 +59,8 @@ export function TableStructure({
   readOnly: boolean;
   /** Las tablas del esquema, para elegir a cuál apunta una clave foránea. */
   tablas: string[];
+  /** Lo que el changeset le agrega o le saca a esta tabla y todavía no existe. */
+  pendientes?: PendientesDeTabla;
   /** Manda un cambio al changeset. La SQL la escribe Go. */
   onStage: (c: Change) => void;
 }) {
@@ -99,6 +104,7 @@ export function TableStructure({
           rotulo="un índice"
           detail={detail}
           tablas={tablas}
+          pendientes={pendientes}
           readOnly={readOnly}
           onStage={onStage}
         >
@@ -117,6 +123,7 @@ export function TableStructure({
           rotulo="una clave foránea"
           detail={detail}
           tablas={tablas}
+          pendientes={pendientes}
           readOnly={readOnly}
           onStage={onStage}
         >
@@ -137,6 +144,7 @@ export function TableStructure({
           rotulo="una restricción"
           detail={detail}
           tablas={tablas}
+          pendientes={pendientes}
           readOnly={readOnly}
           onStage={onStage}
         >
@@ -208,10 +216,22 @@ function Columnas({
         ),
     },
     {
+      // Una columna generada guarda su expresión en el mismo lugar del catálogo
+      // que un valor por defecto, así que `default` viene lleno y la opción se
+      // ofrecía. PostgreSQL la rechaza —«is a generated column»— y el error
+      // llegaba recién al aplicar. Lo que se le cambia a una generada es la
+      // expresión, que es otra operación y todavía no existe.
       id: "default",
       label: "Sacar el valor por defecto",
-      disabled: readOnly || c.default === "",
-      disabledReason: readOnly ? "solo lectura" : "no tiene",
+      // `generated` es opcional en los bindings: viene `undefined` cuando la
+      // columna no es generada, así que la comprobación va por verdadero o
+      // falso. Compararlo contra "" deshabilitaría la opción en TODAS.
+      disabled: readOnly || c.default === "" || Boolean(c.generated),
+      disabledReason: readOnly
+        ? "solo lectura"
+        : c.generated
+          ? "es una columna generada: eso es su expresión, no un default"
+          : "no tiene",
       onSelect: () =>
         onStage(
           base({
@@ -404,6 +424,7 @@ function Editables({
   rotulo,
   detail,
   tablas,
+  pendientes,
   readOnly,
   onStage,
   children,
@@ -412,6 +433,7 @@ function Editables({
   rotulo: string;
   detail: TableDetail;
   tablas: string[];
+  pendientes: PendientesDeTabla;
   readOnly: boolean;
   onStage: (c: Change) => void;
   children: (borrar: (tipo: OpType, nombre: string) => void) => ReactNode;
@@ -452,8 +474,8 @@ function Editables({
           tipo={tipo}
           schema={detail.schema}
           tabla={detail.name}
-          columnas={detail.columns ?? []}
-          tablas={tablas}
+          columnas={columnasElegibles(detail.columns ?? [], pendientes)}
+          tablas={tablasElegibles(tablas, pendientes)}
           onCerrar={() => setAbierto(false)}
           onGuardar={(c) => {
             setAbierto(false);

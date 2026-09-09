@@ -8,6 +8,7 @@ import type {
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { Button, Glyph, PillTabs } from "../components/ui";
+import { pendientesDeTabla, sinPendientes } from "../lib/pendientesDeTabla";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef, SortState } from "../components/DataGrid";
 import { CellViewer } from "./CellViewer";
@@ -37,6 +38,7 @@ export function TableDataScreen({
   table,
   readOnly,
   snapshot,
+  recarga,
   onShowInErd,
   onStaged,
 }: {
@@ -45,6 +47,8 @@ export function TableDataScreen({
   table: string;
   readOnly: boolean;
   snapshot: Snapshot | null;
+  /** Sube cada vez que hay que releer: «Refrescar», o un apply que tocó la base. */
+  recarga: number;
   onShowInErd: (schema: string, table: string) => void;
   /** Se llama cuando una edición entró al changeset. */
   onStaged: () => void;
@@ -73,9 +77,29 @@ export function TableDataScreen({
   const [detalleCargando, setDetalleCargando] = useState(false);
   const [detalleError, setDetalleError] = useState("");
 
+  // Qué le agrega o le saca el changeset a esta tabla. Sin esto, una columna
+  // recién preparada no aparece en el editor de claves ni de índices: el
+  // catálogo no la tiene y no la va a tener hasta que se aplique.
+  const [pendientes, setPendientes] = useState(sinPendientes);
+
+  // Si la lectura falla se deja lo que había y no se rompe la pantalla: los
+  // pendientes son una ayuda para elegir, no el contenido. Quedarse sin poder
+  // mirar la estructura porque no se pudo leer el changeset sería peor.
+  const leerPendientes = useCallback(async () => {
+    try {
+      const v = await SessionSvc.Changeset();
+      setPendientes(pendientesDeTabla(v.changes ?? [], schema, table));
+    } catch {
+      /* se conserva lo anterior */
+    }
+  }, [schema, table]);
+
   // Preparar un cambio pasa siempre por acá: la confirmación de producción la
   // exige Go y este enganche la contesta.
-  const staging = useStage(onStaged);
+  const staging = useStage(() => {
+    onStaged();
+    void leerPendientes();
+  });
 
   const runID = useRef(`${tabId}:data`).current;
 
@@ -141,7 +165,27 @@ export function TableDataScreen({
 
   useEffect(() => {
     void leerDetalle();
-  }, [leerDetalle]);
+    void leerPendientes();
+  }, [leerDetalle, leerPendientes]);
+
+  // Releer cuando algo de afuera dice que la base cambió: «Refrescar» en la
+  // barra de título, o un apply que dejó sentencias aplicadas.
+  //
+  // Antes solo se releía el árbol del esquema, así que la columna recién creada
+  // no aparecía en la pestaña abierta y había que cerrarla y volver a abrirla.
+  // El botón parecía no hacer nada, que es peor que no tenerlo.
+  // El contador es lo que distingue «hay que releer» de «se volvió a renderizar
+  // por cualquier otra cosa»: el efecto se dispara también cuando cambia el
+  // orden, y ahí sale enseguida sin pedir nada.
+  const ultimaRecarga = useRef(recarga);
+
+  useEffect(() => {
+    if (ultimaRecarga.current === recarga) return;
+    ultimaRecarga.current = recarga;
+    void leerDetalle();
+    void leerPendientes();
+    void cargar(0, orden);
+  }, [recarga, orden, cargar, leerDetalle, leerPendientes]);
 
   function ordenarPor(columna: string) {
     const siguiente: SortState =
@@ -260,6 +304,7 @@ export function TableDataScreen({
           error={detalleError}
           readOnly={readOnly}
           tablas={tablasDelEsquema}
+          pendientes={pendientes}
           onStage={(c) => void staging.stage(c)}
         />
       ) : (

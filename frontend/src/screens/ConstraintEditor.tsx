@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { DetailColumn } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Type as OpType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import { Button, Checkbox, Combobox, Dialog, Field, Input } from "../components/ui";
+import type { ColumnaElegible } from "../lib/pendientesDeTabla";
 import { cx } from "../lib/cx";
 import styles from "./ConstraintEditor.module.css";
 
@@ -19,6 +19,11 @@ export type ObjetoNuevo = "index" | "foreignKey" | "check";
  * El nombre es OPCIONAL a propósito: dejándolo vacío lo elige PostgreSQL, con su
  * convención —`tabla_columna_fkey`— que es la que espera cualquiera que después
  * lea el esquema desde otra herramienta.
+ *
+ * Las columnas y las tablas incluyen las que están PREPARADAS y todavía no
+ * existen, marcadas. El orden natural es crear la columna y después colgarla de
+ * otra tabla; si acá solo apareciera lo que ya está en el catálogo, ese orden
+ * sería imposible y habría que aplicar dos veces.
  */
 export function ConstraintEditor({
   tipo,
@@ -32,9 +37,9 @@ export function ConstraintEditor({
   tipo: ObjetoNuevo;
   schema: string;
   tabla: string;
-  columnas: DetailColumn[];
+  columnas: ColumnaElegible[];
   /** Las tablas del esquema, para elegir a cuál apunta una clave foránea. */
-  tablas: string[];
+  tablas: ColumnaElegible[];
   onGuardar: (c: Change) => void;
   onCerrar: () => void;
 }) {
@@ -153,6 +158,7 @@ export function ConstraintEditor({
                       key={c.name}
                       type="button"
                       className={cx(styles.chip, on && styles.chipOn)}
+                      title={c.pendiente ? "Preparada: todavía no existe en la base" : undefined}
                       onClick={() =>
                         setElegidas((prev) =>
                           on ? prev.filter((x) => x !== c.name) : [...prev, c.name],
@@ -161,6 +167,7 @@ export function ConstraintEditor({
                     >
                       {on ? `${elegidas.indexOf(c.name) + 1}. ` : ""}
                       {c.name}
+                      {c.pendiente ? <span className={styles.chipPendiente}>pendiente</span> : null}
                     </button>
                   );
                 })}
@@ -168,6 +175,9 @@ export function ConstraintEditor({
               <p className={styles.nota}>
                 El orden en que las elegís es el orden de la clave, y para un índice decide para
                 qué consultas sirve.
+                {columnas.some((c) => c.pendiente)
+                  ? " Las marcadas como pendientes todavía no existen: se crean antes que esto, en el mismo apply."
+                  : ""}
               </p>
             </div>
 
@@ -189,9 +199,13 @@ export function ConstraintEditor({
                 <Field label="Apunta a la tabla">
                   <Combobox
                     value={refTabla}
-                    options={tablas.map((t) => ({ value: t }))}
+                    options={tablas.map((t) => ({
+                      value: t.name,
+                      ...(t.pendiente ? { tag: "pendiente" } : {}),
+                    }))}
                     ariaLabel="Tabla referenciada"
                     placeholder="buscá una tabla…"
+                    vacio="Ninguna tabla coincide. Se puede escribir el nombre igual."
                     onChange={setRefTabla}
                   />
                 </Field>
