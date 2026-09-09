@@ -7,10 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
-
 	"github.com/LucianoR23/kanamedb/internal/change"
-	"github.com/LucianoR23/kanamedb/internal/postgres"
+	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
@@ -143,7 +141,7 @@ func (s *Session) ApplyStatus() ApplyProgress {
 //
 // Devolver la sentencia en el acto no es un lujo: es lo que permite que quien
 // edita vea la SQL apenas hace el cambio, en vez de descubrirla al final.
-func (s *Session) Stage(c change.Change, confirm string) (ChangeView, error) {
+func (s *Session) Stage(ctx context.Context, c change.Change, confirm string) (ChangeView, error) {
 	sesion, err := s.abierta()
 	if err != nil {
 		return ChangeView{}, err
@@ -166,7 +164,7 @@ func (s *Session) Stage(c change.Change, confirm string) (ChangeView, error) {
 	}
 	// Se renderiza ANTES de guardar. Un cambio que no se sabe escribir no entra
 	// al changeset: dejarlo entrar sería prometer un apply que va a fallar.
-	if _, err := postgres.RenderDDL(c); err != nil {
+	if _, err := sesion.db.RenderDDL(ctx, c); err != nil {
 		return ChangeView{}, err
 	}
 	id, err := sesion.cambios.Add(c)
@@ -174,7 +172,7 @@ func (s *Session) Stage(c change.Change, confirm string) (ChangeView, error) {
 		return ChangeView{}, err
 	}
 	c.ID = id
-	st, _ := postgres.RenderDDL(c)
+	st, _ := sesion.db.RenderDDL(ctx, c)
 	return ChangeView{Change: c, Statement: st}, nil
 }
 
@@ -214,7 +212,11 @@ func (s *Session) DiscardChanges() error {
 }
 
 // Changeset devuelve todo lo pendiente con sus sentencias y sus avisos.
-func (s *Session) Changeset() (ChangesetView, error) {
+//
+// Toma un contexto porque escribir la vista previa toca la base: en SQLite,
+// renderizar un cambio de columna exige leer la definición actual de la tabla
+// para poder reconstruirla.
+func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 	sesion, err := s.abierta()
 	if err != nil {
 		return ChangesetView{}, err
@@ -230,10 +232,10 @@ func (s *Session) Changeset() (ChangesetView, error) {
 		vista.ConfirmWord = nombreDeLaBase(sesion)
 	}
 	for _, c := range sesion.cambios.List() {
-		vista.Changes = append(vista.Changes, renderizar(c, sesion.snapshot))
+		vista.Changes = append(vista.Changes, renderizar(ctx, sesion.db, c, sesion.snapshot))
 	}
 	for _, c := range sesion.cambios.Ordered() {
-		vista.Order = append(vista.Order, renderizar(c, sesion.snapshot))
+		vista.Order = append(vista.Order, renderizar(ctx, sesion.db, c, sesion.snapshot))
 	}
 	vista.Warnings = avisos(sesion, vista.Order)
 	vista.Script = guion(vista.Order, true)
@@ -326,8 +328,13 @@ func envolver(s string, ancho int) []string {
 	return lineas
 }
 
-func renderizar(c change.Change, snap *schema.Snapshot) ChangeView {
-	st, err := postgres.RenderDDL(c)
+// renderizar arma la vista previa de un cambio.
+//
+// Recibe la conexión y no solo el cambio porque en SQLite escribir la sentencia
+// NO es una función pura: casi todo cambio de columna se hace reconstruyendo la
+// tabla, y para eso hay que leer la definición que hay. Ver engine.Conn.
+func renderizar(ctx context.Context, db engine.Conn, c change.Change, snap *schema.Snapshot) ChangeView {
+	st, err := db.RenderDDL(ctx, c)
 	v := ChangeView{Change: c, Statement: st, RowEstimate: -1}
 	if err != nil {
 		v.Error = err.Error()
@@ -422,8 +429,17 @@ type StatementResult struct {
 	ChangeID string `json:"changeId"`
 	SQL      string `json:"sql"`
 
-	// Applied es true si corrió sin error. En una transacción única, una
-	// sentencia aplicada puede terminar revertida: eso lo dice RolledBack.
+	// Applied es true si la sentencia QUEDÓ aplicada en la base.
+	//
+	// No es «corrió sin error», que era lo que decía antes. La diferencia
+	// aparece con los tramos: una sentencia de un tramo que después se revierte
+	// corrió perfectamente y NO está en la base, y llamarla aplicada tiene una
+	// consecuencia concreta — `olvidarAplicados` la sacaría del changeset, así
+	// que el usuario perdería la edición sin que el cambio existiera.
+	//
+	// Con transacción única sobre un motor con DDL transaccional esto coincide
+	// con RolledBack para todas. Con varios tramos no: los tramos que
+	// commitearon quedan en true y el que falló, en false.
 	Applied   bool   `json:"applied"`
 	ElapsedMs int64  `json:"elapsedMs"`
 	Error     string `json:"error,omitempty"`
@@ -436,12 +452,23 @@ type ApplyResult struct {
 	Results   []StatementResult `json:"results"`
 	ElapsedMs int64             `json:"elapsedMs"`
 
+	// Tramos es en cuántos pedazos se partió el apply.
+	//
+	// Es 1 cuando el motor tiene DDL transaccional y se pidió transacción
+	// única: ahí «todo o nada» es real. Contra MySQL y MariaDB son más, y la
+	// pantalla tiene que decirlo — porque si falla el tercero, los dos
+	// primeros quedaron aplicados y no hay forma de deshacerlos.
+	Tramos int `json:"tramos"`
+
+	// TramoFallido es cuál se cortó, empezando en 1. Cero si no falló ninguno.
+	TramoFallido int `json:"tramoFallido,omitempty"`
+
 	// RolledBack dice que se revirtió todo. Solo puede pasar con transacción
 	// única, y es la diferencia entre «falló la tercera» y «no quedó nada».
 	RolledBack bool `json:"rolledBack"`
 
 	// Failure explica el fallo en el vocabulario del usuario.
-	Failure *postgres.Failure `json:"failure,omitempty"`
+	Failure *engine.Failure `json:"failure,omitempty"`
 }
 
 // Apply ejecuta los cambios incluidos.
@@ -473,7 +500,7 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 
 	sentencias := make([]change.Statement, 0, len(pendientes))
 	for _, c := range pendientes {
-		st, err := postgres.RenderDDL(c)
+		st, err := sesion.db.RenderDDL(ctx, c)
 		if err != nil {
 			// No se ejecuta NADA si alguna no se puede escribir. Aplicar la
 			// mitad de un changeset porque la otra mitad no compila es la peor
@@ -489,11 +516,7 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	inicio := time.Now()
 	res := ApplyResult{Results: make([]StatementResult, 0, len(sentencias))}
 
-	if opts.SingleTransaction {
-		res = s.aplicarEnTransaccion(ctx, sesion, sentencias)
-	} else {
-		res = s.aplicarSuelto(ctx, sesion, sentencias)
-	}
+	res = s.aplicarPorTramos(ctx, sesion, pendientes, sentencias, opts.SingleTransaction)
 	res.ElapsedMs = time.Since(inicio).Milliseconds()
 
 	// Lo que se aplicó deja de estar pendiente. Lo que no —porque falló, o
@@ -534,64 +557,119 @@ func (s *Session) olvidarAplicados(sesion *openSession, res ApplyResult) int {
 	return n
 }
 
-func (s *Session) aplicarEnTransaccion(
-	ctx context.Context, sesion *openSession, sts []change.Statement,
+// aplicarPorTramos ejecuta las sentencias partiéndolas donde el motor obliga.
+//
+// Un solo BEGIN con todo adentro sirve en Postgres y en SQLite. En MySQL y
+// MariaDB **no**, y no por falta de soporte sino por algo peor: un DDL en el
+// medio de una transacción hace commit implícito de todo lo anterior y deja la
+// conexión fuera de la transacción, así que lo que venga después también se
+// commitea solo y el ROLLBACK final no revierte nada. Prometer «todo o nada» y
+// aplicar todo es la peor forma de fallar. Ver engine.TramosDe y § 6 del plan.
+//
+// Con la casilla de transacción única apagada, cada sentencia va sola: es lo
+// que el usuario pidió y no hay nada que agrupar.
+func (s *Session) aplicarPorTramos(
+	ctx context.Context, sesion *openSession,
+	cambios []change.Change, sts []change.Statement, unaSola bool,
 ) ApplyResult {
-	res := ApplyResult{OK: true}
-
-	tx, err := sesion.pool.Begin(ctx)
-	if err != nil {
-		f := postgres.Classify(err, sesion.conn.Describe())
-		return ApplyResult{Failure: f}
-	}
-	// Rollback después de un commit exitoso es un no-op en pgx, así que este
-	// defer cubre el camino de error sin estorbar el feliz.
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	for i, st := range sts {
-		r, err := s.correr(ctx, tx, i, st)
-		res.Results = append(res.Results, r)
-		if err != nil {
-			res.OK = false
-			res.RolledBack = true
-			res.Failure = postgres.ClassifyStatement(err, sesion.conn.Describe())
-			return res
+	tramos := engine.TramosDe(len(sts), sesion.db.Caps(), func(i int) bool {
+		return cambios[i].Kind() == change.KindData
+	})
+	if !unaSola {
+		tramos = nil
+		for i := range sts {
+			tramos = append(tramos, engine.Tramo{Desde: i, Hasta: i + 1})
 		}
 	}
-	// El commit también puede fallar, y con una razón propia: las claves
-	// DEFERRABLE se comprueban recién acá.
-	if err := tx.Commit(ctx); err != nil {
+
+	res := ApplyResult{OK: true, Tramos: len(tramos)}
+	for n, t := range tramos {
+		fallo, err := s.correrTramo(ctx, sesion, sts, t, &res)
+		if err == nil {
+			continue
+		}
 		res.OK = false
-		res.RolledBack = true
-		res.Failure = postgres.ClassifyStatement(err, sesion.conn.Describe())
+		res.TramoFallido = n + 1
+		res.Failure = fallo
+		// Lo anterior a este tramo YA quedó aplicado y no se revierte: cada
+		// tramo se commitea por su cuenta. Se corta acá porque una sentencia
+		// que falla casi siempre es de la que dependían las siguientes.
+		res.RolledBack = t.Transaccional && len(tramos) == 1
+		return res
 	}
 	return res
 }
 
-func (s *Session) aplicarSuelto(
-	ctx context.Context, sesion *openSession, sts []change.Statement,
-) ApplyResult {
-	res := ApplyResult{OK: true}
-	for i, st := range sts {
-		r, err := s.correr(ctx, sesion.pool, i, st)
-		res.Results = append(res.Results, r)
-		if err != nil {
-			res.OK = false
-			res.Failure = postgres.ClassifyStatement(err, sesion.conn.Describe())
-			// Sin transacción, lo anterior YA quedó aplicado. Se corta acá: si
-			// una sentencia falló, las que venían después casi siempre dependían
-			// de ella.
-			return res
+// correrTramo ejecuta un tramo. Si es transaccional, todo o nada.
+func (s *Session) correrTramo(
+	ctx context.Context, sesion *openSession,
+	sts []change.Statement, t engine.Tramo, res *ApplyResult,
+) (*engine.Failure, error) {
+	desde := len(res.Results)
+
+	if !t.Transaccional {
+		for i := t.Desde; i < t.Hasta; i++ {
+			r, err := s.correr(ctx, sesion, sesion.db, i, sts[i])
+			res.Results = append(res.Results, r)
+			if err != nil {
+				return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+			}
+		}
+		return nil, nil
+	}
+
+	// Si adentro va una reconstrucción de tabla hay que decirlo ANTES del
+	// BEGIN: SQLite tiene que apagar las claves foráneas, y ese pragma no hace
+	// nada adentro de una transacción. Sin esto, reconstruir una tabla borra en
+	// silencio las filas de las tablas que la referencian.
+	var opts engine.TxOptions
+	for i := t.Desde; i < t.Hasta; i++ {
+		if sts[i].RebuildsTable {
+			opts.RebuildsTables = true
 		}
 	}
-	return res
+
+	tx, err := sesion.db.Begin(ctx, opts)
+	if err != nil {
+		return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for i := t.Desde; i < t.Hasta; i++ {
+		r, err := s.correr(ctx, sesion, tx, i, sts[i])
+		res.Results = append(res.Results, r)
+		if err != nil {
+			marcarRevertidas(res.Results[desde:])
+			return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+		}
+	}
+	// El commit también puede fallar, y con razones propias: las claves
+	// DEFERRABLE de Postgres se comprueban recién acá, y en SQLite acá corre el
+	// foreign_key_check que cierra la reconstrucción.
+	if err := tx.Commit(ctx); err != nil {
+		marcarRevertidas(res.Results[desde:])
+		return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+	}
+	return nil, nil
+}
+
+// marcarRevertidas apaga el Applied de las sentencias de un tramo que se
+// revirtió.
+//
+// Sin esto, una sentencia que corrió bien y después volvió atrás quedaba
+// marcada como aplicada, y `olvidarAplicados` la sacaba del changeset: el
+// usuario perdía la edición sin que el cambio estuviera en la base.
+func marcarRevertidas(rs []StatementResult) {
+	for i := range rs {
+		rs[i].Applied = false
+	}
 }
 
 // ejecutor es lo mínimo que Apply necesita para correr una sentencia. Lo
-// cumplen tanto el pool como una transacción, que es lo que permite que el
+// cumplen tanto la conexión como una transacción, que es lo que permite que el
 // camino con y sin transacción compartan el mismo código.
 type ejecutor interface {
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Exec(ctx context.Context, sql string) error
 }
 
 // correr ejecuta una sentencia y devuelve cómo le fue MÁS el error crudo.
@@ -603,12 +681,12 @@ type ejecutor interface {
 // errors.New, que tira el tipo: el clasificador nunca veía un SQLSTATE y por
 // eso todo terminaba en el cajón de «no se pudo conectar».
 func (s *Session) correr(
-	ctx context.Context, ej ejecutor, i int, st change.Statement,
+	ctx context.Context, sesion *openSession, ej ejecutor, i int, st change.Statement,
 ) (StatementResult, error) {
 	s.avanzarApply(i, st)
 
 	inicio := time.Now()
-	_, err := ej.Exec(ctx, st.SQL)
+	err := ej.Exec(ctx, st.SQL)
 	r := StatementResult{
 		ChangeID:  st.ChangeID,
 		SQL:       st.SQL,
@@ -616,10 +694,12 @@ func (s *Session) correr(
 		Applied:   err == nil,
 	}
 	if err != nil {
-		r.Error = postgres.Redact(err.Error())
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			r.SQLState = pgErr.Code
+		r.Error = engine.Redact(err.Error())
+		// El código sale del clasificador del motor y no de un tipo de pgx:
+		// cada uno tiene el suyo —SQLSTATE en Postgres y MySQL, código
+		// extendido en SQLite— y los tres viajan por el mismo campo.
+		if f := sesion.db.ClassifyStatement(err, sesion.conn.Describe()); f != nil {
+			r.SQLState = f.SQLState
 		}
 	}
 	return r, err

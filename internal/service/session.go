@@ -7,12 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/connection"
+	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/layout"
-	"github.com/LucianoR23/kanamedb/internal/postgres"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/store"
@@ -42,9 +40,11 @@ type openSession struct {
 	// tunel es el salto SSH, si la conexión lo usa. Se cierra junto con el pool:
 	// dejarlo abierto mantendría viva una sesión en el bastión que ya no sirve
 	// para nada y que el administrador de ese host ve como conectada.
-	tunel    *tunnel.Client
-	pool     *pgxpool.Pool
-	server   *postgres.ServerInfo
+	tunel *tunnel.Client
+	// db es la conexión abierta, del motor que sea. Acá estaba el
+	// *pgxpool.Pool, que era lo que ataba el servicio entero a Postgres.
+	db       engine.Conn
+	server   *engine.ServerInfo
 	openedAt time.Time
 	snapshot *schema.Snapshot
 
@@ -79,7 +79,7 @@ type SessionView struct {
 	// ReadOnlyReason explica por qué, para que la UI no tenga que adivinar.
 	ReadOnlyReason string `json:"readOnlyReason,omitempty"`
 
-	Server *postgres.ServerInfo `json:"server,omitempty"`
+	Server *engine.ServerInfo `json:"server,omitempty"`
 
 	// RowLimit y StatementTimeoutSeconds son los efectivos de esta conexión, ya
 	// resueltos: el cero de la configuración significa "usá el default", y la
@@ -103,9 +103,9 @@ type SessionView struct {
 // perderían la causa, la sugerencia y el SQLSTATE, que es justo lo que S24
 // necesita para decir qué hay que arreglar.
 type ConnectResult struct {
-	OK      bool              `json:"ok"`
-	Session SessionView       `json:"session"`
-	Failure *postgres.Failure `json:"failure,omitempty"`
+	OK      bool            `json:"ok"`
+	Session SessionView     `json:"session"`
+	Failure *engine.Failure `json:"failure,omitempty"`
 }
 
 // ErrNotConnected lo devuelven las operaciones que necesitan una sesión abierta.
@@ -129,24 +129,24 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) ConnectResult {
 	c, err := s.store.Get(id)
 	if err != nil {
-		return failed(&postgres.Failure{
-			Kind:    postgres.FailureOther,
+		return failed(&engine.Failure{
+			Kind:    engine.FailureOther,
 			Message: err.Error(),
 		})
 	}
 
 	password, err := s.keyring.Get(id)
 	if err != nil && !errors.Is(err, secrets.ErrNotFound) {
-		return failed(&postgres.Failure{
-			Kind:    postgres.FailureOther,
+		return failed(&engine.Failure{
+			Kind:    engine.FailureOther,
 			Message: "No se pudo leer la contraseña del keychain.",
 		})
 	}
 
 	dsn, err := c.DSN(password)
 	if err != nil {
-		return failed(&postgres.Failure{
-			Kind:    postgres.FailureOther,
+		return failed(&engine.Failure{
+			Kind:    engine.FailureOther,
 			Message: err.Error(),
 		})
 	}
@@ -160,8 +160,8 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 	if c.SSH.Enabled {
 		secreto, err := s.keyring.Get(SSHSecretID(id))
 		if err != nil && !errors.Is(err, secrets.ErrNotFound) {
-			return failed(&postgres.Failure{
-				Kind:    postgres.FailureOther,
+			return failed(&engine.Failure{
+				Kind:    engine.FailureOther,
 				Message: "No se pudo leer el secreto del bastión del keychain.",
 			})
 		}
@@ -175,10 +175,10 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 
 		cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{AcceptOnce: acceptOnce})
 		if err != nil {
-			return failed(&postgres.Failure{
-				Kind:    postgres.FailureOther,
+			return failed(&engine.Failure{
+				Kind:    engine.FailureOther,
 				Message: "No se pudo abrir el túnel SSH.",
-				Detail:  postgres.Redact(err.Error()),
+				Detail:  engine.Redact(err.Error()),
 				Hint:    "Revisá el bastión, el usuario y el método de autenticación en la pestaña SSH.",
 			})
 		}
@@ -186,27 +186,7 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 		opciones.DialFunc = cli.DialContext
 	}
 
-	// Los cuatro motores ya validan y arman su DSN, y el editor de conexiones
-	// los ofrece deshabilitados; pero el archivo de conexiones se edita a mano,
-	// así que la comprobación no puede vivir solo en la interfaz. Sin esto, una
-	// conexión guardada con engine "mysql" le entrega a pgx un DSN con la forma
-	// `usuario:clave@tcp(...)` y el error que sale no dice nada útil. Ver
-	// CLAUDE.md: una comprobación que vive solo del lado de la interfaz no es
-	// una protección, es un cartel.
-	if c.Engine != connection.Postgres {
-		if tunelAbierto != nil {
-			tunelAbierto.Close()
-		}
-		return failed(&postgres.Failure{
-			Kind: postgres.FailureOther,
-			Message: fmt.Sprintf(
-				"Todavía no se puede conectar a %s desde esta versión.", c.Engine.Label()),
-			Hint: "El motor está implementado y probado, pero falta engancharlo acá. " +
-				"Llega en la Iteración 6.",
-		})
-	}
-
-	pool, info, failure := postgres.Connect(ctx, dsn, c.Describe(), opciones)
+	db, failure := abrirMotor(ctx, c, dsn, opciones)
 	if failure != nil {
 		// El túnel quedó abierto y ya no sirve: cerrarlo acá evita dejar una
 		// sesión colgada en el bastión por cada intento fallido.
@@ -221,8 +201,8 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 	s.current = &openSession{
 		conn:     c,
 		tunel:    tunelAbierto,
-		pool:     pool,
-		server:   info,
+		db:       db,
+		server:   db.Server(),
 		openedAt: time.Now(),
 		cambios:  &change.Set{},
 	}
@@ -237,7 +217,7 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 	return ConnectResult{OK: true, Session: vista}
 }
 
-func failed(f *postgres.Failure) ConnectResult {
+func failed(f *engine.Failure) ConnectResult {
 	return ConnectResult{Failure: f}
 }
 
@@ -254,16 +234,17 @@ func (s *Session) Disconnect() {
 	}
 }
 
-// cerrar suelta el pool y el túnel, en ese orden.
+// cerrar suelta la conexión y el túnel, en ese orden.
 //
-// El orden importa: cerrar el túnel primero dejaría al pool intentando hablar
-// por un canal muerto, y sus errores de cierre serían ruido que no explica nada.
+// El orden importa: cerrar el túnel primero dejaría a la conexión intentando
+// hablar por un canal muerto, y sus errores de cierre serían ruido que no
+// explica nada.
 func (o *openSession) cerrar() {
 	if o == nil {
 		return
 	}
-	if o.pool != nil {
-		o.pool.Close()
+	if o.db != nil {
+		o.db.Close()
 	}
 	if o.tunel != nil {
 		o.tunel.Close()
@@ -308,7 +289,7 @@ func (s *Session) Schema(ctx context.Context, refresh bool) (*schema.Snapshot, e
 		return nil, ErrNotConnected
 	}
 
-	snap, err := postgres.Introspect(ctx, sesion.pool)
+	snap, err := sesion.db.Introspect(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("leer el esquema de %s: %w", sesion.conn.Describe(), err)
 	}
@@ -338,7 +319,7 @@ func (s *Session) TableDetail(ctx context.Context, esquema, tabla string) (*sche
 	if err != nil {
 		return nil, err
 	}
-	d, err := postgres.Detail(ctx, sesion.pool, esquema, tabla)
+	d, err := sesion.db.Detail(ctx, esquema, tabla)
 	if err != nil {
 		return nil, fmt.Errorf("leer la estructura de %s.%s: %w", esquema, tabla, err)
 	}
@@ -386,7 +367,7 @@ func (s *Session) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) 
 	if err != nil {
 		return nil, err
 	}
-	ts, err := postgres.ColumnTypes(ctx, sesion.pool)
+	ts, err := sesion.db.ColumnTypes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("leer los tipos de %s: %w", sesion.conn.Describe(), err)
 	}
@@ -443,8 +424,8 @@ func soloLectura(sesion *openSession) (bool, string) {
 // se aplican por consulta. Así una escritura la rechaza el servidor con 25006
 // aunque el camino que la mande sea uno que todavía no existe, y el corte por
 // tiempo sigue vigente aunque la app se cuelgue o se cierre.
-func connectOptions(c connection.Connection) postgres.ConnectOptions {
-	return postgres.ConnectOptions{
+func connectOptions(c connection.Connection) engine.OpenOptions {
+	return engine.OpenOptions{
 		MaxConns:         poolSize(c),
 		ReadOnly:         c.Safety.ReadOnly,
 		StatementTimeout: c.Safety.StatementTimeout(),

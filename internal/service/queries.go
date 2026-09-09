@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/LucianoR23/kanamedb/internal/postgres"
+	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
@@ -41,8 +41,8 @@ type RunResult struct {
 	// Batch trae TODOS los resultados del lote, no solo el último. La interfaz
 	// deja elegir cuál mirar: con `select 1; select 2;` los dos existen, y
 	// quedarse con uno obligaría a volver a ejecutar para ver el otro.
-	Batch   *query.Batch      `json:"batch,omitempty"`
-	Failure *postgres.Failure `json:"failure,omitempty"`
+	Batch   *query.Batch    `json:"batch,omitempty"`
+	Failure *engine.Failure `json:"failure,omitempty"`
 }
 
 // TableDataResult agrega a RunResult qué orden se usó.
@@ -51,8 +51,8 @@ type TableDataResult struct {
 
 	// Result y no Batch: leer una tabla es una sola sentencia, y obligar a la
 	// interfaz a desenvolver un lote de uno sería ceremonia sin motivo.
-	Result  *query.Result     `json:"result,omitempty"`
-	Failure *postgres.Failure `json:"failure,omitempty"`
+	Result  *query.Result   `json:"result,omitempty"`
+	Failure *engine.Failure `json:"failure,omitempty"`
 
 	// OrderedBy son las columnas que hacen determinista el paginado. Vacío
 	// significa que la tabla no tiene clave primaria y que "cargar más" puede
@@ -79,8 +79,8 @@ type TableDataRequest struct {
 func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	sesion, err := q.session.abierta()
 	if err != nil {
-		return RunResult{Failure: &postgres.Failure{
-			Kind:    postgres.FailureOther,
+		return RunResult{Failure: &engine.Failure{
+			Kind:    engine.FailureOther,
 			Message: err.Error(),
 		}}
 	}
@@ -88,7 +88,7 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	ctx, listo := q.registrar(ctx, runID)
 	defer listo()
 
-	lote, f := postgres.Run(ctx, sesion.pool, sql, postgres.RunOptions{
+	lote, f := sesion.db.Run(ctx, sql, engine.RunOptions{
 		RowLimit: sesion.conn.Safety.EffectiveRowLimit(),
 	})
 	if f != nil {
@@ -103,8 +103,8 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableDataResult {
 	sesion, err := q.session.abierta()
 	if err != nil {
-		return TableDataResult{Failure: &postgres.Failure{
-			Kind:    postgres.FailureOther,
+		return TableDataResult{Failure: &engine.Failure{
+			Kind:    engine.FailureOther,
 			Message: err.Error(),
 		}}
 	}
@@ -121,7 +121,7 @@ func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableData
 		// Que falle no es motivo para no mostrar los datos: se sigue sin orden y
 		// OrderedBy queda vacío, que es la señal de que el paginado es
 		// aproximado.
-		if pk, err := postgres.PrimaryKeyColumns(ctx, sesion.pool, req.Schema, req.Table); err == nil {
+		if pk, err := sesion.db.PrimaryKeyColumns(ctx, req.Schema, req.Table); err == nil {
 			orden = pk
 		}
 	}
@@ -131,7 +131,7 @@ func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableData
 		limite = sesion.conn.Safety.EffectiveRowLimit()
 	}
 
-	res, f := postgres.TableData(ctx, sesion.pool, req.Schema, req.Table, postgres.TableDataOptions{
+	res, f := sesion.db.Page(ctx, req.Schema, req.Table, engine.PageOptions{
 		OrderBy:    orden,
 		Descending: req.Descending,
 		Limit:      limite,
@@ -145,9 +145,9 @@ func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableData
 
 // CountResult es el conteo exacto de una tabla.
 type CountResult struct {
-	OK      bool              `json:"ok"`
-	Count   int64             `json:"count"`
-	Failure *postgres.Failure `json:"failure,omitempty"`
+	OK      bool            `json:"ok"`
+	Count   int64           `json:"count"`
+	Failure *engine.Failure `json:"failure,omitempty"`
 }
 
 // TableCount cuenta las filas, exacto.
@@ -157,8 +157,8 @@ type CountResult struct {
 func (q *Queries) TableCount(ctx context.Context, runID, schema, table string) CountResult {
 	sesion, err := q.session.abierta()
 	if err != nil {
-		return CountResult{Failure: &postgres.Failure{
-			Kind:    postgres.FailureOther,
+		return CountResult{Failure: &engine.Failure{
+			Kind:    engine.FailureOther,
 			Message: err.Error(),
 		}}
 	}
@@ -166,7 +166,7 @@ func (q *Queries) TableCount(ctx context.Context, runID, schema, table string) C
 	ctx, listo := q.registrar(ctx, runID)
 	defer listo()
 
-	n, f := postgres.TableCount(ctx, sesion.pool, schema, table)
+	n, f := sesion.db.Count(ctx, schema, table)
 	if f != nil {
 		return CountResult{Failure: q.porElTunel(f)}
 	}
@@ -217,12 +217,12 @@ func (q *Queries) registrar(ctx context.Context, runID string) (context.Context,
 // solo puede ofrecer una lista de posibles causas —el servidor, la red, el
 // túnel— y quien lo lee tiene que descartarlas de a una. Preguntarle al cliente
 // SSH si sigue vivo convierte esa lista en una respuesta.
-func (q *Queries) porElTunel(f *postgres.Failure) *postgres.Failure {
+func (q *Queries) porElTunel(f *engine.Failure) *engine.Failure {
 	if f == nil || !q.session.TunnelDown() {
 		return f
 	}
-	return &postgres.Failure{
-		Kind:    postgres.FailureTunnel,
+	return &engine.Failure{
+		Kind:    engine.FailureTunnel,
 		Message: "El túnel SSH se cerró.",
 		Hint:    "La base puede estar perfectamente: lo que se cortó es el camino hasta ella. Reconectá para abrir el túnel de nuevo.",
 		// Se conserva lo que dijo el motor: es la frase que alguien va a

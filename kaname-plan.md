@@ -171,7 +171,9 @@ Backend, por motor:
 - ✅ `internal/postgres` implementa `Conn`. Pasa la batería.
 - ✅ `internal/mysql` — MySQL **y** MariaDB. Pasan la batería las dos.
 - ✅ `internal/sqlite` — incluida la reconstrucción de tabla. Pasa la batería.
-- ⏳ `internal/service` detrás de la costura, y el apply por tramos.
+- ✅ `internal/service` detrás de la costura, y el apply por tramos. El
+  servicio ya no nombra ningún motor: el despacho vive en `motores.go` y el
+  resto habla con `engine.Conn`.
 
 Frontend y CI:
 
@@ -179,7 +181,37 @@ Frontend y CI:
 - ⏳ **S15** — banners de DDL no transaccional (MySQL) y de rebuild de tabla
   (SQLite); dry run en transacción para Postgres.
 - ⏳ **S01** — "Open SQLite file".
-- ⏳ **CI** — matriz de los cuatro motores con `KANAME_REQUIRE_ENGINES`.
+- ✅ **CI** — `KANAME_REQUIRE_ENGINES` puesto, y las dos MariaDB en el compose.
+- ⏳ Ampliar la matriz de CI a las versiones anteriores de MySQL (8.4 LTS).
+
+#### Pruebas manuales pendientes — los cuatro arreglos que salieron sin tocar UI
+
+Los cuatro se comprobaron con tests de integración contra el motor de verdad,
+pero **ninguno se miró desde la aplicación**, y los cuatro cambian lo que el
+usuario ve. Van cuando el servicio despache los cuatro motores y la interfaz
+pueda abrirlos:
+
+1. **MariaDB 10.11** — conectar desde S03 y ver que la barra de estado dice
+   «MariaDB 10.11.x», que el árbol trae las tablas y que el detalle de una tabla
+   abre sin errores. Era el que no conectaba en absoluto.
+2. **Modo solo lectura contra MySQL** — marcar la conexión como solo lectura,
+   abrir una tabla (una conexión), y después correr un `DELETE` en el editor
+   SQL (otra conexión del pool). Tiene que fallar, y el mensaje tiene que decir
+   «esta conexión está abierta en modo solo lectura» y no un código suelto —eso
+   prueba de paso el error 1792—.
+3. **Límite de tiempo por sentencia** — poner un límite corto en la conexión y
+   correr un `SELECT SLEEP(10)` en el editor. Tiene que cortarse solo, sin
+   tocar Cancelar.
+4. **Comentario con barra invertida** — ponerle a una columna el comentario
+   `C:
+uta`, aplicar, refrescar, y ver que quedó con UNA barra. Contra un
+   servidor con `NO_BACKSLASH_ESCAPES` y contra uno sin él.
+
+Y una que no es de estos cuatro pero se prueba en el mismo rato:
+
+5. **Archivo SQLite con `#` en la ruta** — abrir una base que esté en una
+   carpeta con `#` o `%` en el nombre y comprobar que muestra los datos que
+   tiene, y no una base vacía.
 
 ### Iteración 7 — Grilla editable
 
@@ -589,6 +621,20 @@ UNIQUE se agrega como índice único, que es el mismo mecanismo que usa el
 motor—, `DROP TABLE ... CASCADE`, y estadísticas de filas salvo que alguien
 haya corrido `ANALYZE`.
 
+**El apply se parte en tramos, y el resultado lo dice.** `ApplyResult` suma
+`Tramos` y `TramoFallido`, y `StatementResult.Applied` cambió de significado:
+antes era «corrió sin error» y ahora es «quedó aplicada en la base». La
+diferencia no es semántica —`olvidarAplicados` saca del changeset lo que figure
+aplicado, así que con la definición vieja una sentencia que corrió y después se
+revirtió se perdía como edición sin existir en la base—.
+
+El mismo changeset da dos resultados distintos y los dos correctos: contra
+Postgres y SQLite un tramo, se revierte todo y el changeset queda entero;
+contra MySQL y MariaDB tantos tramos como sentencias de esquema, lo anterior al
+fallo queda aplicado de verdad, y `RolledBack` es false porque no se revirtió
+nada. Es lo que S15 tiene que mostrar en vez de la promesa fija de «todo o
+nada».
+
 **MariaDB 10.11 no conectaba, y es la LTS más vieja que declaramos soportar.**
 `leerServerInfo` pedía `@@transaction_read_only` en la misma consulta que todo
 lo demás, y esa variable llegó a MariaDB recién en 11.1.1 — antes se llamaba
@@ -663,7 +709,8 @@ función.
   interfaz no es una protección.
 - **`QuoteString` corrompía las barras invertidas bajo `NO_BACKSLASH_ESCAPES`.**
   El comentario decía que duplicarlas «es correcto en los dos modos»; no lo es,
-  y un comentario que dice `C:uta` se guardaba con dos barras. No es una
+  y un comentario que dice `C:
+uta` se guardaba con dos barras. No es una
   inyección —la comilla simple, que es lo único que puede cerrar el literal, se
   duplica igual en los dos modos— pero sí corrupción silenciosa. Se lee
   `@@sql_mode` al conectar.

@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/layout"
+	"github.com/LucianoR23/kanamedb/internal/schema"
 	"github.com/LucianoR23/kanamedb/internal/store"
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
@@ -281,12 +283,12 @@ func TestTableDetailNoSeCacheaYVeLosCambios(t *testing.T) {
 		"CREATE SCHEMA " + esq,
 		"CREATE TABLE " + esq + ".t (id bigint PRIMARY KEY)",
 	} {
-		if _, err := abierta.pool.Exec(ctx, sql); err != nil {
+		if err := abierta.db.Exec(ctx, sql); err != nil {
 			t.Fatalf("no se pudo preparar la fixture (%s): %v", sql, err)
 		}
 	}
 	t.Cleanup(func() {
-		_, _ = abierta.pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+esq+" CASCADE")
+		_ = abierta.db.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+esq+" CASCADE")
 	})
 
 	antes, err := sesion.TableDetail(ctx, esq, "t")
@@ -297,7 +299,7 @@ func TestTableDetailNoSeCacheaYVeLosCambios(t *testing.T) {
 		t.Fatalf("la tabla arranca con %d columnas", len(antes.Columns))
 	}
 
-	if _, err := abierta.pool.Exec(ctx, "ALTER TABLE "+esq+".t ADD COLUMN nota text"); err != nil {
+	if err := abierta.db.Exec(ctx, "ALTER TABLE "+esq+".t ADD COLUMN nota text"); err != nil {
 		t.Fatalf("no se pudo alterar la tabla: %v", err)
 	}
 
@@ -366,60 +368,143 @@ func TestErdLayoutSinConexionNoInventaNada(t *testing.T) {
 	}
 }
 
-// TestConectarAUnMotorQueNoEstaEnganchadoLoDiceClaro.
+// TestElServicioAbreLosCuatroMotores.
 //
-// El editor de conexiones ofrece los cuatro motores con tres deshabilitados,
-// pero el archivo de conexiones se edita a mano —está pensado para eso— así
-// que una conexión con `engine = "mysql"` llega igual hasta acá. Sin una
-// comprobación del lado del servicio, ese DSN —`usuario:clave@tcp(...)`— se le
-// entrega a pgx, que contesta con un error de parseo que no le dice nada a
-// nadie.
+// Es el test que cierra la Iteración 6 del lado del backend. Los cuatro
+// paquetes de motor pasaban la batería por su cuenta desde antes, pero el
+// servicio le hablaba a `postgres` por su nombre: tenía un *pgxpool.Pool
+// adentro y llamaba a `postgres.Connect`, `postgres.Run` y
+// `postgres.RenderDDL` directamente. O sea que «MySQL está implementado» era
+// cierto y no servía para nada — desde la aplicación no se podía abrir.
 //
-// Ver CLAUDE.md: una comprobación que vive solo del lado de la interfaz no es
-// una protección, es un cartel.
-func TestConectarAUnMotorQueNoEstaEnganchadoLoDiceClaro(t *testing.T) {
-	for _, motor := range []connection.Engine{
-		connection.MySQL, connection.MariaDB, connection.SQLite,
-	} {
-		t.Run(motor.String(), func(t *testing.T) {
+// Se prueba el camino COMPLETO que recorre la interfaz al apretar Conectar:
+// leer la conexión del archivo, sacar la contraseña del keychain, armar el
+// DSN, abrir, leer el catálogo y renderizar un cambio. Cada paso pasaba por
+// algo específico de Postgres.
+func TestElServicioAbreLosCuatroMotores(t *testing.T) {
+	casos := []struct {
+		nombre string
+		uri    string
+		// archivo pide una base de SQLite en un directorio temporal.
+		archivo bool
+	}{
+		{"postgres", "postgres://kaname:kaname@127.0.0.1:55432/kaname_test?sslmode=disable", false},
+		{"mysql", "mysql://kaname:kaname@127.0.0.1:53306/kaname_test", false},
+		{"mariadb", "mariadb://kaname:kaname@127.0.0.1:53307/kaname_test", false},
+		{"mariadb-lts", "mariadb://kaname:kaname@127.0.0.1:53308/kaname_test", false},
+		{"sqlite", "", true},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
 			st := store.New(filepath.Join(t.TempDir(), "connections.toml"))
-			c := connection.Connection{
-				ID: "x1", Name: "editada a mano", Engine: motor,
-				Host: "127.0.0.1", User: "kaname", Database: "kaname_test",
-				Environment: connection.Local,
+			kr := newFakeKeyring()
+
+			var c connection.Connection
+			if caso.archivo {
+				c = connection.Connection{
+					ID: "s1", Name: "archivo", Engine: connection.SQLite,
+					Database: filepath.ToSlash(filepath.Join(t.TempDir(), "kaname.db")),
+				}
+			} else {
+				parsed, err := connection.ParseURI(caso.uri)
+				if err != nil {
+					t.Fatalf("el DSN de pruebas no se pudo interpretar: %v", err)
+				}
+				c = parsed.Connection
+				c.ID, c.Name = "s1", caso.nombre
+				if parsed.Password != "" {
+					if err := kr.Set(c.ID, parsed.Password); err != nil {
+						t.Fatalf("guardar la contraseña: %v", err)
+					}
+				}
 			}
-			if motor == connection.SQLite {
-				c.Host, c.User = "", ""
-				c.Database = filepath.ToSlash(filepath.Join(t.TempDir(), "a.db"))
-			}
+			c.Environment = connection.Local
 			if err := st.Add(c.Normalize()); err != nil {
-				t.Fatalf("el archivo de conexiones no aceptó la conexión: %v", err)
+				t.Fatalf("Add(): %v", err)
 			}
 
-			sesion := NewSession(st, newFakeKeyring(),
+			sesion := NewSession(st, kr,
 				tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")),
 				layout.New(filepath.Join(t.TempDir(), "layouts")))
 			t.Cleanup(sesion.Disconnect)
 
-			res := sesion.Connect(context.Background(), c.ID)
-			if res.OK {
-				t.Fatal("dijo que conectó a un motor que el servicio todavía no despacha")
-			}
-			if res.Failure == nil {
-				t.Fatal("falló sin decir por qué")
-			}
-			if !strings.Contains(res.Failure.Message, motor.Label()) {
-				t.Errorf("el mensaje no nombra el motor, así que no se entiende qué pasó: %q",
-					res.Failure.Message)
-			}
-			// El error de pgx sobre un DSN que no es suyo es lo que había antes,
-			// y no se puede accionar.
-			for _, prohibido := range []string{"parse", "cannot parse", "keyword"} {
-				if strings.Contains(strings.ToLower(res.Failure.Message), prohibido) {
-					t.Errorf("el mensaje es el error crudo del driver de Postgres: %q",
-						res.Failure.Message)
+			ctx := context.Background()
+			res := sesion.Connect(ctx, c.ID)
+			if !res.OK {
+				msg := "sin detalle"
+				if res.Failure != nil {
+					msg = res.Failure.Message + " — " + res.Failure.Detail
 				}
+				if os.Getenv("KANAME_REQUIRE_ENGINES") != "" || caso.archivo {
+					t.Fatalf("no conectó: %s", msg)
+				}
+				t.Skipf("no hay %s escuchando (%s).\n"+
+					"Levantalo con: docker compose -f docker-compose.test.yml up -d",
+					caso.nombre, msg)
+			}
+
+			// La barra de estado tiene que tener qué mostrar, y el motor que
+			// dice tiene que ser el que se pidió.
+			if res.Session.Server == nil || res.Session.Server.Display == "" {
+				t.Fatal("la sesión abrió sin datos del servidor")
+			}
+			if got := res.Session.Server.Kind; got != c.Engine {
+				t.Errorf("la sesión dice motor %q y la conexión es %q", got, c.Engine)
+			}
+
+			// El árbol.
+			snap, err := sesion.Schema(ctx, true)
+			if err != nil {
+				t.Fatalf("Schema(): %v", err)
+			}
+			if len(snap.Schemas) == 0 {
+				t.Error("el esquema vino sin un solo esquema: el árbol quedaría vacío")
+			}
+
+			// El selector de tipos de columna.
+			tipos, err := sesion.ColumnTypes(ctx)
+			if err != nil {
+				t.Fatalf("ColumnTypes(): %v", err)
+			}
+			if len(tipos) == 0 {
+				t.Error("ColumnTypes() vacío: no se podría agregar una columna")
+			}
+
+			// Y la vista previa de un cambio, que es lo último que pasaba por
+			// postgres.RenderDDL con el nombre puesto.
+			tabla := "kn_servicio_" + strings.ReplaceAll(caso.nombre, "-", "_")
+			vista, err := sesion.Stage(ctx, change.Change{
+				Type: change.CreateTable, Schema: esquemaDePrueba(c.Engine, snap),
+				Table: tabla, Source: "test",
+				Columns: []change.Column{{Name: "id", DataType: tipoEnteroDe(c.Engine)}},
+				Names:   []string{"id"},
+			}, "")
+			if err != nil {
+				t.Fatalf("Stage(): %v", err)
+			}
+			if !strings.Contains(vista.Statement.SQL, tabla) {
+				t.Errorf("la sentencia no nombra la tabla: %q", vista.Statement.SQL)
 			}
 		})
 	}
+}
+
+// esquemaDePrueba elige dónde crear: en Postgres hay esquemas, en MySQL el
+// esquema ES la base, y en SQLite no hay ninguno.
+func esquemaDePrueba(e connection.Engine, snap *schema.Snapshot) string {
+	switch e {
+	case connection.Postgres:
+		return "public"
+	case connection.SQLite:
+		return ""
+	}
+	return snap.Database
+}
+
+func tipoEnteroDe(e connection.Engine) string {
+	if e == connection.SQLite {
+		return "integer"
+	}
+	return "bigint"
 }
