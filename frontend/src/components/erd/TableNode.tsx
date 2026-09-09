@@ -22,24 +22,60 @@ export function TableNode({ data }: NodeProps<NodoErd>) {
   const n = (x: number) => x.toLocaleString("es", { useGrouping: true });
 
   return (
-    <div className={cx(styles.card, data.activa && styles.activa, data.vecina && styles.vecina)}>
+    <div
+      className={cx(
+        styles.card,
+        data.activa && styles.activa,
+        data.vecina && styles.vecina,
+        data.estado === "nueva" && styles.nueva,
+        data.estado === "borrando" && styles.borrando,
+      )}
+    >
       <Handle type="source" position={Position.Left} id="l" className={styles.puerto} />
       <Handle type="source" position={Position.Right} id="r" className={styles.puerto} />
       <Handle type="target" position={Position.Left} id="l" className={styles.puerto} />
       <Handle type="target" position={Position.Right} id="r" className={styles.puerto} />
 
-      <div className={styles.cabecera}>
+      <div className={cx(styles.cabecera, data.estado === "nueva" && styles.cabeceraNueva)}>
         <Glyph kind="table" />
         <span className={styles.nombre} title={`${data.schema}.${data.name}`}>
           {data.name}
         </span>
+        {data.estado ? (
+          <span className={cx(styles.badge, styles[`badge_${data.estado}`])}>
+            {ETIQUETA[data.estado]}
+          </span>
+        ) : null}
         <span className={styles.filas}>
           {data.rowEstimate >= 0 ? `≈ ${n(data.rowEstimate)}` : ""}
         </span>
       </div>
 
       {data.columnas.map((c) => (
-        <div key={c.name} className={styles.fila}>
+        <div
+          key={c.name}
+          className={cx(styles.fila, c.estado && styles[`fila_${c.estado}`])}
+          data-columna={c.name}
+        >
+          {/* En modo relación cada fila es un conector: arrastrar de una columna
+              a otra es lo que crea la clave. Fuera de ese modo no existen, para
+              que no aparezcan puntos por todos lados. */}
+          {data.editando && data.herramienta === "relate" ? (
+            <>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`col:${c.name}`}
+                className={styles.puertoColumna}
+              />
+              <Handle
+                type="target"
+                position={Position.Left}
+                id={`col:${c.name}`}
+                className={styles.puertoColumna}
+              />
+            </>
+          ) : null}
           <span
             className={cx(
               styles.clave,
@@ -49,10 +85,14 @@ export function TableNode({ data }: NodeProps<NodoErd>) {
           >
             {c.key}
           </span>
-          <span className={cx(styles.col, c.key && styles.colClave)} title={c.name}>
+          <span
+            className={cx(styles.col, c.key && styles.colClave, c.estado && styles[`col_${c.estado}`])}
+            title={c.name}
+          >
             {c.name}
           </span>
           {data.tipos ? <span className={styles.tipo}>{c.dataType}</span> : null}
+          {c.estado ? <span className={styles[`marca_${c.estado}`]}>{MARCA[c.estado]}</span> : null}
         </div>
       ))}
 
@@ -60,3 +100,17 @@ export function TableNode({ data }: NodeProps<NodoErd>) {
     </div>
   );
 }
+
+/** El signo que lleva cada columna tocada: se lee sin color, y el color refuerza. */
+const MARCA: Record<string, string> = {
+  agregada: "+",
+  cambiada: "~",
+  borrando: "−",
+};
+
+const ETIQUETA: Record<string, string> = {
+  nueva: "nueva",
+  cambiada: "cambiada",
+  borrando: "se borra",
+  agregada: "nueva",
+};

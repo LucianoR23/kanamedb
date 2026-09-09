@@ -1,0 +1,62 @@
+.cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.etiqueta {
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-2);
+}
+
+.columnas,
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Los chips numeran al elegirse: el orden de una clave compuesta importa y sin
+   verlo no hay forma de saber en cuál quedó. */
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  color: var(--text-2);
+  white-space: nowrap;
+  font: 400 11.5px var(--font-mono);
+  cursor: pointer;
+}
+.chip:hover { background: var(--bg-hover); color: var(--text-1); }
+.chipOn {
+  background: var(--accent-quiet);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.nota {
+  margin: 0;
+  font: 400 11px/1.6 var(--font-ui);
+  color: var(--text-3);
+}
+.error,
+.aviso {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-1);
+}
+.error { background: var(--danger-quiet); }
+.aviso { background: var(--warning-quiet); }
+.aviso code {
+  font: 400 11px var(--font-mono);
+  color: var(--warning);
+}

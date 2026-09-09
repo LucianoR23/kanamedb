@@ -50,13 +50,13 @@ func TestApplyDejaElEsquemaComoSePidioYVaciaElChangeset(t *testing.T) {
 	sesion, esq := sesionConEsquema(t)
 	ctx := context.Background()
 
-	if _, err := sesion.Stage(crearTabla(esq, "clientes", columna("id", "bigint", false))); err != nil {
+	if _, err := sesion.Stage(crearTabla(esq, "clientes", columna("id", "bigint", false)), ""); err != nil {
 		t.Fatalf("Stage() falló: %v", err)
 	}
 	if _, err := sesion.Stage(change.Change{
 		Type: change.AddColumn, Schema: esq, Table: "clientes", Source: "test",
 		Column: &change.Column{Name: "email", DataType: "text", Nullable: true},
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatalf("Stage() falló: %v", err)
 	}
 
@@ -101,13 +101,13 @@ func TestApplyEnUnaTransaccionRevierteTodoSiAlgoFalla(t *testing.T) {
 	ctx := context.Background()
 
 	// Primera: válida. Segunda: una columna sobre una tabla que no existe.
-	if _, err := sesion.Stage(crearTabla(esq, "buena", columna("id", "bigint", false))); err != nil {
+	if _, err := sesion.Stage(crearTabla(esq, "buena", columna("id", "bigint", false)), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sesion.Stage(change.Change{
 		Type: change.AddColumn, Schema: esq, Table: "no_existe", Source: "test",
 		Column: &change.Column{Name: "c", DataType: "text", Nullable: true},
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,13 +145,13 @@ func TestApplySinTransaccionDejaLoAnteriorAplicado(t *testing.T) {
 	sesion, esq := sesionConEsquema(t)
 	ctx := context.Background()
 
-	if _, err := sesion.Stage(crearTabla(esq, "buena", columna("id", "bigint", false))); err != nil {
+	if _, err := sesion.Stage(crearTabla(esq, "buena", columna("id", "bigint", false)), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sesion.Stage(change.Change{
 		Type: change.AddColumn, Schema: esq, Table: "no_existe", Source: "test",
 		Column: &change.Column{Name: "c", DataType: "text", Nullable: true},
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -172,7 +172,7 @@ func TestApplySinTransaccionDejaLoAnteriorAplicado(t *testing.T) {
 func TestApplyNoEjecutaNadaSiUnCambioNoSePuedeEscribir(t *testing.T) {
 	sesion, esq := sesionConEsquema(t)
 
-	if _, err := sesion.Stage(crearTabla(esq, "buena", columna("id", "bigint", false))); err != nil {
+	if _, err := sesion.Stage(crearTabla(esq, "buena", columna("id", "bigint", false)), ""); err != nil {
 		t.Fatal(err)
 	}
 	// Se mete un cambio inválido POR DEBAJO de Stage, que lo habría rechazado.
@@ -217,7 +217,7 @@ func TestApplyContraProduccionExigeElNombreEscrito(t *testing.T) {
 		t.Fatal("la sesión de prueba no informó el nombre de la base")
 	}
 
-	if _, err := sesion.Stage(crearTabla(esq, "t", columna("id", "bigint", false))); err != nil {
+	if _, err := sesion.Stage(crearTabla(esq, "t", columna("id", "bigint", false)), ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -266,7 +266,7 @@ func TestApplyEnUnaConexionDeSoloLecturaNoEjecutaNada(t *testing.T) {
 	sesion.current.conn.Safety.ReadOnly = true
 	sesion.mu.Unlock()
 
-	if _, err := sesion.Stage(crearTabla(esq, "t", columna("id", "bigint", false))); err != nil {
+	if _, err := sesion.Stage(crearTabla(esq, "t", columna("id", "bigint", false)), ""); err != nil {
 		t.Fatal(err)
 	}
 	_, err := sesion.Apply(context.Background(), ApplyOptions{SingleTransaction: true})
@@ -300,7 +300,7 @@ func TestApplyEjecutaEnOrdenDeDependencias(t *testing.T) {
 		crearTabla(esq, "clientes", columna("id", "bigint", false)),
 		crearTabla(esq, "pedidos", columna("id", "bigint", false)),
 	} {
-		if _, err := sesion.Stage(c); err != nil {
+		if _, err := sesion.Stage(c, ""); err != nil {
 			t.Fatalf("Stage(%s) falló: %v", c.Type, err)
 		}
 	}
@@ -335,7 +335,7 @@ func TestStageRechazaLoQueNoSePuedeEscribir(t *testing.T) {
 	_, err := sesion.Stage(change.Change{
 		Type: change.AddColumn, Schema: esq, Table: "t", Source: "test",
 		Column: &change.Column{Name: "c", DataType: "text; DROP TABLE x", Nullable: true},
-	})
+	}, "")
 	if err == nil {
 		t.Fatal("Stage() aceptó un cambio que no se puede escribir")
 	}
@@ -350,7 +350,7 @@ func TestElChangesetAvisaDeLoQueVaACostar(t *testing.T) {
 
 	// Una tabla real, para poder pedir cosas caras sobre ella.
 	if _, err := sesion.Stage(crearTabla(esq, "t",
-		columna("id", "bigint", false), columna("v", "text", true))); err != nil {
+		columna("id", "bigint", false), columna("v", "text", true)), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sesion.Apply(context.Background(), ApplyOptions{SingleTransaction: true}); err != nil {
@@ -361,7 +361,7 @@ func TestElChangesetAvisaDeLoQueVaACostar(t *testing.T) {
 	if _, err := sesion.Stage(change.Change{
 		Type: change.DropColumn, Schema: esq, Table: "t", Source: "test",
 		Column: &change.Column{Name: "v"},
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	v, err := sesion.Changeset()
@@ -387,7 +387,7 @@ func TestElGuionSeExplicaSolo(t *testing.T) {
 	sesion, esq := sesionConEsquema(t)
 
 	if _, err := sesion.Stage(crearTabla(esq, "t",
-		columna("id", "bigint", false), columna("v", "text", true))); err != nil {
+		columna("id", "bigint", false), columna("v", "text", true)), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sesion.Apply(context.Background(), ApplyOptions{SingleTransaction: true}); err != nil {
@@ -398,13 +398,13 @@ func TestElGuionSeExplicaSolo(t *testing.T) {
 	if _, err := sesion.Stage(change.Change{
 		Type: change.DropColumn, Schema: esq, Table: "t", Source: "test",
 		Column: &change.Column{Name: "v"},
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sesion.Stage(change.Change{
 		Type: change.AddCheck, Schema: esq, Table: "t", Source: "test",
 		Name: "t_id_positivo", Expression: "id > 0",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -430,5 +430,52 @@ func TestElGuionSeExplicaSolo(t *testing.T) {
 	// columna desaparezca, aunque se editó después.
 	if strings.Index(g, "ADD CONSTRAINT") > strings.Index(g, "DROP COLUMN") {
 		t.Errorf("el guion no está en orden de ejecución:\n%s", g)
+	}
+}
+
+// Contra producción, un cambio destructivo no entra al changeset sin confirmar.
+//
+// Se pide al PREPARAR y no solo al aplicar porque son dos preguntas distintas:
+// «¿de verdad querés borrar esta columna?» se contesta mirando la columna, y
+// «¿de verdad querés correr estas ocho sentencias?» mirando la lista.
+func TestStageDestructivoContraProduccionExigeConfirmacion(t *testing.T) {
+	sesion, esq := sesionConEsquema(t)
+
+	abierta, err := sesion.abierta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := abierta.server.CurrentDB
+
+	// Una tabla real sobre la que pedir el borrado.
+	if _, err := sesion.Stage(crearTabla(esq, "t", columna("id", "bigint", false)), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	sesion.mu.Lock()
+	sesion.current.conn.Environment = connection.Production
+	sesion.mu.Unlock()
+
+	destructivo := change.Change{
+		Type: change.DropTable, Schema: esq, Table: "t", Source: "test",
+	}
+	if _, err := sesion.Stage(destructivo, ""); !errors.Is(err, ErrNeedsConfirmation) {
+		t.Fatalf("Stage() sin confirmar: err = %v, se esperaba ErrNeedsConfirmation", err)
+	}
+	if _, err := sesion.Stage(destructivo, "otra cosa"); !errors.Is(err, ErrNeedsConfirmation) {
+		t.Error("Stage() aceptó una confirmación equivocada")
+	}
+	if _, err := sesion.Stage(destructivo, base); err != nil {
+		t.Fatalf("Stage() con la confirmación correcta falló: %v", err)
+	}
+
+	// Y uno NO destructivo no molesta con la pregunta: preguntar por todo enseña
+	// a decir que sí sin leer.
+	inocente := change.Change{
+		Type: change.AddColumn, Schema: esq, Table: "t", Source: "test",
+		Column: &change.Column{Name: "c", DataType: "text", Nullable: true},
+	}
+	if _, err := sesion.Stage(inocente, ""); err != nil {
+		t.Errorf("Stage() de un cambio inocuo pidió confirmación: %v", err)
 	}
 }

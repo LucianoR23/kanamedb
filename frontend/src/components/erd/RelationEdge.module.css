@@ -51,3 +51,25 @@
   border-color: var(--accent);
   color: var(--text-1);
 }
+
+/* Una relación que todavía no existe y una que está por desaparecer. El color
+   dice qué, y la etiqueta lo dice con palabras: verde y rojo no alcanzan solos. */
+.nueva {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 2;
+}
+.borrando {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 1.8;
+}
+
+.etiquetaNueva {
+  border-color: var(--success);
+  color: var(--success);
+}
+.etiquetaBorrando {
+  border-color: var(--danger);
+  color: var(--danger);
+}

@@ -1,0 +1,48 @@
+.cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.texto {
+  font: 400 12.5px/1.6 var(--font-ui);
+  color: var(--text-2);
+}
+.texto strong {
+  color: var(--text-1);
+  font-weight: 500;
+}
+.texto code {
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+}
+
+/* La severidad tiñe el bloque, no solo el botón: leer el texto ya tiene que
+   decir de qué se trata, antes de llegar abajo. */
+.sev_aviso .texto {
+  padding: 10px 11px;
+  background: var(--warning-quiet);
+  border-radius: var(--r-md);
+}
+.sev_produccion .texto {
+  padding: 10px 11px;
+  background: var(--danger-quiet);
+  border-radius: var(--r-md);
+}
+
+.confirmar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.etiqueta {
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-2);
+}
+.palabra {
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-1);
+}
+.ok { border-color: var(--success); }
+.mal { border-color: var(--env-prod); }

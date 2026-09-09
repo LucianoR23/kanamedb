@@ -12,6 +12,7 @@ import { DataGrid } from "../components/DataGrid";
 import type { CellRef, SortState } from "../components/DataGrid";
 import { CellViewer } from "./CellViewer";
 import { TableStructure, bytes } from "./TableStructure";
+import { useStage } from "../lib/useStage";
 import type { StructureView } from "./TableStructure";
 import styles from "./TableDataScreen.module.css";
 
@@ -71,6 +72,10 @@ export function TableDataScreen({
   const [detalle, setDetalle] = useState<TableDetail | null>(null);
   const [detalleCargando, setDetalleCargando] = useState(false);
   const [detalleError, setDetalleError] = useState("");
+
+  // Preparar un cambio pasa siempre por acá: la confirmación de producción la
+  // exige Go y este enganche la contesta.
+  const staging = useStage(onStaged);
 
   const runID = useRef(`${tabId}:data`).current;
 
@@ -161,6 +166,10 @@ export function TableDataScreen({
   // esconde el contador cuando no hay número, y «Estructura 0» sería una cuenta
   // que ninguna tabla puede tener.
   let columnasDeLaTabla: number | undefined;
+  // Las tablas del esquema, para que el editor de claves foráneas ofrezca a
+  // cuáles se puede apuntar en vez de pedir que se escriba el nombre de memoria.
+  const tablasDelEsquema =
+    (snapshot?.schemas ?? []).find((s) => s.name === schema)?.tables?.map((t) => t.name) ?? [];
   for (const esq of snapshot?.schemas ?? []) {
     if (esq.name !== schema) continue;
     for (const t of esq.tables ?? []) {
@@ -240,6 +249,9 @@ export function TableDataScreen({
         {enDatos ? <span className={styles.count}>{conteo(filas.length, total, orden)}</span> : null}
       </div>
 
+      {staging.dialogo}
+      {staging.error ? <p className={styles.errorStage}>{staging.error}</p> : null}
+
       {!enDatos ? (
         <TableStructure
           view={sub}
@@ -247,13 +259,8 @@ export function TableDataScreen({
           loading={detalleCargando}
           error={detalleError}
           readOnly={readOnly}
-          onStage={(c) => {
-            void SessionSvc.Stage(c)
-              .then(() => onStaged())
-              .catch((err: unknown) =>
-                setDetalleError(err instanceof Error ? err.message : String(err)),
-              );
-          }}
+          tablas={tablasDelEsquema}
+          onStage={(c) => void staging.stage(c)}
         />
       ) : (
         <>

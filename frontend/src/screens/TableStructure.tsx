@@ -1,5 +1,10 @@
 import { useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { Type as OpType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import type {
@@ -13,6 +18,8 @@ import type {
 import { ContextMenu, Glyph, Spinner } from "../components/ui";
 import type { MenuAnchor, MenuEntry } from "../components/ui";
 import { ColumnEditor } from "./ColumnEditor";
+import { ConstraintEditor } from "./ConstraintEditor";
+import type { ObjetoNuevo } from "./ConstraintEditor";
 import type { ColumnaNueva } from "./ColumnEditor";
 import { cx } from "../lib/cx";
 import styles from "./TableStructure.module.css";
@@ -38,6 +45,7 @@ export function TableStructure({
   loading,
   error,
   readOnly,
+  tablas,
   onStage,
 }: {
   view: StructureView;
@@ -46,6 +54,8 @@ export function TableStructure({
   error: string;
   /** Sin escritura no se ofrece ninguna edición: el menú explica por qué. */
   readOnly: boolean;
+  /** Las tablas del esquema, para elegir a cuál apunta una clave foránea. */
+  tablas: string[];
   /** Manda un cambio al changeset. La SQL la escribe Go. */
   onStage: (c: Change) => void;
 }) {
@@ -83,17 +93,61 @@ export function TableStructure({
         />
       );
     case "indexes":
-      return <Indices indices={detail.indexes ?? []} />;
+      return (
+        <Editables
+          tipo="index"
+          rotulo="un índice"
+          detail={detail}
+          tablas={tablas}
+          readOnly={readOnly}
+          onStage={onStage}
+        >
+          {(borrar) => (
+            <Indices
+              indices={detail.indexes ?? []}
+              {...(readOnly ? {} : { onBorrar: (n: string) => borrar(OpType.DropIndex, n) })}
+            />
+          )}
+        </Editables>
+      );
     case "keys":
       return (
-        <Claves
-          salientes={detail.foreignKeys ?? []}
-          entrantes={detail.referencedBy ?? []}
-          tabla={detail.name}
-        />
+        <Editables
+          tipo="foreignKey"
+          rotulo="una clave foránea"
+          detail={detail}
+          tablas={tablas}
+          readOnly={readOnly}
+          onStage={onStage}
+        >
+          {(borrar) => (
+            <Claves
+              salientes={detail.foreignKeys ?? []}
+              entrantes={detail.referencedBy ?? []}
+              tabla={detail.name}
+              {...(readOnly ? {} : { onBorrar: (n: string) => borrar(OpType.DropConstraint, n) })}
+            />
+          )}
+        </Editables>
       );
     case "constraints":
-      return <Restricciones checks={detail.checks ?? []} />;
+      return (
+        <Editables
+          tipo="check"
+          rotulo="una restricción"
+          detail={detail}
+          tablas={tablas}
+          readOnly={readOnly}
+          onStage={onStage}
+        >
+          {(borrar) => (
+            <Restricciones
+              checks={detail.checks ?? []}
+              {...(readOnly ? {} : { onBorrar: (n: string) => borrar(OpType.DropConstraint, n) })}
+            />
+          )}
+        </Editables>
+      );
     case "triggers":
       return <Triggers triggers={detail.triggers ?? []} />;
   }
@@ -332,9 +386,119 @@ function Columnas({
   );
 }
 
+/* ------------------------------------------------- índices, claves, checks */
+
+/**
+ * El marco editable de las tres pestañas de objetos.
+ *
+ * Las tres comparten exactamente lo mismo —un botón para agregar, un diálogo, y
+ * un menú para borrar sobre cada fila—, así que vive una vez acá y cada pestaña
+ * solo aporta su tabla.
+ *
+ * `children` es una función y no un nodo porque la tabla necesita recibir el
+ * «borrar» que este componente prepara: pasarlo al revés obligaría a cada
+ * pestaña a saber cómo se arma un cambio.
+ */
+function Editables({
+  tipo,
+  rotulo,
+  detail,
+  tablas,
+  readOnly,
+  onStage,
+  children,
+}: {
+  tipo: ObjetoNuevo;
+  rotulo: string;
+  detail: TableDetail;
+  tablas: string[];
+  readOnly: boolean;
+  onStage: (c: Change) => void;
+  children: (borrar: (tipo: OpType, nombre: string) => void) => ReactNode;
+}) {
+  const [abierto, setAbierto] = useState(false);
+
+  const borrar = (t: OpType, nombre: string) =>
+    onStage({
+      id: "",
+      type: t,
+      schema: detail.schema,
+      table: detail.name,
+      source: "structure",
+      name: nombre,
+    } as Change);
+
+  return (
+    <>
+      {children(borrar)}
+
+      <div className={styles.pieAcciones}>
+        <button
+          type="button"
+          className={styles.accion}
+          disabled={readOnly}
+          title={readOnly ? "La conexión es de solo lectura" : undefined}
+          onClick={() => setAbierto(true)}
+        >
+          Agregar {rotulo}
+        </button>
+        <span className={styles.pieNota}>
+          Clic derecho sobre una fila para borrarla. Nada toca la base hasta que se aplique.
+        </span>
+      </div>
+
+      {abierto ? (
+        <ConstraintEditor
+          tipo={tipo}
+          schema={detail.schema}
+          tabla={detail.name}
+          columnas={detail.columns ?? []}
+          tablas={tablas}
+          onCerrar={() => setAbierto(false)}
+          onGuardar={(c) => {
+            setAbierto(false);
+            onStage(c);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** Menú de una fila borrable, compartido por las tres pestañas. */
+function useMenuBorrar(onBorrar?: (nombre: string) => void) {
+  const [menu, setMenu] = useState<{ ancla: MenuAnchor; nombre: string } | null>(null);
+  const abrir = (nombre: string) => (e: ReactMouseEvent) => {
+    if (!onBorrar) return;
+    e.preventDefault();
+    setMenu({ ancla: { x: e.clientX, y: e.clientY }, nombre });
+  };
+  const nodo = (
+    <ContextMenu
+      anchor={menu?.ancla ?? null}
+      entries={
+        menu
+          ? [
+              { kind: "label", id: "l", label: menu.nombre },
+              {
+                id: "borrar",
+                label: "Borrar…",
+                destructive: true,
+                onSelect: () => onBorrar?.(menu.nombre),
+              },
+            ]
+          : []
+      }
+      onClose={() => setMenu(null)}
+    />
+  );
+  return { abrir, nodo };
+}
+
 /* ----------------------------------------------------------------- índices */
 
-function Indices({ indices }: { indices: Index[] }) {
+function Indices({ indices, onBorrar }: { indices: Index[]; onBorrar?: (n: string) => void }) {
+  const menu = useMenuBorrar(onBorrar);
   return (
     <>
       <Tabla
@@ -344,7 +508,11 @@ function Indices({ indices }: { indices: Index[] }) {
         encabezados={["", "Índice", "Método", "Único", "Columnas", "Tamaño", "Usos"]}
       >
         {indices.map((ix) => (
-          <div key={ix.name} className={cx(styles.fila, !ix.valid && styles.filaApagada)}>
+          <div
+            key={ix.name}
+            className={cx(styles.fila, !ix.valid && styles.filaApagada)}
+            onContextMenu={menu.abrir(ix.name)}
+          >
             <div className={cx(styles.celda, styles.gutter)}>
               <Glyph kind={ix.primary ? "primaryKey" : "index"} />
             </div>
@@ -437,11 +605,14 @@ function Claves({
   salientes,
   entrantes,
   tabla,
+  onBorrar,
 }: {
   salientes: ForeignKey[];
   entrantes: ForeignKey[];
   tabla: string;
+  onBorrar?: (n: string) => void;
 }) {
+  const menu = useMenuBorrar(onBorrar);
   // Las dos direcciones van en la misma lista porque para entender qué pasa al
   // borrar una fila hacen falta las dos: un ON DELETE CASCADE que borra en otra
   // tabla no se ve mirando solo las claves propias.
@@ -459,7 +630,11 @@ function Claves({
         encabezados={["", "Restricción", "Referencia", "Al borrar", "Al cambiar", "Diferible"]}
       >
         {filas.map(({ fk, entrante }) => (
-          <div key={`${fk.schema}.${fk.table}:${fk.name}`} className={styles.fila}>
+          <div
+            key={`${fk.schema}.${fk.table}:${fk.name}`}
+            className={styles.fila}
+            onContextMenu={entrante ? undefined : menu.abrir(fk.name)}
+          >
             <div className={cx(styles.celda, styles.gutter)}>
               <Glyph kind="foreignKey" />
             </div>
@@ -537,7 +712,14 @@ function referencia(fk: ForeignKey, tabla: string): string {
 
 /* ----------------------------------------------------------- restricciones */
 
-function Restricciones({ checks }: { checks: CheckConstraint[] }) {
+function Restricciones({
+  checks,
+  onBorrar,
+}: {
+  checks: CheckConstraint[];
+  onBorrar?: (n: string) => void;
+}) {
+  const menu = useMenuBorrar(onBorrar);
   return (
     <Tabla
       vacia="Esta tabla no tiene restricciones CHECK."
@@ -546,7 +728,7 @@ function Restricciones({ checks }: { checks: CheckConstraint[] }) {
       encabezados={["", "Restricción", "Expresión", "Validada"]}
     >
       {checks.map((c) => (
-        <div key={c.name} className={styles.fila}>
+        <div key={c.name} className={styles.fila} onContextMenu={menu.abrir(c.name)}>
           <div className={cx(styles.celda, styles.gutter, styles.mono)}>CK</div>
           <div className={cx(styles.celda, styles.mono)} title={c.name}>
             {c.name}

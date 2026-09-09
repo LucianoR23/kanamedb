@@ -4,7 +4,15 @@ import type {
   ChangeView,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
-import { Button, Checkbox, CopyButton, Glyph, PillTabs, Spinner } from "../components/ui";
+import {
+  Button,
+  Checkbox,
+  ConfirmDialog,
+  CopyButton,
+  Glyph,
+  PillTabs,
+  Spinner,
+} from "../components/ui";
 import { SqlPreview } from "./SqlPreview";
 import { cx } from "../lib/cx";
 import styles from "./PendingChanges.module.css";
@@ -39,6 +47,7 @@ export function PendingChanges({
   const [filtro, setFiltro] = useState<Filtro>("all");
   const [transaccion, setTransaccion] = useState(true);
   const [previewAbierta, setPreviewAbierta] = useState(false);
+  const [descartando, setDescartando] = useState(false);
 
   const leer = useCallback(async () => {
     setCargando(true);
@@ -249,16 +258,25 @@ export function PendingChanges({
         </Button>
         <CopyButton text={vista.script} label="Copiar la SQL" />
         <span className={styles.grow} />
-        <Button
-          variant="dangerOutline"
-          size="sm"
-          onClick={() => {
-            void SessionSvc.DiscardChanges().then(leer);
-          }}
-        >
+        <Button variant="dangerOutline" size="sm" onClick={() => setDescartando(true)}>
           Descartar todo
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={descartando}
+        severidad="aviso"
+        title={`¿Descartar ${r.total} ${r.total === 1 ? "cambio" : "cambios"}?`}
+        etiqueta="Descartar todo"
+        onClose={() => setDescartando(false)}
+        onConfirm={() => {
+          setDescartando(false);
+          void SessionSvc.DiscardChanges().then(leer);
+        }}
+      >
+        Se vacía la lista. <strong>No se pierde ningún dato</strong> —nada se aplicó todavía—,
+        pero las ediciones hay que volver a hacerlas.
+      </ConfirmDialog>
 
       {previewAbierta ? (
         <SqlPreview

@@ -124,3 +124,69 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* ------------------------------- cambios pendientes ------------------------
+   Cada estado se distingue por el SIGNO además del color: +, ~, − se leen sin
+   depender de distinguir verde de rojo. */
+
+.nueva {
+  border-style: dashed;
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px var(--success-quiet);
+}
+.cabeceraNueva { background: var(--cell-added); }
+
+.borrando {
+  border-color: var(--danger);
+  opacity: 0.75;
+}
+
+.badge {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+  font: 600 9px var(--font-ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.badge_nueva { background: var(--success-quiet); color: var(--success); }
+.badge_cambiada { background: var(--accent-quiet); color: var(--accent); }
+.badge_agregada { background: var(--success-quiet); color: var(--success); }
+.badge_borrando { background: var(--danger-quiet); color: var(--danger); }
+
+.fila_agregada { background: var(--cell-added); }
+.fila_cambiada { background: var(--accent-quiet); }
+.fila_borrando { background: var(--cell-deleted); }
+
+.col_agregada { color: var(--success); }
+.col_cambiada { color: var(--text-1); }
+/* Tachada: es lo que dice «esto no va a estar» sin depender del color. */
+.col_borrando {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.marca_agregada,
+.marca_cambiada,
+.marca_borrando {
+  flex: none;
+  margin-left: 4px;
+  white-space: nowrap;
+  font: 700 9px var(--font-mono);
+}
+.marca_agregada { color: var(--success); }
+.marca_cambiada { color: var(--accent); }
+.marca_borrando { color: var(--danger); }
+
+/* En modo relación, cada fila es un punto de conexión. Se ven poco pero se ven:
+   un conector invisible no se puede agarrar. */
+.puertoColumna {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--accent);
+  background: var(--bg-panel);
+  opacity: 0.85;
+}

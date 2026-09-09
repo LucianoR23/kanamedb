@@ -143,10 +143,26 @@ func (s *Session) ApplyStatus() ApplyProgress {
 //
 // Devolver la sentencia en el acto no es un lujo: es lo que permite que quien
 // edita vea la SQL apenas hace el cambio, en vez de descubrirla al final.
-func (s *Session) Stage(c change.Change) (ChangeView, error) {
+func (s *Session) Stage(c change.Change, confirm string) (ChangeView, error) {
 	sesion, err := s.abierta()
 	if err != nil {
 		return ChangeView{}, err
+	}
+	// Contra producción, un cambio destructivo no entra al changeset «sin
+	// querer». La confirmación va acá y no en cada pantalla que puede prepararlo:
+	// una regla escrita en cinco lugares es una regla que alguna pantalla nueva
+	// se va a olvidar de aplicar.
+	//
+	// Se pide al PREPARAR y no solo al aplicar porque son dos preguntas
+	// distintas: «¿de verdad querés borrar esta columna?» se contesta mirando la
+	// columna, y «¿de verdad querés correr estas ocho sentencias?» mirando la
+	// lista. Contestar la segunda no contesta la primera.
+	if c.Destructive() && sesion.conn.Environment.NeedsWriteConfirmation() &&
+		strings.TrimSpace(confirm) != nombreDeLaBase(sesion) {
+		return ChangeView{}, fmt.Errorf(
+			"%w: %s sobre %s es destructivo y la conexión es de producción; para prepararlo hay "+
+				"que escribir %q",
+			ErrNeedsConfirmation, c.Type, c.Target(), nombreDeLaBase(sesion))
 	}
 	// Se renderiza ANTES de guardar. Un cambio que no se sabe escribir no entra
 	// al changeset: dejarlo entrar sería prometer un apply que va a fallar.

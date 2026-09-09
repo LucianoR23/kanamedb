@@ -417,3 +417,29 @@
   font: 400 11px/1.6 var(--font-ui);
   color: var(--text-3);
 }
+
+/* La tira de herramientas del modo edición. Solo existe editando: en un diagrama
+   que se está mirando, una herramienta activa es una trampa esperando. */
+.herramientas {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.pista {
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-dim);
+}
+.errorEdicion {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-ui);
+  color: var(--danger);
+}

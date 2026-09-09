@@ -1,0 +1,11 @@
+.cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.nota {
+  margin: 0;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-3);
+}

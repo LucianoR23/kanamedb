@@ -364,6 +364,11 @@ export function Shell({
                       schema={erd}
                       foco={erdFoco}
                       onOpenTable={openTable}
+                      readOnly={session?.readOnly ?? false}
+                      onStaged={() => {
+                        void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
+                      }}
+                      onRevisar={openCambios}
                     />
                   ) : (
                     <SqlEditorScreen

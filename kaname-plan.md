@@ -127,16 +127,23 @@ Iteración 5 junto con el resto de la generación de DDL.
 Edición → changeset pendiente → **renderizado propio** → preview SQL → aplicar →
 re-inspeccionar. **Sin differ**: ver § 6.
 
-- **S13 ERD edit interactions** — completa.
+- ✅ **S13 ERD edit interactions** — modo edición explícito con cinco
+  herramientas, los cambios pendientes pintados sobre el diagrama, y el panel
+  derecho mostrando el changeset.
 - ✅ **S14 Pending changes panel** — completa.
 - ✅ **S15 SQL preview & apply** — DDL numerado, marcado de destructivos,
   progreso por sentencia. Sin banners MySQL/SQLite y sin dry run todavía.
-- ⏳ **S11** — editable, alimentando el changeset. Están las acciones de columna
-  —agregar, renombrar, nulabilidad, sacar default, borrar—; faltan índices,
-  claves y restricciones.
-- **S24** — variante "write on Production".
+- ✅ **S11** — editable: columnas (agregar, renombrar, nulabilidad, sacar
+  default, borrar), índices, claves foráneas y restricciones CHECK, todo
+  alimentando el changeset.
+- ✅ **S24** — variantes de confirmación: descartar el changeset, y preparar un
+  cambio destructivo contra producción.
 
-**Hito usable: Postgres completo de punta a punta (~4 meses).**
+**Hito usable: Postgres completo de punta a punta.**
+
+Queda fuera, con motivo anotado en § 6: **reordenar las sentencias a mano** (el
+diseño lo ofrece arrastrando) y los **toasts** de S24, que son una preocupación
+global y no de esta iteración.
 
 ### Iteración 6 — Otros motores
 
@@ -444,6 +451,51 @@ la garantía — Postgres aborta la transacción por su cuenta y el `COMMIT` fal
 igual. La inyección que sí prueba la invariante es sacar la transacción y correr
 contra el pool; ahí el test se pone rojo con el mensaje exacto. **Inyectar en el
 lugar equivocado da un falso «este test no sirve».**
+
+**El modo edición del diagrama es explícito, no un estado en el que se cae.**
+Un diagrama que se está mirando y uno que se está editando tienen que
+distinguirse antes del primer clic: con las herramientas siempre activas, tocar
+una tabla para leerla podría preparar un `DROP`. Entrar en edición es un botón, y
+la tira de herramientas solo existe adentro.
+
+Las cinco herramientas son las del diseño. La de relación usa conectores **por
+columna**, que aparecen solo con esa herramienta elegida: arrastrar de una
+columna a la que referencia es literalmente lo que la clave foránea dice, y con
+conectores permanentes la tarjeta se llenaría de puntos que no hacen nada el 95%
+del tiempo.
+
+**Los cambios pendientes se pintan sobre el diagrama.** Una columna agregada, una
+cambiada y una que se va llevan `+`, `~` y `−` además del color: verde y rojo no
+alcanzan solos, y la que se borra va tachada. Las tablas nuevas se dibujan aunque
+todavía no existan —si no, la clave nueva que las apunta no tendría de dónde
+salir— y las relaciones nuevas y las que se borran tienen su propio color y su
+etiqueta con palabras.
+
+**No se puede reordenar las sentencias a mano**, aunque el diseño lo ofrezca
+arrastrando. El orden lo calcula Kaname por dependencias, y un orden elegido a
+dedo puede no poder ejecutarse: la escapatoria para dejar algo afuera es
+destildarlo, que no puede producir un conjunto inválido.
+
+**La confirmación de producción se pide DOS veces, y no es redundante.** Al
+preparar un cambio destructivo y al aplicar el conjunto. Son preguntas distintas:
+«¿de verdad querés borrar esta columna?» se contesta mirando la columna, y «¿de
+verdad querés correr estas ocho sentencias?» mirando la lista. Contestar la
+segunda no contesta la primera.
+
+La regla vive en `Session.Stage`, no en las pantallas. Escrita en cinco lugares
+es una regla que alguna pantalla nueva se va a olvidar de aplicar; escrita en Go,
+una pantalla nueva queda protegida sin acordarse de nada. La interfaz solo
+intenta, y si Go dice que falta confirmar, pregunta y reintenta.
+
+**Descartar el changeset ahora pregunta.** Era un botón que borraba el trabajo de
+un clic. La confirmación aclara lo que importa: no se pierde ningún dato —nada se
+aplicó—, pero las ediciones hay que rehacerlas.
+
+**Dos veces me llevé puesto un archivo con un script de parcheo.** `io.open(p,
+"w")` trunca ANTES de validar sus argumentos, así que un `newline` inválido dejó
+`ErdScreen.tsx` en cero bytes. Se recuperó de git las dos veces, pero la lección
+quedó: los scripts que tocan archivos del repo escriben a un temporal y hacen
+`os.replace`. Y para archivos grandes de JSX, edición directa en vez de scripts.
 
 ### Iteración 4 — 2026-09-08
 

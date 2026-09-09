@@ -5,14 +5,16 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 4 — ERD de lectura.** Se conecta a PostgreSQL directo o a
-> través de un bastión SSH —con verificación de la clave del host y sin abrir
+> **Estado: Iteración 5 — ERD de escritura.** Se conecta a PostgreSQL directo o
+> a través de un bastión SSH —con verificación de la clave del host y sin abrir
 > ningún puerto local—, guarda la libreta de conexiones con los secretos en el
 > keychain del sistema operativo, y trae editor SQL con autocompletado, grilla de
-> resultados con paginado, la estructura completa de cada tabla (columnas,
-> índices, claves, restricciones y triggers) y el **diagrama ERD del esquema**,
-> con auto-acomodado y posiciones que se guardan. Todo solo lectura: editar el
-> esquema desde el diagrama llega en la Iteración 5.
+> resultados con paginado, estructura completa de cada tabla y diagrama ERD.
+>
+> **Y ya edita el esquema:** las ediciones se juntan en un changeset, se muestran
+> como SQL antes de tocar nada, y se aplican en una transacción con progreso por
+> sentencia. Contra producción hay que escribir el nombre de la base. Editar
+> datos de las filas llega en la Iteración 7.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---

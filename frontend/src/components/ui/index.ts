@@ -7,6 +7,9 @@ export type { BadgeTone, Environment } from "./Badge";
 export { Combobox } from "./Combobox";
 export type { ComboOption } from "./Combobox";
 
+export { ConfirmDialog } from "./ConfirmDialog";
+export type { Severidad } from "./ConfirmDialog";
+
 export { ContextMenu } from "./ContextMenu";
 
 export { CopyButton } from "./CopyButton";

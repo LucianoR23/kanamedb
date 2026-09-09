@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -6,17 +6,25 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react";
-import type { NodeChange } from "@xyflow/react";
+import type { Connection, NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/base.css";
 
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Positions } from "../../bindings/github.com/LucianoR23/kanamedb/internal/layout";
+import type { ChangesetView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
+import { Type as OpType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
+import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
-import { Button, Glyph, SearchInput, Toggle } from "../components/ui";
+import { Button, ConfirmDialog, Glyph, PillTabs, SearchInput, Toggle } from "../components/ui";
 import { TableNode } from "../components/erd/TableNode";
 import { RelationEdge } from "../components/erd/RelationEdge";
+import { ErdEditPanel } from "./ErdEditPanel";
+import { NewTableDialog } from "./NewTableDialog";
+import { ColumnEditor } from "./ColumnEditor";
 import { acomodar, construirGrafo, idDeTabla } from "../lib/erd";
-import type { Grafo, NodoErd } from "../lib/erd";
+import type { Grafo, Herramienta, NodoErd } from "../lib/erd";
+import { pendientesDe } from "../lib/erdStaged";
+import { useStage } from "../lib/useStage";
 import { cx } from "../lib/cx";
 import styles from "./ErdScreen.module.css";
 
@@ -46,6 +54,12 @@ export function ErdScreen(props: {
    *  dos veces vuelva a centrarla. */
   foco: { tabla: string; pedido: number } | null;
   onOpenTable: (schema: string, table: string) => void;
+  /** Sin escritura el modo edición ni se ofrece. */
+  readOnly: boolean;
+  /** Se llama cuando el changeset cambió, para que el Shell actualice su cuenta. */
+  onStaged: () => void;
+  /** Abre la pantalla de cambios pendientes. */
+  onRevisar: () => void;
 }) {
   return (
     <ReactFlowProvider>
@@ -54,16 +68,31 @@ export function ErdScreen(props: {
   );
 }
 
+/** Las herramientas del modo edición y qué hace cada una. */
+const HERRAMIENTAS: { id: Herramienta; label: string; hint: string }[] = [
+  { id: "select", label: "Elegir", hint: "clic para seleccionar, arrastrar para mover" },
+  { id: "column", label: "Agregar columna", hint: "clic en una tabla para agregarle una columna" },
+  { id: "table", label: "Tabla nueva", hint: "clic en el lienzo vacío para crear una tabla" },
+  { id: "relate", label: "Dibujar relación", hint: "arrastrá de una columna a la que referencia" },
+  { id: "drop", label: "Borrar", hint: "clic en una tabla para preparar su borrado" },
+];
+
 function Canvas({
   snapshot,
   schema,
   foco,
   onOpenTable,
+  readOnly,
+  onStaged,
+  onRevisar,
 }: {
   snapshot: Snapshot | null;
   schema: string;
   foco: { tabla: string; pedido: number } | null;
   onOpenTable: (schema: string, table: string) => void;
+  readOnly: boolean;
+  onStaged: () => void;
+  onRevisar: () => void;
 }) {
   const flow = useReactFlow();
   const [todasLasColumnas, setTodasLasColumnas] = useState(true);
@@ -75,6 +104,115 @@ function Canvas({
   // El panel se pliega: son 292 píxeles que en un esquema grande se extrañan más
   // que el inspector.
   const [panelAbierto, setPanelAbierto] = useState(true);
+
+  // El modo edición es explícito y no un estado en el que se cae: en un diagrama
+  // que se está mirando, un clic de más no puede preparar un DROP.
+  const [editando, setEditando] = useState(false);
+  const [herramienta, setHerramienta] = useState<Herramienta>("select");
+  const [changeset, setChangeset] = useState<ChangesetView | null>(null);
+  const [tablaNueva, setTablaNueva] = useState<{ x: number; y: number } | null>(null);
+  const [columnaEn, setColumnaEn] = useState<string | null>(null);
+  const [errorEdicion, setErrorEdicion] = useState("");
+  const [descartando, setDescartando] = useState(false);
+
+  const leerChangeset = useCallback(async () => {
+    try {
+      setChangeset(await SessionSvc.Changeset());
+    } catch {
+      // Sin changeset el diagrama se dibuja sin marcas. Perder el resaltado
+      // molesta; no poder abrir el ERD, más.
+    }
+  }, []);
+
+  const staging = useStage(() => {
+    void leerChangeset();
+    onStaged();
+  });
+
+  useEffect(() => {
+    void leerChangeset();
+  }, [leerChangeset]);
+
+  // Manda un cambio al changeset y refresca todo lo que lo muestra.
+  const preparar = useCallback(
+    async (c: Change) => {
+      setErrorEdicion("");
+      await staging.stage(c);
+    },
+    [staging],
+  );
+
+  const pendientes = pendientesDe(changeset?.changes ?? [], schema);
+
+  /** Qué significa tocar una tabla, según la herramienta elegida. */
+  function alTocarTabla(id: string, nombre: string) {
+    if (!editando || herramienta === "select" || herramienta === "relate") {
+      setSeleccionada(id);
+      return;
+    }
+    if (herramienta === "column") {
+      setColumnaEn(nombre);
+      return;
+    }
+    if (herramienta === "drop") {
+      void preparar({
+        id: "",
+        type: OpType.DropTable,
+        schema,
+        table: nombre,
+        source: "erd",
+      } as Change);
+    }
+  }
+
+  /** Un clic en el lienzo vacío: crea una tabla donde se tocó, o deselecciona. */
+  function alTocarLienzo(e: { clientX: number; clientY: number }) {
+    if (editando && herramienta === "table") {
+      // La posición del clic se convierte a coordenadas del lienzo para que la
+      // tarjeta aparezca donde se tocó y no donde dagre decida.
+      setTablaNueva(flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+      return;
+    }
+    setSeleccionada(null);
+  }
+
+  /**
+   * Se soltó un arrastre entre dos columnas: eso es una clave foránea.
+   *
+   * Los conectores llevan el nombre de la columna en su id, así que de acá sale
+   * todo lo que la operación necesita sin adivinar nada.
+   */
+  function alConectar(c: Connection) {
+    const columna = (c.sourceHandle ?? "").replace(/^col:/, "");
+    const refColumna = (c.targetHandle ?? "").replace(/^col:/, "");
+    if (!columna || !refColumna) {
+      setErrorEdicion("Arrastrá desde una columna hasta la columna que referencia.");
+      return;
+    }
+    const origen = nombreDeTabla(c.source);
+    const destino = nombreDeTabla(c.target);
+    if (!origen || !destino) return;
+
+    void preparar({
+      id: "",
+      type: OpType.AddForeignKey,
+      schema,
+      table: origen,
+      source: "erd",
+      names: [columna],
+      refSchema: schema,
+      refTable: destino,
+      refNames: [refColumna],
+      onDelete: "no action",
+      onUpdate: "no action",
+    } as Change);
+  }
+
+  /** "esquema.tabla" → "tabla". */
+  function nombreDeTabla(id: string): string {
+    const punto = id.indexOf(".");
+    return punto < 0 ? id : id.slice(punto + 1);
+  }
 
   // Las posiciones vivas. Arrancan vacías, se llenan con lo que haya guardado y
   // las pisa el arrastre.
@@ -117,6 +255,9 @@ function Canvas({
     tipos,
     ocultas,
     seleccionada,
+    pendientes,
+    editando,
+    herramienta,
   });
 
   // Los nodos con su posición. Las tablas que nunca se movieron ni se
@@ -203,6 +344,18 @@ function Canvas({
           Tipos
         </label>
         <span className={styles.grow} />
+        <Button
+          size="sm"
+          variant={editando ? "primary" : "ghost"}
+          disabled={readOnly}
+          title={readOnly ? "La conexión es de solo lectura" : undefined}
+          onClick={() => {
+            setEditando((e) => !e);
+            setHerramienta("select");
+          }}
+        >
+          {editando ? "Salir de edición" : "Editar"}
+        </Button>
         <Button size="sm" variant="ghost" onClick={autoLayout}>
           Auto-acomodar
         </Button>
@@ -228,6 +381,25 @@ function Canvas({
         </div>
       </div>
 
+      {editando ? (
+        <div className={styles.herramientas}>
+          <PillTabs
+            items={HERRAMIENTAS.map((h) => ({ id: h.id, label: h.label }))}
+            activeId={herramienta}
+            onSelect={(id) => setHerramienta(id as Herramienta)}
+            ariaLabel="Herramienta de edición"
+          />
+          <span className={styles.divider} />
+          <span className={styles.pista}>
+            {HERRAMIENTAS.find((h) => h.id === herramienta)?.hint}
+          </span>
+          <span className={styles.grow} />
+          {errorEdicion || staging.error ? (
+            <span className={styles.errorEdicion}>{errorEdicion || staging.error}</span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className={cx(styles.cuerpo, !panelAbierto && styles.cuerpoSolo)}>
         <div className={styles.lienzo}>
           <Marcadores />
@@ -238,13 +410,14 @@ function Canvas({
             edgeTypes={TIPOS_DE_ARISTA}
             onNodesChange={alMover}
             onNodeDragStop={alSoltar}
-            onNodeClick={(_, n) => setSeleccionada(n.id)}
+            onNodeClick={(_, n) => alTocarTabla(n.id, n.data.name)}
             onNodeDoubleClick={(_, n) => onOpenTable(schema, n.data.name)}
-            onPaneClick={() => setSeleccionada(null)}
+            onPaneClick={(e) => alTocarLienzo(e)}
+            onConnect={alConectar}
             onMove={(_, v) => setZoom(v.zoom)}
             minZoom={0.25}
             maxZoom={2}
-            nodesConnectable={false}
+            nodesConnectable={editando && herramienta === "relate"}
             elementsSelectable={false}
             proOptions={{ hideAttribution: true }}
           >
@@ -287,6 +460,23 @@ function Canvas({
         </div>
 
         <aside className={styles.panel} hidden={!panelAbierto}>
+          {/* En modo edición el panel cambia de trabajo: deja de describir lo
+              que hay y pasa a mostrar lo que se va a hacer. Tener las dos cosas
+              a la vez dejaría al inspector compitiendo con el changeset por el
+              mismo espacio, y lo que importa mientras se edita es lo segundo. */}
+          {editando ? (
+            <ErdEditPanel
+              vista={changeset}
+              onQuitar={(id) => {
+                void SessionSvc.Unstage(id)
+                  .then(leerChangeset)
+                  .then(onStaged);
+              }}
+              onDescartar={() => setDescartando(true)}
+              onRevisar={onRevisar}
+            />
+          ) : (
+            <>
           <div className={styles.panelCabecera}>
             <span className={styles.panelTitulo}>{sel ? "Tabla" : "Diagrama"}</span>
             <span className={styles.grow} />
@@ -390,8 +580,80 @@ function Canvas({
               </>
             )}
           </div>
+            </>
+          )}
         </aside>
       </div>
+
+      {staging.dialogo}
+
+      <ConfirmDialog
+        open={descartando}
+        severidad="aviso"
+        title={`¿Descartar ${changeset?.summary.total ?? 0} cambios?`}
+        etiqueta="Descartar todo"
+        onClose={() => setDescartando(false)}
+        onConfirm={() => {
+          setDescartando(false);
+          void SessionSvc.DiscardChanges().then(leerChangeset).then(onStaged);
+        }}
+      >
+        Se vacía la lista de cambios preparados. <strong>No se pierde ningún dato</strong> —nada
+        se aplicó todavía—, pero las ediciones hay que volver a hacerlas.
+      </ConfirmDialog>
+
+      {tablaNueva ? (
+        <NewTableDialog
+          onCerrar={() => setTablaNueva(null)}
+          onCrear={(t) => {
+            const donde = tablaNueva;
+            setTablaNueva(null);
+            void preparar({
+              id: "",
+              type: OpType.CreateTable,
+              schema,
+              table: t.name,
+              source: "erd",
+              columns: [{ name: t.pkName, dataType: t.pkType, nullable: false }],
+              names: [t.pkName],
+            } as Change).then(() => {
+              // La tarjeta aparece donde se hizo clic. Si dejara que la acomode
+              // el layout, la tabla recién creada saltaría a cualquier lado y
+              // habría que buscarla.
+              if (donde) {
+                setPos((prev) => ({ ...prev, [idDeTabla(schema, t.name)]: donde }));
+              }
+            });
+          }}
+        />
+      ) : null}
+
+      {columnaEn ? (
+        <ColumnEditor
+          modo="agregar"
+          tabla={columnaEn}
+          onCerrar={() => setColumnaEn(null)}
+          onGuardar={(v) => {
+            const tabla = columnaEn;
+            setColumnaEn(null);
+            if (!tabla) return;
+            void preparar({
+              id: "",
+              type: OpType.AddColumn,
+              schema,
+              table: tabla,
+              source: "erd",
+              column: {
+                name: v.name,
+                dataType: v.dataType,
+                nullable: v.nullable,
+                ...(v.default ? { default: v.default } : {}),
+                ...(v.comment ? { comment: v.comment } : {}),
+              },
+            } as Change);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -428,6 +690,8 @@ function Marcadores() {
           ["kn-muchos", "var(--border-strong)", 1.3],
           ["kn-muchos-activo", "var(--accent)", 1.6],
           ["kn-muchos-cascada", "var(--warning)", 1.6],
+          ["kn-muchos-nueva", "var(--success)", 1.8],
+          ["kn-muchos-borrando", "var(--danger)", 1.6],
         ].map(([id, color, ancho]) => (
           <marker
             key={id as string}

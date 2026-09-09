@@ -1,5 +1,8 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
+import { ReferenceAction } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
+import type { Estado, Pendientes } from "./erdStaged";
+import { claveColumna, vacio as sinPendientes } from "./erdStaged";
 import type {
   ForeignKey,
   Snapshot,
@@ -26,6 +29,8 @@ export interface ErdColumna {
   dataType: string;
   /** "PK", "FK", "UQ" o "". */
   key: string;
+  /** Qué le va a pasar cuando se aplique el changeset, si algo. */
+  estado?: Estado | undefined;
 }
 
 /** Lo que la tarjeta necesita saber. Es `Record<string, unknown>` para xyflow,
@@ -43,7 +48,18 @@ export interface DatosDeNodo extends Record<string, unknown> {
   vecina: boolean;
   /** Se muestran los tipos al lado de cada columna. */
   tipos: boolean;
+
+  /** La tabla tiene cambios pendientes, o todavía no existe. */
+  estado?: Estado | "nueva" | undefined;
+
+  /** El modo edición cambia lo que un clic significa, así que los nodos
+   *  necesitan saberlo para ofrecer los conectores por columna. */
+  editando: boolean;
+  herramienta: Herramienta;
 }
+
+/** Qué hace un clic en el lienzo. */
+export type Herramienta = "select" | "column" | "table" | "relate" | "drop";
 
 export interface DatosDeArista extends Record<string, unknown> {
   fk: ForeignKey;
@@ -62,6 +78,9 @@ export interface DatosDeArista extends Record<string, unknown> {
    *  poco y las dos se ven. */
   paralelas: number;
   indiceParalela: number;
+
+  /** Qué le va a pasar cuando se aplique el changeset, si algo. */
+  estado?: Estado | undefined;
 }
 
 export type NodoErd = Node<DatosDeNodo, "tabla">;
@@ -79,6 +98,10 @@ export interface OpcionesDelGrafo {
   /** Tablas escondidas del diagrama, por «esquema.tabla». */
   ocultas: ReadonlySet<string>;
   seleccionada: string | null;
+  /** Lo que el changeset va a hacer, para pintarlo antes de que pase. */
+  pendientes?: Pendientes;
+  editando?: boolean;
+  herramienta?: Herramienta;
 }
 
 export interface Grafo {
@@ -104,9 +127,14 @@ export function construirGrafo(
   esquema: string,
   opts: OpcionesDelGrafo,
 ): Grafo {
+  const pend = opts.pendientes ?? sinPendientes();
+  const editando = opts.editando ?? false;
+  const herramienta = opts.herramienta ?? "select";
+
   const tablas = (snapshot?.schemas ?? []).find((s) => s.name === esquema)?.tables ?? [];
   const visibles = tablas.filter((t) => !opts.ocultas.has(idDeTabla(esquema, t.name)));
   const enPantalla = new Set(visibles.map((t) => idDeTabla(esquema, t.name)));
+  for (const t of pend.nuevasTablas) enPantalla.add(t.id);
 
   // Quiénes están relacionadas con la seleccionada, para resaltarlas. Se calcula
   // antes de armar los nodos porque la relación es simétrica: la tabla apuntada
@@ -124,9 +152,22 @@ export function construirGrafo(
   }
 
   const nodos: NodoErd[] = visibles.map((t) => {
-    const todas = columnasDe(t);
-    const mostradas = opts.todasLasColumnas ? todas : todas.filter((c) => c.key !== "");
     const id = idDeTabla(esquema, t.name);
+    // Las columnas del catálogo más las que el changeset va a agregar: una
+    // columna nueva tiene que verse en la tarjeta antes de existir, o el
+    // diagrama muestra un pasado que ya nadie quiere.
+    const todas = [
+      ...columnasDe(t).map((c) => ({
+        ...c,
+        ...(pend.columnas.get(claveColumna(id, c.name))
+          ? { estado: pend.columnas.get(claveColumna(id, c.name)) }
+          : {}),
+      })),
+      ...(pend.nuevasColumnas.get(id) ?? []).map((c) => ({ ...c, estado: "agregada" as Estado })),
+    ];
+    const mostradas = opts.todasLasColumnas
+      ? todas
+      : todas.filter((c) => c.key !== "" || c.estado !== undefined);
     return {
       id,
       type: "tabla",
@@ -140,6 +181,9 @@ export function construirGrafo(
         activa: id === opts.seleccionada,
         vecina: vecinas.has(id),
         tipos: opts.tipos,
+        ...(pend.tablas.get(id) ? { estado: pend.tablas.get(id) } : {}),
+        editando,
+        herramienta,
       },
       // El tamaño va en el nodo y no solo en el CSS: xyflow lo usa para el
       // encuadre y dagre para acomodar, y ninguno de los dos mide el DOM.
@@ -147,6 +191,33 @@ export function construirGrafo(
       height: altoDeNodo(mostradas.length, todas.length - mostradas.length),
     };
   });
+
+  // Las tablas que el changeset crea todavía no están en el catálogo, así que
+  // se agregan acá: sin esto, la clave nueva que apunta a una tabla nueva no
+  // tendría de dónde salir.
+  for (const t of pend.nuevasTablas) {
+    if (opts.ocultas.has(t.id)) continue;
+    nodos.push({
+      id: t.id,
+      type: "tabla",
+      position: { x: 0, y: 0 },
+      data: {
+        schema: t.schema,
+        name: t.name,
+        rowEstimate: -1,
+        columnas: t.columnas,
+        ocultas: 0,
+        activa: t.id === opts.seleccionada,
+        vecina: vecinas.has(t.id),
+        tipos: opts.tipos,
+        estado: "nueva",
+        editando,
+        herramienta,
+      },
+      width: NODO_ANCHO,
+      height: altoDeNodo(t.columnas.length, 0),
+    });
+  }
 
   const filaDe = new Map<string, Map<string, number>>();
   for (const n of nodos) {
@@ -193,6 +264,43 @@ export function construirGrafo(
         },
       });
     }
+  }
+
+  // Las claves que el changeset va a crear se dibujan antes de existir, y las
+  // que va a borrar se marcan sobre la que todavía está. Ver una relación
+  // aparecer al soltar el arrastre es lo que hace que dibujar sirva.
+  for (const k of pend.nuevasClaves) {
+    if (!enPantalla.has(k.origen) || !enPantalla.has(k.destino)) continue;
+    aristas.push({
+      id: `nueva:${k.changeId}`,
+      type: "relacion",
+      source: k.origen,
+      target: k.destino,
+      data: {
+        fk: {
+          name: k.nombre || "(sin nombre todavía)",
+          schema: k.origen.split(".")[0] ?? "",
+          table: k.origen.split(".").slice(1).join("."),
+          columns: [k.columna],
+          refSchema: k.destino.split(".")[0] ?? "",
+          refTable: k.destino.split(".").slice(1).join("."),
+          refColumns: [k.refColumna],
+          onDelete: ReferenceAction.NoAction,
+          onUpdate: ReferenceAction.NoAction,
+          deferrable: "",
+          optional: false,
+        },
+        filaOrigen: filaDe.get(k.origen)?.get(k.columna) ?? -1,
+        filaDestino: filaDe.get(k.destino)?.get(k.refColumna) ?? -1,
+        activa: false,
+        paralelas: 1,
+        indiceParalela: 0,
+        estado: "agregada",
+      },
+    });
+  }
+  for (const a of aristas) {
+    if (a.data && pend.clavesBorradas.has(a.data.fk.name)) a.data.estado = "borrando";
   }
 
   // El total por par se sabe recién cuando se recorrieron todas, así que se

@@ -123,3 +123,12 @@
   font: 400 12px var(--font-ui);
   color: var(--text-3);
 }
+
+.errorStage {
+  flex: none;
+  margin: 0;
+  padding: 8px 14px;
+  background: var(--danger-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--danger);
+}

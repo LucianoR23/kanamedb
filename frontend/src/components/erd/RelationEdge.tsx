@@ -26,6 +26,8 @@ export const MARCADOR = {
   normal: "kn-muchos",
   activo: "kn-muchos-activo",
   cascada: "kn-muchos-cascada",
+  nueva: "kn-muchos-nueva",
+  borrando: "kn-muchos-borrando",
 } as const;
 
 /**
@@ -47,12 +49,29 @@ export function RelationEdge({ id, source, target, data }: EdgeProps<AristaErd>)
   if (!origen || !destino || !data) return null;
 
   const fk = data.fk;
-  const tono = data.activa ? "activo" : fk.onDelete === "cascade" ? "cascada" : "normal";
-  const clase = data.activa
-    ? styles.activa
-    : fk.onDelete === "cascade"
-      ? styles.cascada
-      : styles.normal;
+  // El estado pendiente manda sobre todo lo demás: que una relación esté por
+  // aparecer o por desaparecer importa más que su acción al borrar.
+  const tono: keyof typeof MARCADOR =
+    data.estado === "agregada"
+      ? "nueva"
+      : data.estado === "borrando"
+        ? "borrando"
+        : data.activa
+          ? "activo"
+          : fk.onDelete === "cascade"
+            ? "cascada"
+            : "normal";
+  const clase =
+    data.estado === "agregada"
+      ? styles.nueva
+      : data.estado === "borrando"
+        ? styles.borrando
+        : data.activa
+          ? styles.activa
+          : fk.onDelete === "cascade"
+            ? styles.cascada
+            : styles.normal;
+  const punteada = data.estado === "borrando" ? "6 4" : fk.optional ? "5 4" : undefined;
 
   const corrimiento = corrimientoParalelo(data);
   const trazo =
@@ -63,6 +82,14 @@ export function RelationEdge({ id, source, target, data }: EdgeProps<AristaErd>)
   const columnas = fk.columns ?? [];
   const remotas = fk.refColumns ?? [];
   const compuesta = columnas.length > 1;
+  const etiqueta =
+    data.estado === "agregada"
+      ? "clave nueva"
+      : data.estado === "borrando"
+        ? "se borra"
+        : compuesta
+          ? columnas.join(" + ")
+          : "";
   const detalle = `${fk.name}\n${columnas.join(", ")} → ${fk.refTable}.${remotas.join(", ")}\nal borrar: ${fk.onDelete}`;
 
   return (
@@ -74,7 +101,7 @@ export function RelationEdge({ id, source, target, data }: EdgeProps<AristaErd>)
         id={id}
         d={trazo.d}
         className={clase}
-        strokeDasharray={fk.optional ? "5 4" : undefined}
+        strokeDasharray={punteada}
         markerStart={`url(#${MARCADOR[tono]})`}
       >
         <title>{detalle}</title>
@@ -83,14 +110,19 @@ export function RelationEdge({ id, source, target, data }: EdgeProps<AristaErd>)
       {/* Una clave compuesta se dibuja con UNA línea, igual que una de una sola
           columna: sin decirlo, son indistinguibles. La etiqueta es lo único que
           revela que esa relación empareja dos columnas y no una. */}
-      {compuesta ? (
+      {etiqueta ? (
         <EdgeLabelRenderer>
           <div
-            className={cx(styles.etiqueta, data.activa && styles.etiquetaActiva)}
+            className={cx(
+              styles.etiqueta,
+              data.activa && styles.etiquetaActiva,
+              data.estado === "agregada" && styles.etiquetaNueva,
+              data.estado === "borrando" && styles.etiquetaBorrando,
+            )}
             style={{ transform: `translate(-50%, -50%) translate(${trazo.cx}px, ${trazo.cy}px)` }}
             title={detalle}
           >
-            {columnas.join(" + ")}
+            {etiqueta}
           </div>
         </EdgeLabelRenderer>
       ) : null}
