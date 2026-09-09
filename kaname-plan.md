@@ -187,11 +187,58 @@ lo que entra y sale de la grilla.
 - **Filtros por columna en la grilla** — un constructor de `WHERE` sobre la
   tabla que se está mirando, que hoy obliga a irse al editor SQL. Va acá porque
   comparte pantalla y modelo con la edición de celdas.
+- **Volcado del esquema, de los datos, o los dos.** Ver abajo: es la mitad de
+  lo que la gente llama «backup», y la mitad que sí podemos hacer bien.
 
 **Sobre el volumen.** Exportar no puede juntar la tabla en memoria: una tabla de
 dos millones de filas no pasa por un `[][]string`. Se escribe al archivo a
 medida que llega, y para CSV conviene `COPY … TO STDOUT` (`PgConn().CopyTo`),
 que es órdenes de magnitud más rápido que paginar con `LIMIT/OFFSET`.
+
+#### El volcado, en tres piezas separadas
+
+Se separan porque son tres problemas distintos y juntarlos fue el error de la
+primera evaluación: se argumentó contra el más difícil y se descartaron los
+otros dos de arrastre.
+
+**Solo datos.** `COPY … TO STDOUT` por tabla da lo mismo que
+`pg_dump --data-only`. Lo difícil no es sacar los datos sino poder volver a
+meterlos: emitir las tablas en orden de dependencias, guardar el valor actual de
+las secuencias y decidir qué hacer con los triggers al restaurar. El orden ya lo
+sabemos calcular — es el mismo ordenamiento topológico del changeset.
+
+**Solo estructura, con la cobertura declarada.** El problema no es la dificultad
+—ya introspectamos el catálogo y ya renderizamos DDL— sino el **silencio**: un
+export que se olvida de una política de RLS se ve idéntico a uno correcto. Es el
+mismo defecto por el que rechazamos Atlas, y no vale hacérnoslo a nosotros.
+
+La condición para que exista es que **diga qué deja afuera, con nombre y
+apellido**. No un aviso genérico: Kaname puede consultar el catálogo y contar lo
+que no sabe renderizar, así que el aviso dice «3 funciones (`demo.tocar`,
+`demo.calcular`, `demo.auditar`), 2 vistas y 1 política de RLS quedan fuera».
+Va en el encabezado del archivo generado **y** en la pantalla, detrás de un
+botón que abre el detalle completo — la lista larga no puede vivir en un
+tooltip ni en una nota al pie, porque es la información que decide si el
+archivo sirve para lo que uno lo quiere usar.
+
+El hueco se achica solo después de la Iteración 8: cuando vistas, funciones y
+triggers existan como objetos, pasan a estar cubiertos.
+
+**Manejar `pg_dump`, sin empaquetarlo.** Es la opción completa de verdad y es la
+más barata de las tres:
+
+1. **Armar el comando y mostrarlo**, con host, puerto, base y las opciones que
+   correspondan a lo tildado, resuelto a través del túnel SSH que la aplicación
+   ya levanta. Riesgo cero y valor real: la mitad de los errores con `pg_dump`
+   son al escribir la línea.
+2. **Ejecutarlo si está en el `PATH`**, comprobando primero que su versión sea
+   igual o más nueva que la del servidor. Esa comprobación es lo que separa una
+   herramienta de una trampa: un `pg_dump` viejo contra un servidor nuevo falla,
+   o peor, no falla.
+3. Si no está, decirlo y dejar el comando para copiar.
+
+La palabra «backup» sigue sin ser nuestra para lo que generamos nosotros. Para
+lo que genera `pg_dump`, lo es.
 
 ### Iteración 8 — Objetos de texto
 
@@ -376,28 +423,24 @@ verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `w
 Cosas que se evaluaron y **no** se van a hacer. Se anotan para no volver a
 discutirlas desde cero dentro de seis meses.
 
-**Backup y restauración nativos. No.** Un backup de verdad de PostgreSQL es
-`pg_dump`/`pg_restore`, binarios externos que tienen que ser iguales o más
-nuevos que el servidor. Las salidas posibles son tres y ninguna sirve:
+**Reimplementar `pg_dump` en Go. No.** Eso *es* `pg_dump`: orden de
+dependencias, extensiones, secuencias, permisos, objetos grandes. No hay
+librería en la que confiaría para la mitad que importa, que es restaurar. Y
+empaquetar el binario oficial choca de frente con «se distribuye copiando y
+pegando»: son cuatro motores por varias versiones cada uno.
 
-1. *Llamarlos si están instalados.* Funciona, pero mete una dependencia que el
-   usuario tiene que conseguir y una matriz de versiones por motor que es un
-   pozo de soporte.
-2. *Empaquetarlos.* Choca de frente con «el binario se distribuye copiando y
-   pegando»: son cuatro motores por varias versiones cada uno.
-3. *Reimplementar el dump en Go.* Eso **es** `pg_dump`: orden de dependencias,
-   extensiones, secuencias, permisos, objetos grandes. No hay librería en la que
-   confiaría para la mitad que importa, que es restaurar.
+Lo que sí se hace es volcar datos, volcar estructura con la cobertura declarada,
+y **manejar** el `pg_dump` que ya esté instalado. Está en la Iteración 7.
 
-Y hay una cuarta que es la peligrosa: exportar esquema y datos con nuestro
-propio renderizador y **llamarlo backup**. Parecería que funciona hasta el día
-que hace falta. Un botón que dice «Backup» promete que se puede restaurar; si no
-cumple, es peor que no estar.
+**Llamar «backup» a lo que generamos nosotros. No.** Es la trampa de verdad, y
+es distinta de las anteriores porque no es una limitación técnica sino una
+promesa. Un botón que dice «Backup» promete que se puede restaurar; si el
+archivo se olvidó de una política de RLS, parece que funcionó hasta el día que
+hace falta. Nuestros archivos se llaman por lo que son: «exportar el esquema»,
+«exportar los datos».
 
-Lo que sí se puede ofrecer con honestidad es **«Exportar el esquema como SQL»**
-—ya sabemos generar DDL, es el mismo renderizador del changeset— dejando escrito
-que no es un backup. Para backups de verdad, `pg_dump` desde la terminal, que
-además puede ir por el túnel SSH que la aplicación ya sabe levantar.
+**Backup físico** —`pg_basebackup`, PITR, snapshots del volumen— queda afuera
+entero: es operación del servidor, no de un cliente.
 
 **Constructor visual de consultas entre varias tablas. No por ahora.** Elegir
 tres tablas, unirlas y filtrar sin escribir SQL es un producto adentro de este:
