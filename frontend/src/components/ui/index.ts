@@ -34,6 +34,8 @@ export type { CellState, CellValue, ColumnTag, RowState } from "./GridCell";
 
 export { Checkbox, Field, Input, SearchInput, SelectTrigger, Toggle } from "./Input";
 
+export { CellEditor } from "./CellEditor";
+
 export { PillTabs, TabStrip } from "./Tabs";
 export type { PillItem, TabItem } from "./Tabs";
 

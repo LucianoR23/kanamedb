@@ -150,6 +150,9 @@
 .op_CREATE { background: var(--success-quiet); color: var(--success); }
 .op_ALTER { background: var(--accent-quiet); color: var(--accent); }
 .op_DROP { background: var(--danger-quiet); color: var(--danger); }
+.op_INSERT { background: var(--success-quiet); color: var(--success); }
+.op_UPDATE { background: var(--warning-quiet); color: var(--warning); }
+.op_DELETE { background: var(--danger-quiet); color: var(--danger); }
 
 .filaSql {
   min-width: 0;

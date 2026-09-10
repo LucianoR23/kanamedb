@@ -181,3 +181,65 @@
 .tag_fk {
   color: var(--accent);
 }
+
+/* ---- Modo edición (S10) ------------------------------------------------ */
+
+/* La celda editada lleva fondo ámbar y borde ámbar: se ve a un metro cuál se
+   tocó, sin tener que comparar con nada. */
+.cellEditada {
+  background: var(--cell-modified);
+  outline: 1px solid var(--warning);
+  outline-offset: -1px;
+}
+
+/* La celda que tiene el editor abierto: borde de acento, más grueso. El editor
+   pone su propio fondo, así que la celda no lleva padding —el editor ocupa el
+   espacio entero— ni el recorte con puntos suspensivos, que taparía el texto
+   mientras se escribe. */
+.cellEditando {
+  padding: 0;
+  overflow: visible;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* «Por defecto»: el valor lo pone la base al insertar. Apagado, sin itálica,
+   para que no se confunda con NULL. */
+.cellPorDefecto {
+  color: var(--text-3);
+}
+
+/* Una fila marcada para borrar: fondo rojizo, texto tachado y apagado. La fila
+   sigue ahí —todavía no se borró nada— pero se ve que se va. */
+.rowBorrada {
+  background: var(--cell-deleted);
+}
+.cellBorrada {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+/* Una fila nueva: fondo verdoso. */
+.rowNueva {
+  background: var(--cell-added);
+}
+
+/* El número de fila cambia de color según lo que le va a pasar, y de signo
+   cuando deja de ser una fila leída: «+» nueva, «−» borrada. */
+.gutterEditada {
+  color: var(--warning);
+}
+.gutterBorrada {
+  font-weight: 700;
+  color: var(--danger);
+}
+.gutterNueva {
+  font-weight: 700;
+  color: var(--success);
+}
+
+/* La grilla es enfocable por el teclado; el foco se ve en la celda elegida y
+   no en el borde del contenedor. */
+.scroller:focus {
+  outline: none;
+}

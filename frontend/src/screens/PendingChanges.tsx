@@ -19,7 +19,7 @@ import { nombreDeMotor } from "../lib/motor";
 import styles from "./PendingChanges.module.css";
 
 /** Los filtros de la tira de arriba. */
-type Filtro = "all" | "schema" | "risk";
+type Filtro = "all" | "schema" | "data" | "risk";
 
 /**
  * S14 Pending changes.
@@ -41,7 +41,11 @@ function textoDeTransaccion(vista: ChangesetView, transaccion: boolean): string 
   if (!transaccion) {
     return "cada sentencia se confirma sola; una falla deja lo anterior aplicado";
   }
-  if (vista.transactionalDdl) {
+  // Con DDL transaccional, o sin ningún cambio de esquema en el apply, la
+  // transacción es una y de verdad: el DML de los cuatro motores se revierte.
+  // Un changeset de puras filas contra MySQL no tiene nada que MySQL no pueda
+  // revertir, y decir lo contrario asustaría por un límite que acá no aplica.
+  if (vista.transactionalDdl || vista.summary.schema === 0) {
     return "todo o nada";
   }
   if (vista.tramos <= 1) {
@@ -114,7 +118,7 @@ export function PendingChanges({
       <div className={styles.vacio}>
         <p className={styles.vacioTitulo}>No hay cambios pendientes</p>
         <p className={styles.vacioHint}>
-          Editá la estructura de una tabla o el diagrama y los cambios se juntan acá. Nada toca la
+          Editá la estructura de una tabla, sus filas o el diagrama y los cambios se juntan acá. Nada toca la
           base hasta que lo apliques.
         </p>
       </div>
@@ -123,7 +127,8 @@ export function PendingChanges({
 
   const todos = vista.changes ?? [];
   const visibles = todos.filter((v) => {
-    if (filtro === "schema") return v.change.type !== undefined;
+    if (filtro === "schema") return !esDeDatos(v.change.type);
+    if (filtro === "data") return esDeDatos(v.change.type);
     if (filtro === "risk") return v.statement.destructive || v.statement.lock === "all";
     return true;
   });
@@ -177,6 +182,7 @@ export function PendingChanges({
           items={[
             { id: "all", label: "Todos", count: todos.length },
             { id: "schema", label: "Esquema", count: r.schema },
+            { id: "data", label: "Datos", count: r.data },
             {
               id: "risk",
               label: "Riesgosos",
@@ -386,10 +392,20 @@ function Numero({
   );
 }
 
-/** CREATE / ALTER / DROP, deducido del tipo de operación. */
-function opDe(v: ChangeView): "CREATE" | "ALTER" | "DROP" {
+/** Los tres tipos de cambio de datos. Lo demás es esquema. */
+const DE_DATOS = new Set<string>(["insertRow", "updateRow", "deleteRow"]);
+
+function esDeDatos(t: string): boolean {
+  return DE_DATOS.has(t);
+}
+
+/** CREATE / ALTER / DROP / INSERT / UPDATE / DELETE, deducido del tipo de operación. */
+function opDe(v: ChangeView): "CREATE" | "ALTER" | "DROP" | "INSERT" | "UPDATE" | "DELETE" {
   const t = v.change.type;
   if (t === "createTable") return "CREATE";
+  if (t === "insertRow") return "INSERT";
+  if (t === "updateRow") return "UPDATE";
+  if (t === "deleteRow") return "DELETE";
   if (t === "dropTable" || t === "dropColumn" || t === "dropConstraint" || t === "dropIndex") {
     return "DROP";
   }
@@ -405,6 +421,8 @@ function costo(v: ChangeView): string {
       return "solo metadatos";
     case "scan":
       return filas ? `lee${filas}` : "lee la tabla entera";
+    case "data":
+      return "1 fila";
     case "rewrite":
       return filas ? `reescribe${filas}` : "reescribe la tabla";
     default:
@@ -428,6 +446,12 @@ function fuente(s: string): string {
 /** Una línea para el orden de ejecución: qué operación sobre qué objeto. */
 function resumen(v: ChangeView): string {
   const c = v.change;
+  if (esDeDatos(c.type)) {
+    // Una fila se nombra por su clave: «actualizar fila · personas (id 7)».
+    // Una fila nueva no tiene clave todavía.
+    const clave = (c.key ?? []).map((k) => `${k.column} ${k.value ?? "NULL"}`).join(", ");
+    return `${etiquetaDeTipo(c.type)} · ${c.table}${clave ? ` (${clave})` : ""}`;
+  }
   const objeto = c.column?.name ?? c.name ?? c.newName ?? "";
   return `${etiquetaDeTipo(c.type)} · ${c.table}${objeto ? "." + objeto : ""}`;
 }
@@ -453,6 +477,9 @@ const TIPOS: Record<string, string> = {
   dropConstraint: "borrar restricción",
   addIndex: "agregar índice",
   dropIndex: "borrar índice",
+  insertRow: "insertar fila",
+  updateRow: "actualizar fila",
+  deleteRow: "borrar fila",
 };
 
 function etiquetaDeTipo(t: string): string {

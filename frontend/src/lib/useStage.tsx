@@ -1,7 +1,13 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
+import type { GridEdits } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { ConfirmDialog } from "../components/ui";
+
+/** Una operación que prepara algo en Go y puede pedir la confirmación de
+ *  producción. Recibe la palabra escrita, o "" en el primer intento. */
+type Preparacion = (confirm: string) => Promise<unknown>;
 
 /**
  * Mandar una edición al changeset, con la confirmación de producción si hace
@@ -15,26 +21,69 @@ import { ConfirmDialog } from "../components/ui";
  * Que la regla esté del otro lado es el punto: una pantalla nueva que prepare
  * cambios queda protegida sin acordarse de nada, y una comprobación que solo
  * viviera acá sería un cartel, no una protección.
+ *
+ * Sirve para un cambio suelto (`stage`) y para la tanda de la grilla
+ * (`stageGrid`), que entra entera con una sola palabra.
  */
 export function useStage(onHecho: () => void) {
-  const [pendiente, setPendiente] = useState<{ cambio: Change; palabra: string } | null>(null);
+  const [pendiente, setPendiente] = useState<{
+    op: Preparacion;
+    palabra: string;
+    texto: ReactNode;
+    onOk?: () => void;
+  } | null>(null);
   const [error, setError] = useState("");
 
-  async function stage(c: Change, confirm = "") {
+  // `onOk` es lo que quiere saber quien llamó a ESTA preparación, además del
+  // aviso general: la grilla limpia sus ediciones solo si su tanda entró, y
+  // no cuando entra un cambio de estructura de la misma pestaña. Se guarda con
+  // lo pendiente para que el reintento con la palabra escrita también lo llame.
+  async function intentar(op: Preparacion, texto: ReactNode, confirm = "", onOk?: () => void) {
     setError("");
     try {
-      await SessionSvc.Stage(c, confirm);
+      await op(confirm);
       setPendiente(null);
       onHecho();
+      onOk?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const palabra = palabraDeConfirmacion(msg);
       if (palabra) {
-        setPendiente({ cambio: c, palabra });
+        setPendiente({ op, palabra, texto, ...(onOk ? { onOk } : {}) });
         return;
       }
       setError(msg);
     }
+  }
+
+  function stage(c: Change) {
+    return intentar(
+      (confirm) => SessionSvc.Stage(c, confirm),
+      <>
+        Estás por preparar un cambio <strong>destructivo</strong> sobre <code>{c.table}</code> en
+        una conexión marcada como producción. Todavía no se va a aplicar nada: esto lo suma a la
+        lista de cambios pendientes, y el apply vuelve a preguntar. Lo que se pierda al aplicarlo
+        no se recupera desde Kaname.
+      </>,
+    );
+  }
+
+  function stageGrid(e: GridEdits, onOk: () => void) {
+    const borradas = (e.deletes ?? []).length;
+    return intentar(
+      (confirm) => SessionSvc.StageGrid(e, confirm),
+      <>
+        Estás por preparar el borrado de{" "}
+        <strong>
+          {borradas} {borradas === 1 ? "fila" : "filas"}
+        </strong>{" "}
+        de <code>{e.table}</code> en una conexión marcada como producción. Todavía no se va a
+        aplicar nada: esto suma las ediciones a la lista de cambios pendientes, y el apply vuelve a
+        preguntar. Una fila borrada no se recupera desde Kaname.
+      </>,
+      "",
+      onOk,
+    );
   }
 
   const dialogo = pendiente ? (
@@ -46,16 +95,15 @@ export function useStage(onHecho: () => void) {
       palabra={pendiente.palabra}
       etiqueta="Preparar el cambio"
       onClose={() => setPendiente(null)}
-      onConfirm={(escrito) => void stage(pendiente.cambio, escrito)}
+      onConfirm={(escrito) =>
+        void intentar(pendiente.op, pendiente.texto, escrito, pendiente.onOk)
+      }
     >
-      Estás por preparar un cambio <strong>destructivo</strong> sobre{" "}
-      <code>{pendiente.cambio.table}</code> en una conexión marcada como producción. Todavía no se
-      va a aplicar nada: esto lo suma a la lista de cambios pendientes, y el apply vuelve a
-      preguntar. Lo que se pierda al aplicarlo no se recupera desde Kaname.
+      {pendiente.texto}
     </ConfirmDialog>
   ) : null;
 
-  return { stage, dialogo, error, limpiarError: () => setError("") };
+  return { stage, stageGrid, dialogo, error, limpiarError: () => setError("") };
 }
 
 /**

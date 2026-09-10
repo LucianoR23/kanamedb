@@ -308,7 +308,9 @@ func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 	caps := sesion.db.Caps()
 	vista.Engine = sesion.db.Kind()
 	vista.TransactionalDDL = caps.TransactionalDDL
-	vista.CanDryRun = caps.TransactionalDDL && !vista.ReadOnly
+	// El ensayo necesita que TODO el tramo se pueda revertir: DDL transaccional,
+	// o ningún DDL incluido. Ver DryRun.
+	vista.CanDryRun = (caps.TransactionalDDL || vista.Summary.Schema == 0) && !vista.ReadOnly
 	for _, c := range vista.Order {
 		if c.Statement.RebuildsTable {
 			vista.RebuildsTables = true
@@ -758,7 +760,12 @@ func (s *Session) DryRun(ctx context.Context, confirm string) (ApplyResult, erro
 	if ro, motivo := soloLectura(sesion); ro {
 		return ApplyResult{}, fmt.Errorf("%w: %s", ErrReadOnly, motivo)
 	}
-	if !sesion.db.Caps().TransactionalDDL {
+	// Sin DDL transaccional se puede ensayar igual, SIEMPRE QUE no haya ningún
+	// cambio de esquema incluido: un changeset de puras filas es un solo tramo
+	// transaccional también en MySQL y MariaDB, porque el DML de InnoDB se
+	// revierte. Con un DDL adentro no: cada sentencia se confirmaría sola y el
+	// «ensayo» sería un apply.
+	if !sesion.db.Caps().TransactionalDDL && sesion.cambios.Summarize().Schema > 0 {
 		return ApplyResult{}, fmt.Errorf(
 			"%s no puede ensayar un cambio de esquema: cada sentencia se confirma "+
 				"sola, así que correr el changeset y revertirlo dejaría todo aplicado",
@@ -792,9 +799,9 @@ func (s *Session) DryRun(ctx context.Context, confirm string) (ApplyResult, erro
 		Tramos:  1,
 	}
 
-	// Un solo tramo con todo adentro: el motor tiene DDL transaccional, así que
-	// acá el «todo o nada» es real y no hay nada que partir. El Kind() de cada
-	// cambio no cambia el corte y por eso no se llama a TramosDe.
+	// Un solo tramo con todo adentro. Se llegó acá porque el motor tiene DDL
+	// transaccional o porque no hay ningún DDL: en los dos casos el «todo o
+	// nada» es real y no hay nada que partir, así que no se llama a TramosDe.
 	t := engine.Tramo{Desde: 0, Hasta: len(sentencias), Transaccional: true}
 	if fallo, err := s.correrTramo(ctx, sesion, sentencias, t, &res, true); err != nil {
 		res.OK = false
@@ -853,7 +860,16 @@ func (s *Session) aplicarPorTramos(
 	if !unaSola {
 		tramos = nil
 		for i := range sts {
-			tramos = append(tramos, engine.Tramo{Desde: i, Hasta: i + 1})
+			// Cada sentencia sola, pero las de DATOS adentro de su propia
+			// transacción igual. No es agrupar —sigue siendo una por tramo—:
+			// es que la comprobación de filas corre DESPUÉS de la sentencia, y
+			// sin transacción un UPDATE que alcanzó dos filas ya está
+			// commiteado cuando se descubre. Con la transacción, se revierte;
+			// y el DML de los cuatro motores la soporta.
+			tramos = append(tramos, engine.Tramo{
+				Desde: i, Hasta: i + 1,
+				Transaccional: cambios[i].Kind() == change.KindData,
+			})
 		}
 	}
 
@@ -1035,14 +1051,14 @@ func ejecutar(ctx context.Context, ej ejecutor, st change.Statement) error {
 			// Un INSERT que no inserta existe: un trigger BEFORE que devuelve
 			// NULL, o una regla DO INSTEAD NOTHING. La fila no «se fue»:
 			// nunca entró.
-			return fmt.Errorf("%w: el INSERT no insertó ninguna fila. Un trigger o una regla "+
-				"de la tabla la descartó sin dar error", ErrRowCount)
+			return fmt.Errorf("%w: El INSERT no insertó ninguna fila. Un trigger o una regla "+
+				"de la tabla la descartó sin dar error.", ErrRowCount)
 		case n == 0:
-			return fmt.Errorf("%w: no alcanzó ninguna fila. La fila ya no está en la base "+
-				"—otra sesión la borró o le cambió la clave desde que se leyó—", ErrRowCount)
+			return fmt.Errorf("%w: No alcanzó ninguna fila: la fila ya no está en la base "+
+				"—otra sesión la borró o le cambió la clave desde que se leyó—.", ErrRowCount)
 		default:
-			return fmt.Errorf("%w: alcanzó %d filas y tenía que alcanzar %d. La clave con la "+
-				"que se identificó la fila no es única en la base", ErrRowCount, n, st.Bound.Rows)
+			return fmt.Errorf("%w: Alcanzó %d filas y tenía que alcanzar %d: la clave con la "+
+				"que se identificó la fila no es única en la base.", ErrRowCount, n, st.Bound.Rows)
 		}
 	}
 	return nil
@@ -1103,8 +1119,10 @@ func clasificar(sesion *openSession, err error) *engine.Failure {
 		// —RolledBack y el tramo que falló— y no este error. Con varios
 		// tramos, lo anterior a este sí quedó.
 		return &engine.Failure{
-			Kind:    engine.FailureData,
-			Message: err.Error(),
+			Kind: engine.FailureData,
+			// Sin el centinela adelante: la persona lee la explicación, no el
+			// nombre del error.
+			Message: strings.TrimPrefix(err.Error(), ErrRowCount.Error()+": "),
 			Hint:    "Volvé a leer la tabla y hacé la edición de nuevo sobre lo que hay ahora.",
 		}
 	}

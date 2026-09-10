@@ -1,0 +1,19 @@
+/* Editor en línea de una celda. El borde y el fondo los pone la celda que lo
+   contiene: acá solo el texto, en la misma fuente y el mismo padding que el
+   valor que reemplaza, para que abrirlo no mueva nada. */
+.editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 7px;
+  border: 0;
+  outline: 0;
+  background: var(--bg-inset);
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+  caret-color: var(--text-1);
+}
+.editor::selection {
+  background: var(--bg-sel);
+}

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	dsnMySQL   = "kaname:kaname@tcp(127.0.0.1:53306)/kaname_test?parseTime=true"
-	dsnMariaDB = "kaname:kaname@tcp(127.0.0.1:53307)/kaname_test?parseTime=true"
+	dsnMySQL   = "kaname:kaname@tcp(127.0.0.1:53306)/kaname_test"
+	dsnMariaDB = "kaname:kaname@tcp(127.0.0.1:53307)/kaname_test"
 	// Las LTS más viejas que la aplicación declara soportar. Corren la batería
 	// entera igual que las otras, y no por prolijidad: probando solo la 12.3,
 	// la 10.11 de MariaDB no conectaba en absoluto y nadie se enteraba.
@@ -25,8 +25,8 @@ const (
 	// La 8.4 de MySQL es la que está instalada en más lugares que la 9.7, así
 	// que es la que más importa que ande: es la LTS anterior y le quedan años
 	// de soporte.
-	dsnMariaDBLTS = "kaname:kaname@tcp(127.0.0.1:53308)/kaname_test?parseTime=true"
-	dsnMySQLLTS   = "kaname:kaname@tcp(127.0.0.1:53309)/kaname_test?parseTime=true"
+	dsnMariaDBLTS = "kaname:kaname@tcp(127.0.0.1:53308)/kaname_test"
+	dsnMySQLLTS   = "kaname:kaname@tcp(127.0.0.1:53309)/kaname_test"
 )
 
 // motores son los cuatro servidores contra los que corren los tests que
@@ -290,3 +290,60 @@ func TestElValorPorDefectoVuelveAEscribirseComoSQL(t *testing.T) {
 		})
 	}
 }
+
+// TestUnaFechaVuelveComoLaEscribeElServidorYSePuedeDevolver.
+//
+// Con parseTime en el DSN, el driver convertía DATETIME a time.Time y
+// database/sql lo volvía a escribir en RFC 3339 —`2026-09-10T11:49:41Z`—, que
+// no es lo que dijo el servidor y que MySQL rechaza si se le manda de vuelta
+// (22007). La grilla mostraba una fecha que no se podía editar. Esto comprueba
+// el ciclo entero: lo que se lee es el texto del servidor, y ese mismo texto
+// entra como parámetro sin error.
+func TestUnaFechaVuelveComoLaEscribeElServidorYSePuedeDevolver(t *testing.T) {
+	for _, m := range motores {
+		t.Run(m.nombre, func(t *testing.T) {
+			ctx := context.Background()
+			c, f := mysql.Open(ctx, m.dsn, "pruebas", engine.OpenOptions{MaxConns: 2})
+			if f != nil {
+				saltear(t, m.nombre, f)
+			}
+			t.Cleanup(c.Close)
+
+			const tabla = "kn_fecha_texto"
+			_ = c.Exec(ctx, "DROP TABLE IF EXISTS "+tabla)
+			if err := c.Exec(ctx, "CREATE TABLE "+tabla+" (id bigint PRIMARY KEY, cuando datetime, dia date, hora time)"); err != nil {
+				t.Fatalf("crear la tabla: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP TABLE IF EXISTS "+tabla) })
+			if err := c.Exec(ctx, "INSERT INTO "+tabla+" VALUES (1, '2026-09-10 11:49:41', '2026-09-10', '11:49:41')"); err != nil {
+				t.Fatalf("cargar la fila: %v", err)
+			}
+
+			b, fail := c.Run(ctx, "SELECT cuando, dia, hora FROM "+tabla+" WHERE id = 1", engine.RunOptions{})
+			if fail != nil {
+				t.Fatalf("Run(): %s", fail.Message)
+			}
+			fila := b.Results[0].Rows[0]
+			quiero := []string{"2026-09-10 11:49:41", "2026-09-10", "11:49:41"}
+			for i, q := range quiero {
+				if fila[i] == nil || *fila[i] != q {
+					got := "NULL"
+					if fila[i] != nil {
+						got = *fila[i]
+					}
+					t.Errorf("columna %d: se leyó %q y el servidor escribe %q", i, got, q)
+				}
+			}
+
+			// Y de vuelta, tal cual, como parámetro: es lo que hace la grilla al
+			// editar cualquier otra celda de la fila… o esta misma.
+			n, err := c.Modify(ctx, "UPDATE "+tabla+" SET cuando = ?, dia = ?, hora = ? WHERE id = ?",
+				[]any{fila[0], fila[1], fila[2], texto("1")})
+			if err != nil || n != 1 {
+				t.Fatalf("el texto leído no volvió a entrar: n=%d err=%v", n, err)
+			}
+		})
+	}
+}
+
+func texto(s string) *string { return &s }

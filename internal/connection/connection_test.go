@@ -177,10 +177,12 @@ func TestDSNPorMotor(t *testing.T) {
 		},
 		{
 			motor:    MySQL,
-			contiene: []string{"@tcp(", ":3306)/", "parseTime=true", "tls="},
+			contiene: []string{"@tcp(", ":3306)/", "multiStatements=false", "tls="},
 			// El formato de go-sql-driver NO es una URI. Si apareciera un
 			// esquema, es que se armó con el molde de Postgres.
-			noTiene: []string{"mysql://"},
+			// Y sin parseTime: las fechas tienen que llegar como las escribe el
+			// servidor, no reformateadas por Go. Ver dsnMySQL.
+			noTiene: []string{"mysql://", "parseTime"},
 		},
 		{
 			motor:    MariaDB,

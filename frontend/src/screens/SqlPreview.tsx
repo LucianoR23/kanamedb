@@ -35,7 +35,8 @@ function textoDeTxn(vista: ChangesetView, transaccion: boolean): string {
   if (!transaccion) {
     return "sin transacción";
   }
-  if (vista.transactionalDdl) {
+  // Sin cambios de esquema la transacción es de verdad en los cuatro motores.
+  if (vista.transactionalDdl || vista.summary.schema === 0) {
     return "una transacción · revierte si algo falla";
   }
   if (vista.tramos <= 1) {

@@ -358,10 +358,16 @@ func (c Connection) dsnPostgres(password string) string {
 // `@`, que es el que separa las credenciales del host.
 func (c Connection) dsnMySQL(password string) string {
 	q := url.Values{
-		// Sin esto, DATE y DATETIME llegan como []byte y la grilla mostraría
-		// bytes crudos en vez de fechas.
-		"parseTime": {"true"},
-		"loc":       {"UTC"},
+		// SIN parseTime, a propósito. Con él, el driver convierte DATE y
+		// DATETIME a time.Time y database/sql las vuelve a escribir en RFC 3339
+		// —`2026-09-10T11:49:41Z`— que no es lo que dijo el servidor y que
+		// MySQL RECHAZA si se le manda de vuelta (22007, «Incorrect datetime
+		// value»). La grilla mostraba una fecha que no se podía editar. Sin
+		// parseTime la fecha llega como texto, `2026-09-10 11:49:41`, tal
+		// cual la escribe el servidor y tal cual la vuelve a leer. Es la misma
+		// regla que en Postgres: el texto lo genera el servidor, Go no
+		// interpreta nada en el medio. Ver query.Result.
+		//
 		// Una sentencia por viaje. Con varias, el driver no puede asociar cada
 		// error a su sentencia, que es justo lo que la pantalla de apply
 		// necesita para decir cuál falló.

@@ -288,8 +288,17 @@ lo que entra y sale de la grilla.
   toque exactamente una fila o revierte el tramo; `StageMany` para preparar
   una tanda con una sola confirmación. Todo con tests contra los cuatro
   motores, incluida la fila que otro borró y la clave que alcanza dos filas.
-- ⏳ **S07** — modo edición: celdas modificadas, filas nuevas, filas marcadas para
-  borrar, tablas sin PK en solo lectura con explicación.
+- ✅ **S07 / S10** — modo edición: doble clic o Enter abre el editor en la
+  celda, clic derecho para NULL, volver al valor leído y borrar la fila;
+  «Agregar fila» con las celdas sin cargar marcadas como por defecto; filas
+  marcadas para borrar; la tira de ediciones con una pastilla por fila y su
+  cruz para deshacer; «Preparar» manda la tanda a Go (`StageGrid`) con una sola
+  confirmación de producción. Tablas sin PK y conexiones de solo lectura no se
+  editan, y el motivo se ve en el botón. Sin el selector de valores de enum
+  —los enums no se introspectan todavía; llega con S17 en la iteración 8— y sin
+  Ctrl+Z: deshacer es la cruz de la pastilla. Probado a mano contra los cuatro
+  motores el 2026-09-10, incluida la fila que otro borró; ver § 6 por lo que
+  salió de MySQL.
 - ⏳ **S08 Data change review** — completa, incluida la variante de producción.
 - ⏳ **S18 CSV import wizard** — completa. `COPY … FROM STDIN` de pgx hace el
   trabajo; lo caro es el asistente —mapear columnas, tipos, NULL contra cadena
@@ -750,10 +759,87 @@ legítimas:**
    pasa y qué hacer —aplicar primero el esquema y después los datos—, con un
    test que reproduce el caso y comprueba que no queda nada a medias.
 
-**Pendiente, anotado:** el ensayo de S15 exige DDL transaccional y por eso no
-ensaya contra MySQL ni MariaDB. Un changeset de **puros datos** sí podría
-ensayarse ahí —es un solo tramo transaccional—; hoy se niega igual. Se afloja
-cuando la grilla lo necesite, con su test.
+**La grilla guarda lo editado hasta «Preparar», y lo convierte Go.** Lo que se
+escribe en una celda no es un cambio: es texto que se deshace con un clic. Vive
+en la pantalla, identificado por la POSICIÓN de la fila en la página cargada, y
+recién al preparar viaja a `Session.StageGrid` como un volcado —las filas leídas
+enteras, lo editado por nombre de columna— que Go convierte en `insertRow`,
+`updateRow` y `deleteRow`. La conversión está en Go y no en TypeScript por la
+regla de siempre —el contrato se prueba con tests de Go— y por dos cosas que
+conviene decidir de ese lado: el **orden** de las columnas en la sentencia (un
+mapa de TypeScript no lo tiene, y un `SET` que cambia de orden entre dos vistas
+previas es un error de programa) y **qué identifica la fila**, que sale de la
+fila como se LEYÓ aunque se haya editado la clave misma.
+
+Identificar por posición es frágil a propósito: ordenar por otra columna vuelve
+a leer desde el principio y las ediciones se pierden, así que la pantalla
+pregunta antes. «Refrescar» y un apply las descartan sin preguntar, porque la
+base ya cambió y lo editado era sobre la vieja. Identificarlas por clave y
+sobrevivir a la recarga sería más cómodo y más mentiroso: si la fila cambió del
+otro lado, lo que se está editando ya no es lo que se ve.
+
+**«Por defecto» no es NULL ni cadena vacía.** Una celda sin cargar de una fila
+nueva no va en el INSERT: la base pone su valor. Se muestra como `[default]` en
+gris, sin itálica, para que no se confunda con `[null]`, y no se mezcla con las
+filas leídas en el mismo arreglo de strings — no hay centinela que no pueda
+chocar con un valor real, así que las filas nuevas se guardan aparte y la grilla
+pregunta por (fila, columna) a una sola función que decide qué mostrar.
+
+**Sin selector de enum todavía.** El diseño de S10 abre un desplegable con los
+valores del enum al editar una celda `ENM`. Los enums no se introspectan como
+objetos hasta S17 (iteración 8); hasta entonces una celda de enum se edita como
+texto y el servidor valida. Anotado para cuando existan.
+
+**MySQL mostraba una fecha que no se podía editar.** Salió de probar la grilla
+a mano contra MySQL —la UI es la misma para los cuatro, pero lo que llega a la
+grilla no—: `parseTime=true` en el DSN hacía que el driver convirtiera DATE y
+DATETIME a `time.Time`, y `database/sql` las volvía a escribir en RFC 3339,
+`2026-09-10T11:49:41Z`. Ese texto no es lo que dijo el servidor, y MySQL lo
+**rechaza** si se le manda de vuelta (22007, «Incorrect datetime value»): editar
+cualquier fecha, o cualquier fila cuya clave tuviera una, fallaba al aplicar. El
+comentario del DSN decía que sin `parseTime` «la grilla mostraría bytes crudos»;
+era falso: sin él la fecha llega como texto, `2026-09-10 11:49:41`, tal cual la
+escribe el servidor y tal cual la vuelve a leer. Es la regla de
+`query.Result` —el texto lo genera el servidor, Go no interpreta nada en el
+medio— que en MySQL no se estaba cumpliendo. Con test en los cuatro servidores
+de MySQL y MariaDB: lo leído es el texto del servidor y ese mismo texto vuelve a
+entrar como parámetro.
+
+**Del review `high` de la grilla, cinco hallazgos, los cinco arreglados:**
+
+1. **Con la casilla de transacción apagada, la comprobación de filas no podía
+   revertir.** Cada sentencia iba sola y en autocommit, así que un `UPDATE` que
+   alcanzó dos filas ya estaba commiteado cuando el conteo lo descubría, y
+   encima quedaba pendiente para volver a correrse. Ahora cada sentencia sigue
+   yendo sola, pero una de DATOS va adentro de su propia transacción: el DML
+   de los cuatro motores lo soporta y el conteo revierte de verdad. El test de
+   la clave que alcanza dos filas corre con la casilla puesta y sin ella.
+2. `StageGrid` **compara la clave que manda la grilla con la clave primaria del
+   catálogo** antes de convertir nada. El comentario decía que lo hacía y no lo
+   hacía.
+3. Con la grilla en modo edición el doble clic ya no abría el visor de celda y
+   no había otra forma de abrirlo: ahora es la primera entrada del menú.
+4. Abrir y cerrar el editor sobre una celda NULL o «por defecto» sin escribir
+   nada la convertía en cadena vacía: un editor sin tocar cancela; escribir y
+   borrar todo sí es querer la cadena vacía.
+5. Después de «Agregar fila» el foco quedaba en el botón y el Enter agregaba
+   otra fila en vez de editar: la grilla se enfoca.
+
+**El ensayo también sirve contra MySQL y MariaDB, mientras no haya esquema.**
+Exigía DDL transaccional y por eso se negaba en esos dos siempre. Pero un
+changeset de **puras filas** es un solo tramo transaccional en los cuatro
+motores, así que ahí no hay nada que el ensayo no pueda revertir. Ahora
+`CanDryRun` y `DryRun` miran si hay algún cambio de esquema incluido en vez de
+mirar solo el motor, y la pantalla dice «todo o nada» en ese caso en vez de
+«MySQL no revierte cambios de esquema» — que era verdad y no venía al caso. Con
+un DDL adentro se siguen negando, con test.
+
+**Probado a mano en los cuatro motores el 2026-09-10.** Además de la fecha de
+MySQL (arriba), salieron dos cosas: el texto de la transacción asustaba con un
+límite que no aplicaba (arriba); y
+un editor de celda que se cerraba y se volvía a abrir en el mismo tick
+reutilizaba la instancia ya cerrada y lo que se escribía después no se
+confirmaba —el editor ahora lleva una `key` que cambia con cada apertura—.
 
 ### Iteración 6 — 2026-09-09
 

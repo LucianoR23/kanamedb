@@ -253,49 +253,59 @@ func TestUnaFilaQueOtroBorroRevierteLaTandaEntera(t *testing.T) {
 // recuerde: si un UPDATE por «clave» alcanza dos filas, la segunda se
 // pisaría en silencio. Se corta y se revierte.
 func TestUnaClaveQueAlcanzaDosFilasNoSigue(t *testing.T) {
-	for _, caso := range motoresDeDatos {
-		t.Run(caso.nombre, func(t *testing.T) {
-			sesion, c := sesionDe(t, caso.nombre, caso.uri)
-			ctx := context.Background()
-			esq, tabla := tablaDeDatos(t, sesion, c, "kn_grilla_sinclave", false)
+	// Con la casilla de transacción puesta y SIN ella: sin transacción cada
+	// sentencia va sola, pero una de datos va igual adentro de la suya, porque
+	// la comprobación de filas corre después de la sentencia y sin eso el
+	// UPDATE de dos filas ya estaría commiteado cuando se descubre.
+	for _, unaSola := range []bool{true, false} {
+		for _, caso := range motoresDeDatos {
+			t.Run(fmt.Sprintf("%s/transaccion=%v", caso.nombre, unaSola), func(t *testing.T) {
+				sesion, c := sesionDe(t, caso.nombre, caso.uri)
+				ctx := context.Background()
+				esq, tabla := tablaDeDatos(t, sesion, c, "kn_grilla_sinclave", false)
 
-			if _, err := sesion.Stage(ctx, change.Change{
-				Type: change.UpdateRow, Schema: esq, Table: tabla, Source: "grid",
-				Values: []change.Cell{{Column: "nombre", Value: texto("pisado")}},
-				Key:    []change.Cell{{Column: "id", Value: texto("1")}},
-			}, ""); err != nil {
-				t.Fatalf("Stage(): %v", err)
-			}
-			res, err := sesion.Apply(ctx, ApplyOptions{SingleTransaction: true})
-			if err != nil {
-				t.Fatalf("Apply(): %v", err)
-			}
-			if res.OK {
-				t.Fatal("Apply dijo OK con un UPDATE que alcanzó dos filas")
-			}
-			if res.Failure == nil || !strings.Contains(res.Failure.Message, "2 filas") {
-				t.Errorf("el mensaje no dice cuántas alcanzó: %+v", res.Failure)
-			}
-			quiero := []string{"1=dos", "1=uno"}
-			if got := filas(t, sesion, c, esq, tabla); !igualesFilas(got, quiero) {
-				t.Errorf("%s: la tabla quedó %v; el UPDATE de dos filas no se revirtió", caso.nombre, got)
-			}
-		})
+				if _, err := sesion.Stage(ctx, change.Change{
+					Type: change.UpdateRow, Schema: esq, Table: tabla, Source: "grid",
+					Values: []change.Cell{{Column: "nombre", Value: texto("pisado")}},
+					Key:    []change.Cell{{Column: "id", Value: texto("1")}},
+				}, ""); err != nil {
+					t.Fatalf("Stage(): %v", err)
+				}
+				res, err := sesion.Apply(ctx, ApplyOptions{SingleTransaction: unaSola})
+				if err != nil {
+					t.Fatalf("Apply(): %v", err)
+				}
+				if res.OK {
+					t.Fatal("Apply dijo OK con un UPDATE que alcanzó dos filas")
+				}
+				if res.Failure == nil || !strings.Contains(res.Failure.Message, "2 filas") {
+					t.Errorf("el mensaje no dice cuántas alcanzó: %+v", res.Failure)
+				}
+				if len(res.Results) != 1 || res.Results[0].Applied {
+					t.Errorf("la sentencia figura aplicada: %+v", res.Results)
+				}
+				quiero := []string{"1=dos", "1=uno"}
+				if got := filas(t, sesion, c, esq, tabla); !igualesFilas(got, quiero) {
+					t.Errorf("%s: la tabla quedó %v; el UPDATE de dos filas no se revirtió", caso.nombre, got)
+				}
+				// Y el cambio sigue pendiente, para arreglarlo: no se aplicó.
+				if vista, _ := sesion.Changeset(ctx); vista.Summary.Total != 1 {
+					t.Errorf("quedaron %d cambios pendientes y tenía que quedar 1", vista.Summary.Total)
+				}
+			})
+		}
 	}
 }
 
 // TestElEnsayoVeUnaFilaQueYaNoEsta.
 //
 // El ensayo de S15 sirve para datos igual que para esquema: la fila que otro
-// borró se descubre ensayando, sin aplicar nada.
+// borró se descubre ensayando, sin aplicar nada. Y sirve en los CUATRO
+// motores: un changeset de puras filas es un solo tramo transaccional también
+// en MySQL y MariaDB, así que ahí el ensayo no tiene nada que no pueda
+// revertir. Con un DDL adentro sigue negándose, y eso también se comprueba.
 func TestElEnsayoVeUnaFilaQueYaNoEsta(t *testing.T) {
 	for _, caso := range motoresDeDatos {
-		if caso.nombre == "mysql" || caso.nombre == "mariadb" {
-			// El ensayo exige DDL transaccional y estos no lo tienen. Que un
-			// changeset de puros datos podría ensayarse ahí es cierto, y está
-			// anotado en el plan como pendiente.
-			continue
-		}
 		t.Run(caso.nombre, func(t *testing.T) {
 			sesion, c := sesionDe(t, caso.nombre, caso.uri)
 			ctx := context.Background()
@@ -320,6 +330,30 @@ func TestElEnsayoVeUnaFilaQueYaNoEsta(t *testing.T) {
 			}
 			if res.Failure == nil || res.Failure.Kind != engine.FailureData {
 				t.Errorf("Failure = %+v", res.Failure)
+			}
+			if !res.RolledBack {
+				t.Error("el ensayo no dice que revirtió")
+			}
+			if vista, _ := sesion.Changeset(ctx); !vista.CanDryRun {
+				t.Error("CanDryRun = false con un changeset de puros datos")
+			}
+
+			// Con un cambio de esquema en la tanda, MySQL y MariaDB se niegan.
+			if _, err := sesion.Stage(ctx, change.Change{
+				Type: change.AddColumn, Schema: esq, Table: tabla, Source: "structure",
+				Column: &change.Column{Name: "extra", DataType: tipoTextoDe(c.Engine), Nullable: true},
+			}, ""); err != nil {
+				t.Fatalf("Stage(addColumn): %v", err)
+			}
+			abierta, _ = sesion.abierta()
+			vista, _ := sesion.Changeset(ctx)
+			_, err = sesion.DryRun(ctx, "")
+			if abierta.db.Caps().TransactionalDDL {
+				if err != nil || !vista.CanDryRun {
+					t.Errorf("con DDL transaccional el ensayo sigue: err=%v CanDryRun=%v", err, vista.CanDryRun)
+				}
+			} else if err == nil || vista.CanDryRun {
+				t.Errorf("%s ensayó con un DDL adentro: err=%v CanDryRun=%v", caso.nombre, err, vista.CanDryRun)
 			}
 		})
 	}

@@ -132,3 +132,69 @@
   font: 400 11.5px/1.5 var(--font-ui);
   color: var(--danger);
 }
+
+/* ---- Ediciones sin preparar (S10) --------------------------------------- */
+
+/* La tira de abajo con una pastilla por fila tocada. Va entre la grilla y el
+   pie, como en el diseño: es lo primero que se mira antes de «Preparar». */
+.preparadas {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.preparadasTitulo {
+  white-space: nowrap;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.preparadasNota,
+.preparadasAtajos {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+}
+.chipOp {
+  white-space: nowrap;
+  font: 600 9.5px var(--font-mono);
+}
+.chipDetalle {
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-2);
+}
+.chipUpdate { border-color: var(--warning); }
+.chipUpdate .chipOp { color: var(--warning); }
+.chipDelete { border-color: var(--danger); }
+.chipDelete .chipOp { color: var(--danger); }
+.chipInsert { border-color: var(--success); }
+.chipInsert .chipOp { color: var(--success); }
+
+.chipQuitar {
+  border: 0;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+}
+.chipQuitar:hover {
+  color: var(--text-1);
+}

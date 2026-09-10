@@ -16,6 +16,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Class } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Column, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import { cx } from "../lib/cx";
+import type { Edicion } from "../lib/edicion";
+import { CellEditor } from "./ui";
 import styles from "./DataGrid.module.css";
 
 /** Una celda del resultado, por posición. */
@@ -98,6 +100,36 @@ function alineacionDe(c: Column): "left" | "right" {
   return c.class === Class.ClassNumber ? "right" : "left";
 }
 
+/**
+ * Lo que la grilla necesita para editar. Todo el estado vive afuera: la grilla
+ * dibuja y avisa, no decide.
+ */
+export interface GridEdit {
+  estado: Edicion;
+  /** La celda que tiene el editor abierto. */
+  editando: CellRef | null;
+  /** Cambia con cada apertura del editor. Es la `key` del editor: sin ella,
+   *  cerrar y volver a abrir la misma celda en el mismo tick reutilizaba la
+   *  instancia ya cerrada, y lo que se escribía después no se confirmaba. */
+  editorKey: number;
+  /** Doble clic, o Enter sobre la celda seleccionada. */
+  onEditar: (ref: CellRef) => void;
+  onConfirmar: (ref: CellRef, valor: string) => void;
+  onCancelar: () => void;
+  /** Clic derecho sobre una celda. */
+  onCellMenu?: (ref: CellRef, e: React.MouseEvent) => void;
+  /** Recibe el elemento de la grilla, para poder enfocarla desde afuera:
+   *  después de «Agregar fila», el Enter tiene que abrir el editor y no
+   *  volver a apretar el botón. */
+  gridRef?: React.RefObject<HTMLDivElement | null>;
+}
+
+/** Cómo está una celda: leída tal cual, editada, o —en una fila nueva— sin
+ *  cargar, con el valor por defecto de la tabla. */
+export type EstadoCelda = "normal" | "editada" | "porDefecto";
+/** Cómo está una fila: leída, con celdas editadas, marcada para borrar, o nueva. */
+export type EstadoFila = "normal" | "editada" | "borrada" | "nueva";
+
 export function DataGrid({
   result,
   selection,
@@ -107,6 +139,7 @@ export function DataGrid({
   onSort,
   onColumnMenu,
   keys,
+  edit,
 }: {
   result: Result;
   selection: CellRef | null;
@@ -122,6 +155,8 @@ export function DataGrid({
    *  mirando una tabla concreta — por eso viene de afuera y es opcional, en vez
    *  de deducirse del nombre de la columna. */
   keys?: Readonly<Record<string, "pk" | "fk">>;
+  /** Con esto la grilla se puede editar. Sin esto es la de solo lectura de S07. */
+  edit?: GridEdit;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -130,6 +165,39 @@ export function DataGrid({
   // generador de bindings no puede saberlo y la tipa como anulable, así que se
   // normaliza acá y no con un `?? []` repetido en cada uso.
   const rows: (string | null)[][] = (result.rows ?? []).map((f) => f ?? []);
+  // Las filas nuevas van al final, después de las leídas, y se numeran con «+».
+  // No se mezclan en `rows`: una celda sin cargar de una fila nueva no es NULL
+  // ni vacía, es «por defecto» —el valor lo va a poner la base— y eso no se
+  // puede representar con un string sin inventar un centinela que choque con
+  // un valor real.
+  const nuevas = edit?.estado.nuevas ?? [];
+  const total = rows.length + nuevas.length;
+
+  // Qué mostrar en (fila, col) y en qué estado. Una sola función para que la
+  // celda y el editor no puedan discrepar sobre cuál es el valor vigente.
+  function celdaEn(fila: number, col: number): { valor: string | null; estado: EstadoCelda } {
+    if (fila >= rows.length) {
+      const n = nuevas[fila - rows.length];
+      if (n && n.has(col)) return { valor: n.get(col) ?? null, estado: "normal" };
+      return { valor: null, estado: "porDefecto" };
+    }
+    const editada = edit?.estado.celdas.get(fila);
+    if (editada && editada.has(col)) return { valor: editada.get(col) ?? null, estado: "editada" };
+    return { valor: rows[fila]?.[col] ?? null, estado: "normal" };
+  }
+  function estadoDeFila(fila: number): EstadoFila {
+    if (fila >= rows.length) return "nueva";
+    if (edit?.estado.borradas.has(fila)) return "borrada";
+    if (edit?.estado.celdas.has(fila)) return "editada";
+    return "normal";
+  }
+
+  // Elegir una celda también enfoca la grilla, sin desplazarla: es lo que hace
+  // que el Enter siguiente abra el editor en vez de perderse.
+  function seleccionar(ref: CellRef) {
+    scrollRef.current?.focus({ preventScroll: true });
+    onSelect(ref);
+  }
 
   const table = useTable({
     features,
@@ -170,7 +238,7 @@ export function DataGrid({
   ].join(" ");
 
   const virtual = useVirtualizer({
-    count: rows.length,
+    count: total,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_H,
     // Suficientes filas de más para que un desplazamiento con la rueda no
@@ -179,7 +247,18 @@ export function DataGrid({
   });
 
   return (
-    <div className={styles.scroller} ref={scrollRef} role="grid" aria-rowcount={rows.length}>
+    <div
+      className={styles.scroller}
+      ref={(el) => {
+        scrollRef.current = el;
+        if (edit?.gridRef) edit.gridRef.current = el;
+      }}
+      role="grid"
+      aria-rowcount={total}
+      // Enfocable para que las teclas —Enter para editar, Escape— lleguen a
+      // quien escucha arriba. Las celdas son divs y no se enfocan solas.
+      tabIndex={0}
+    >
       <div className={styles.header} style={{ gridTemplateColumns: template }} role="row">
         <div className={styles.gutterHead} role="columnheader">
           #
@@ -237,30 +316,74 @@ export function DataGrid({
 
       <div className={styles.body} style={{ height: virtual.getTotalSize() }}>
         {virtual.getVirtualItems().map((v) => {
-          const fila = rows[v.index] ?? [];
+          const estadoFila = estadoDeFila(v.index);
           return (
             <div
               key={v.key}
               role="row"
               aria-rowindex={v.index + 1}
-              className={cx(styles.row, v.index % 2 === 1 && styles.rowStriped)}
+              className={cx(
+                styles.row,
+                v.index % 2 === 1 && estadoFila === "normal" && styles.rowStriped,
+                estadoFila === "borrada" && styles.rowBorrada,
+                estadoFila === "nueva" && styles.rowNueva,
+              )}
               style={{ gridTemplateColumns: template, transform: `translateY(${v.start}px)` }}
             >
-              <div className={styles.gutter}>{v.index + 1}</div>
+              <div
+                className={cx(
+                  styles.gutter,
+                  estadoFila === "editada" && styles.gutterEditada,
+                  estadoFila === "borrada" && styles.gutterBorrada,
+                  estadoFila === "nueva" && styles.gutterNueva,
+                )}
+              >
+                {estadoFila === "nueva" ? "+" : estadoFila === "borrada" ? "−" : v.index + 1}
+              </div>
               {headers.map((h, i) => {
                 const meta = columns[i];
                 if (!meta) return null;
-                const valor = fila[i] ?? null;
+                const ref = { row: v.index, col: i };
+                const { valor, estado } = celdaEn(v.index, i);
                 const puesta = selection?.row === v.index && selection.col === i;
+                const editando = edit?.editando?.row === v.index && edit.editando.col === i;
+                // Doble clic: con edición abre el editor; sin ella, el visor.
+                const dobleClic = edit
+                  ? estadoFila === "borrada"
+                    ? undefined
+                    : () => edit.onEditar(ref)
+                  : onOpenCell
+                    ? () => onOpenCell(ref)
+                    : undefined;
                 return (
                   <Celda
                     key={h.id}
                     valor={valor}
+                    estado={estado}
+                    borrada={estadoFila === "borrada"}
                     align={alineacionDe(meta)}
                     selected={puesta}
-                    onClick={() => onSelect({ row: v.index, col: i })}
-                    {...(onOpenCell
-                      ? { onDoubleClick: () => onOpenCell({ row: v.index, col: i }) }
+                    editor={
+                      editando && edit ? (
+                        <CellEditor
+                          key={edit.editorKey}
+                          initial={valor ?? ""}
+                          align={alineacionDe(meta)}
+                          onCommit={(texto) => edit.onConfirmar(ref, texto)}
+                          onCancel={edit.onCancelar}
+                        />
+                      ) : null
+                    }
+                    onClick={() => seleccionar(ref)}
+                    {...(dobleClic ? { onDoubleClick: dobleClic } : {})}
+                    {...(edit?.onCellMenu
+                      ? {
+                          onContextMenu: (e: React.MouseEvent) => {
+                            e.preventDefault();
+                            seleccionar(ref);
+                            edit.onCellMenu?.(ref, e);
+                          },
+                        }
                       : {})}
                   />
                 );
@@ -289,35 +412,59 @@ export function DataGrid({
  */
 function Celda({
   valor,
+  estado,
+  borrada,
   align,
   selected,
+  editor,
   onClick,
   onDoubleClick,
+  onContextMenu,
 }: {
   valor: string | null;
+  estado: EstadoCelda;
+  /** La fila entera está marcada para borrar. */
+  borrada: boolean;
   align: "left" | "right";
   selected: boolean;
+  /** El editor en línea, cuando esta celda es la que se está editando. */
+  editor: React.ReactNode;
   onClick: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
-  const esNulo = valor === null;
+  const porDefecto = estado === "porDefecto";
+  const esNulo = valor === null && !porDefecto;
   // El valor entero al pasar el mouse. Un texto largo se recorta con puntos
   // suspensivos, y sin esto la única forma de leerlo sería abrir el visor de
   // celda, que es demasiado para confirmar de un vistazo qué dice.
   //
   // En NULL no va: "[null]" no está recortado, es todo el valor, y un globo
-  // que repite lo que ya se lee es ruido.
-  const titulo = esNulo ? {} : { title: valor };
+  // que repite lo que ya se lee es ruido. En «por defecto» va la explicación.
+  const titulo = porDefecto
+    ? { title: "Sin valor: la base pone el suyo por defecto" }
+    : esNulo
+      ? {}
+      : { title: valor ?? "" };
   return (
     <div
       role="gridcell"
-      className={cx(styles.cell, selected && styles.cellSelected, esNulo && styles.cellNull)}
+      className={cx(
+        styles.cell,
+        selected && styles.cellSelected,
+        esNulo && styles.cellNull,
+        porDefecto && styles.cellPorDefecto,
+        estado === "editada" && styles.cellEditada,
+        borrada && styles.cellBorrada,
+        editor !== null && styles.cellEditando,
+      )}
       style={{ textAlign: align }}
       onClick={onClick}
       {...(onDoubleClick ? { onDoubleClick } : {})}
+      {...(onContextMenu ? { onContextMenu } : {})}
       {...titulo}
     >
-      {esNulo ? "[null]" : valor}
+      {editor ?? (porDefecto ? "[default]" : esNulo ? "[null]" : valor)}
     </div>
   );
 }

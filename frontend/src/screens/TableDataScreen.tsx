@@ -7,10 +7,27 @@ import type {
   TableDetail,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
-import { Button, Glyph, PillTabs } from "../components/ui";
+import { Button, ConfirmDialog, ContextMenu, Glyph, PillTabs } from "../components/ui";
+import type { MenuAnchor, MenuEntry } from "../components/ui";
 import { pendientesDeTabla, sinPendientes } from "../lib/pendientesDeTabla";
 import { DataGrid } from "../components/DataGrid";
-import type { CellRef, SortState } from "../components/DataGrid";
+import type { CellRef, GridEdit, SortState } from "../components/DataGrid";
+import {
+  aGridEdits,
+  conBorrada,
+  conCelda,
+  conCeldaNueva,
+  conFilaNueva,
+  cuantos,
+  hayEdiciones,
+  sinCeldaNueva,
+  sinEdicion,
+  sinFila,
+  sinFilaNueva,
+} from "../lib/edicion";
+import type { Edicion, Valor } from "../lib/edicion";
+import { cx } from "../lib/cx";
+import { plural } from "../lib/motor";
 import { CellViewer } from "./CellViewer";
 import { TableStructure, bytes } from "./TableStructure";
 import { useStage } from "../lib/useStage";
@@ -28,9 +45,13 @@ const PAGINA = 500;
  * dos pestañas del árbol duplicaría la fila abierta.
  *
  * Iteración 2: leer, ordenar, cargar más y contar. Iteración 4: las cinco
- * vistas de estructura, solo lectura. Agregar, borrar y editar filas llegan con
- * la Iteración 7; los botones están y se ven deshabilitados, porque la pestaña
- * se diseñó con ellos.
+ * vistas de estructura, solo lectura. Iteración 7: editar celdas, agregar y
+ * borrar filas.
+ *
+ * Las ediciones viven acá hasta que se preparan. Nada de lo que se escribe en
+ * una celda toca la base ni el changeset: recién «Preparar» las manda a Go,
+ * que las convierte en cambios y las suma a la lista de pendientes, y desde
+ * ahí se revisan y se aplican como cualquier otro cambio.
  */
 export function TableDataScreen({
   tabId,
@@ -67,6 +88,19 @@ export function TableDataScreen({
   const [seleccion, setSeleccion] = useState<CellRef | null>(null);
   const [visor, setVisor] = useState<CellRef | null>(null);
   const [sub, setSub] = useState<"data" | StructureView>("data");
+
+  // Lo editado y todavía no preparado. Ver lib/edicion.
+  const [edicion, setEdicion] = useState<Edicion>(sinEdicion);
+  const [editando, setEditando] = useState<CellRef | null>(null);
+  // Cuántas veces se abrió un editor: es la key de la instancia. Ver GridEdit.
+  const [editorKey, setEditorKey] = useState(0);
+  const [menuCelda, setMenuCelda] = useState<{ ref: CellRef; anchor: MenuAnchor } | null>(null);
+  // Lo que se quería hacer y descartaría las ediciones: ordenar por otra
+  // columna. Se pregunta antes.
+  const [descartarPara, setDescartarPara] = useState<(() => void) | null>(null);
+  const [preparado, setPreparado] = useState(0);
+  // El elemento de la grilla, para enfocarlo después de «Agregar fila».
+  const gridRef = useRef<HTMLDivElement | null>(null);
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
   // datos.
@@ -131,6 +165,14 @@ export function TableDataScreen({
       // Se pide una página completa: si vino menos, no hay más del otro lado.
       setHayMas(nuevas.length === PAGINA);
       setFilas((previas) => (offset === 0 ? nuevas : [...previas, ...nuevas]));
+      // Una lectura desde el principio reemplaza las filas, así que las
+      // ediciones —que apuntan a filas por posición— dejan de tener sentido.
+      // Ordenar pregunta antes; «Refrescar» y un apply las descartan sin
+      // preguntar, porque la base ya cambió y lo editado era sobre la vieja.
+      if (offset === 0) {
+        setEdicion(sinEdicion());
+        setEditando(null);
+      }
     },
     [runID, schema, table],
   );
@@ -195,18 +237,27 @@ export function TableDataScreen({
       orden?.column === columna
         ? { column: columna, descending: !orden.descending }
         : { column: columna, descending: false };
-    setOrden(siguiente);
-    setSeleccion(null);
-    void cargar(0, siguiente);
+    const ordenar = () => {
+      setOrden(siguiente);
+      setSeleccion(null);
+      void cargar(0, siguiente);
+    };
+    // Ordenar vuelve a leer desde el principio y las ediciones se pierden.
+    // Mejor preguntar que perder tres celdas escritas a mano por un clic en
+    // un encabezado.
+    if (hayEdiciones(edicion)) setDescartarPara(() => ordenar);
+    else ordenar();
   }
 
   // El resultado que ve la grilla: las columnas de la primera página más todas
   // las filas acumuladas por "cargar más".
   const acumulado: Result | null = result ? { ...result, rows: filas } : null;
+  const columnas = (result?.columns ?? []).map((c) => c.name);
 
   // Las claves salen del esquema ya introspectado, no de otra consulta: acá se
   // sabe qué tabla se está mirando, así que la información ya está en memoria.
   const claves: Record<string, "pk" | "fk"> = {};
+  const clavePrimaria: string[] = [];
   // Las columnas se cuentan en el mismo recorrido: el encabezado las muestra
   // desde que se abre la pestaña, sin esperar a que se lea la estructura.
   // undefined mientras el snapshot no llegó o la tabla no está en él: la pastilla
@@ -223,16 +274,193 @@ export function TableDataScreen({
       if (t.name !== table) continue;
       columnasDeLaTabla = (t.columns ?? []).length;
       for (const c of t.columns ?? []) {
-        if (c.primaryKey) claves[c.name] = "pk";
-        else if (c.foreignKey) claves[c.name] = "fk";
+        if (c.primaryKey) {
+          claves[c.name] = "pk";
+          clavePrimaria.push(c.name);
+        } else if (c.foreignKey) claves[c.name] = "fk";
       }
     }
   }
 
+  // Sin clave primaria no hay forma de identificar la fila que se edita, y
+  // Go también lo rechaza. Acá se dice antes de que alguien escriba algo.
+  const porQueNoEdita = readOnly
+    ? "La conexión es de solo lectura"
+    : clavePrimaria.length === 0
+      ? "La tabla no tiene clave primaria: sin ella no se puede identificar la fila que se edita"
+      : "";
+  const puedeEditar = porQueNoEdita === "";
+
   const enDatos = sub === "data";
+  const filaSeleccionada = seleccion?.row ?? -1;
+  const seleccionNueva = filaSeleccionada >= filas.length;
+  const seleccionBorrada = edicion.borradas.has(filaSeleccionada);
+
+  /* ---- edición ---------------------------------------------------------- */
+
+  function valorLeido(ref: CellRef): Valor {
+    return filas[ref.row]?.[ref.col] ?? null;
+  }
+
+  // Cualquier edición nueva apaga el aviso de «N cambios preparados»: ya no
+  // describe lo que hay en la tira.
+  function ponerValor(ref: CellRef, valor: Valor) {
+    setPreparado(0);
+    if (ref.row >= filas.length) {
+      setEdicion((e) => conCeldaNueva(e, ref.row - filas.length, ref.col, valor));
+    } else {
+      setEdicion((e) => conCelda(e, ref.row, ref.col, valor, valorLeido(ref)));
+    }
+  }
+
+  function empezarEdicion(ref: CellRef) {
+    if (!puedeEditar || edicion.borradas.has(ref.row)) return;
+    setSeleccion(ref);
+    setEditando(ref);
+    setEditorKey((n) => n + 1);
+  }
+
+  function alternarBorrado(fila: number) {
+    setPreparado(0);
+    if (fila < 0 || !puedeEditar) return;
+    if (fila >= filas.length) {
+      setEdicion((e) => sinFilaNueva(e, fila - filas.length));
+      setSeleccion(null);
+      return;
+    }
+    setEdicion((e) => conBorrada(e, fila, !e.borradas.has(fila)));
+  }
+
+  function agregarFila() {
+    setPreparado(0);
+    if (!puedeEditar) return;
+    setEdicion((e) => conFilaNueva(e));
+    // La fila nueva queda seleccionada en su primera columna y la grilla con
+    // el foco, lista para el Enter que abre el editor. Sin el foco, el Enter
+    // volvería a apretar el botón y agregaría otra fila.
+    setSeleccion({ row: filas.length + edicion.nuevas.length, col: 0 });
+    gridRef.current?.focus({ preventScroll: true });
+  }
+
+  function preparar() {
+    if (!hayEdiciones(edicion)) return;
+    const n = cuantos(edicion);
+    setEditando(null);
+    // Si Go acepta la tanda, deja de ser edición local: son cambios
+    // pendientes, y la grilla vuelve a limpio. Si la rechaza, todo queda como
+    // estaba y el error se muestra arriba.
+    void staging.stageGrid(
+      aGridEdits(edicion, filas, columnas, clavePrimaria, schema, table),
+      () => {
+        setEdicion(sinEdicion());
+        setPreparado(n);
+      },
+    );
+  }
+
+  const edit: GridEdit | undefined = puedeEditar
+    ? {
+        estado: edicion,
+        editando,
+        editorKey,
+        onEditar: empezarEdicion,
+        onConfirmar: (ref, texto) => {
+          setEditando(null);
+          ponerValor(ref, texto);
+        },
+        onCancelar: () => setEditando(null),
+        onCellMenu: (ref, e) => setMenuCelda({ ref, anchor: { x: e.clientX, y: e.clientY } }),
+        gridRef,
+      }
+    : undefined;
+
+  function entradasDelMenu(ref: CellRef): MenuEntry[] {
+    const nueva = ref.row >= filas.length;
+    const borrada = edicion.borradas.has(ref.row);
+    const editada = !nueva && (edicion.celdas.get(ref.row)?.has(ref.col) ?? false);
+    const cargada = nueva && (edicion.nuevas[ref.row - filas.length]?.has(ref.col) ?? false);
+    const out: MenuEntry[] = [
+      // El visor sigue existiendo en modo edición: el doble clic ahora edita,
+      // así que leer un JSON entero o un texto largo se hace desde acá. Una
+      // fila nueva no tiene nada que ver todavía.
+      {
+        id: "ver",
+        label: "Ver la celda",
+        disabled: nueva,
+        onSelect: () => setVisor(ref),
+      },
+      {
+        id: "editar",
+        label: "Editar",
+        hint: "Enter",
+        disabled: borrada,
+        ...(borrada ? { disabledReason: "la fila se va a borrar" } : {}),
+        onSelect: () => empezarEdicion(ref),
+      },
+      {
+        id: "null",
+        label: "Poner NULL",
+        disabled: borrada,
+        onSelect: () => ponerValor(ref, null),
+      },
+    ];
+    if (editada) {
+      out.push({
+        id: "volver",
+        label: "Volver al valor leído",
+        onSelect: () => ponerValor(ref, valorLeido(ref)),
+      });
+    }
+    if (cargada) {
+      out.push({
+        id: "porDefecto",
+        label: "Dejar el valor por defecto",
+        onSelect: () => setEdicion((e) => sinCeldaNueva(e, ref.row - filas.length, ref.col)),
+      });
+    }
+    out.push({ kind: "separator", id: "sep" });
+    if (nueva) {
+      out.push({
+        id: "quitar",
+        label: "Quitar la fila nueva",
+        onSelect: () => alternarBorrado(ref.row),
+      });
+    } else if (borrada) {
+      out.push({
+        id: "noBorrar",
+        label: "No borrar la fila",
+        onSelect: () => alternarBorrado(ref.row),
+      });
+    } else {
+      out.push({
+        id: "borrar",
+        label: "Borrar la fila",
+        destructive: true,
+        onSelect: () => alternarBorrado(ref.row),
+      });
+    }
+    return out;
+  }
+
+  function teclado(e: React.KeyboardEvent) {
+    if (!enDatos || !puedeEditar || editando) return;
+    if (!seleccion) return;
+    // Solo las teclas que caen en la grilla misma. Un Enter escrito en un
+    // diálogo o en el editor de una celda también burbujea hasta acá, y no
+    // tiene que abrir nada.
+    if (!(e.target instanceof HTMLElement) || e.target.getAttribute("role") !== "grid") return;
+    if (e.key === "Enter" || e.key === "F2") {
+      e.preventDefault();
+      empezarEdicion(seleccion);
+    } else if (e.key === "Escape") {
+      setSeleccion(null);
+    }
+  }
+
+  const nEdiciones = cuantos(edicion);
 
   return (
-    <div className={styles.screen}>
+    <div className={styles.screen} onKeyDown={teclado}>
       <div className={styles.head}>
         <Glyph kind="table" />
         <span className={styles.titulo}>
@@ -284,12 +512,30 @@ export function TableDataScreen({
         {enDatos ? (
           <>
             <span className={styles.divider} />
-            <Button size="sm" disabled title="Llega en la Iteración 7">
+            <Button
+              size="sm"
+              disabled={!puedeEditar || !acumulado}
+              title={porQueNoEdita || undefined}
+              onClick={agregarFila}
+            >
               Agregar fila
             </Button>
-            <Button size="sm" disabled title="Llega en la Iteración 7">
-              Borrar fila
+            <Button
+              size="sm"
+              disabled={!puedeEditar || filaSeleccionada < 0}
+              title={
+                porQueNoEdita ||
+                (filaSeleccionada < 0 ? "Elegí una fila primero" : undefined)
+              }
+              onClick={() => alternarBorrado(filaSeleccionada)}
+            >
+              {seleccionNueva ? "Quitar fila" : seleccionBorrada ? "No borrar" : "Borrar fila"}
             </Button>
+            {nEdiciones > 0 ? (
+              <Button size="sm" variant="primary" onClick={preparar}>
+                Preparar {nEdiciones} {plural(nEdiciones, "cambio", "cambios")}
+              </Button>
+            ) : null}
           </>
         ) : null}
         <span className={styles.grow} />
@@ -313,55 +559,91 @@ export function TableDataScreen({
         />
       ) : (
         <>
+          {orderedBy.length === 0 && filas.length > 0 ? (
+            <div className={styles.avisoOrden}>
+              Esta tabla no tiene clave primaria, así que el orden de las filas no está
+              garantizado: «cargar más» puede repetir o saltear alguna. Ordená por una columna
+              para fijarlo.
+              {!readOnly ? " Y no se puede editar desde acá: no hay cómo identificar una fila." : ""}
+            </div>
+          ) : null}
 
-      {orderedBy.length === 0 && filas.length > 0 ? (
-        <div className={styles.avisoOrden}>
-          Esta tabla no tiene clave primaria, así que el orden de las filas no está garantizado:
-          «cargar más» puede repetir o saltear alguna. Ordená por una columna para fijarlo.
-        </div>
+          {fallo ? (
+            <div className={styles.error}>
+              <p className={styles.errorMsg}>{fallo.message}</p>
+              {fallo.detail ? <p className={styles.errorDetalle}>{fallo.detail}</p> : null}
+              {fallo.hint ? <p className={styles.errorHint}>{fallo.hint}</p> : null}
+            </div>
+          ) : acumulado ? (
+            <>
+              <DataGrid
+                result={acumulado}
+                selection={seleccion}
+                onSelect={setSeleccion}
+                onOpenCell={setVisor}
+                sort={orden}
+                onSort={ordenarPor}
+                keys={claves}
+                {...(edit ? { edit } : {})}
+              />
+              <Preparadas
+                edicion={edicion}
+                filas={filas}
+                clave={clavePrimaria}
+                columnas={columnas}
+                puedeEditar={puedeEditar}
+                preparadas={preparado}
+                onQuitar={(fila) => setEdicion((e) => sinFila(e, fila))}
+                onQuitarNueva={(i) => setEdicion((e) => sinFilaNueva(e, i))}
+              />
+              <div className={styles.foot}>
+                {hayMas ? (
+                  <Button
+                    size="sm"
+                    loading={cargando}
+                    onClick={() => void cargar(filas.length, orden)}
+                  >
+                    Cargar {PAGINA} más
+                  </Button>
+                ) : (
+                  <span className={styles.footNota}>
+                    {filas.length === 0 ? "La tabla está vacía." : "Se cargaron todas las filas."}
+                  </span>
+                )}
+                <span className={styles.grow} />
+                {readOnly ? <span className={styles.roNote}>conexión de solo lectura</span> : null}
+              </div>
+            </>
+          ) : (
+            <p className={styles.vacio}>{cargando ? "Leyendo filas…" : "Sin datos."}</p>
+          )}
+        </>
+      )}
+
+      {menuCelda ? (
+        <ContextMenu
+          anchor={menuCelda.anchor}
+          entries={entradasDelMenu(menuCelda.ref)}
+          onClose={() => setMenuCelda(null)}
+        />
       ) : null}
 
-      {fallo ? (
-        <div className={styles.error}>
-          <p className={styles.errorMsg}>{fallo.message}</p>
-          {fallo.detail ? <p className={styles.errorDetalle}>{fallo.detail}</p> : null}
-          {fallo.hint ? <p className={styles.errorHint}>{fallo.hint}</p> : null}
-        </div>
-      ) : acumulado ? (
-        <>
-          <DataGrid
-            result={acumulado}
-            selection={seleccion}
-            onSelect={setSeleccion}
-            onOpenCell={setVisor}
-            sort={orden}
-            onSort={ordenarPor}
-            keys={claves}
-          />
-          <div className={styles.foot}>
-            {hayMas ? (
-              <Button
-                size="sm"
-                loading={cargando}
-                onClick={() => void cargar(filas.length, orden)}
-              >
-                Cargar {PAGINA} más
-              </Button>
-            ) : (
-              <span className={styles.footNota}>
-                {filas.length === 0 ? "La tabla está vacía." : "Se cargaron todas las filas."}
-              </span>
-            )}
-            <span className={styles.grow} />
-            {readOnly ? <span className={styles.roNote}>conexión de solo lectura</span> : null}
-          </div>
-        </>
-      ) : (
-        <p className={styles.vacio}>{cargando ? "Leyendo filas…" : "Sin datos."}</p>
-      )}
-
-        </>
-      )}
+      <ConfirmDialog
+        open={descartarPara !== null}
+        severidad="aviso"
+        title={`¿Descartar ${nEdiciones} ${plural(nEdiciones, "edición", "ediciones")}?`}
+        etiqueta="Descartar y ordenar"
+        onClose={() => setDescartarPara(null)}
+        onConfirm={() => {
+          const seguir = descartarPara;
+          setDescartarPara(null);
+          seguir?.();
+        }}
+      >
+        Ordenar vuelve a leer la tabla desde el principio, y lo que escribiste en las celdas
+        todavía no está preparado. Se pierde. Si querés conservarlo, cancelá y tocá «Preparar»
+        primero.
+      </ConfirmDialog>
 
       {visor && acumulado ? (
         <CellViewer
@@ -375,6 +657,118 @@ export function TableDataScreen({
           onClose={() => setVisor(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * La tira de abajo con lo editado, como en el diseño: una pastilla por fila
+ * tocada —UPDATE con cuántas columnas, DELETE con su clave, INSERT— y una cruz
+ * para deshacerla. Es el resumen que evita tener que recorrer mil filas
+ * buscando cuál quedó ámbar.
+ */
+function Preparadas({
+  edicion,
+  filas,
+  clave,
+  columnas,
+  puedeEditar,
+  preparadas,
+  onQuitar,
+  onQuitarNueva,
+}: {
+  edicion: Edicion;
+  filas: readonly (readonly Valor[])[];
+  clave: readonly string[];
+  columnas: readonly string[];
+  puedeEditar: boolean;
+  /** Cuántos cambios entraron al changeset en la última tanda, para decirlo. */
+  preparadas: number;
+  onQuitar: (fila: number) => void;
+  onQuitarNueva: (indice: number) => void;
+}) {
+  if (!puedeEditar) return null;
+
+  const claveDe = (fila: number): string => {
+    const partes: string[] = [];
+    for (const k of clave) {
+      const i = columnas.indexOf(k);
+      const v = filas[fila]?.[i];
+      partes.push(`${k} ${v === null || v === undefined ? "NULL" : v}`);
+    }
+    return partes.join(" · ");
+  };
+
+  const chips: React.ReactNode[] = [];
+  for (const [fila, celdas] of edicion.celdas) {
+    chips.push(
+      <span key={`u${fila}`} className={cx(styles.chip, styles.chipUpdate)}>
+        <span className={styles.chipOp}>UPDATE</span>
+        <span className={styles.chipDetalle}>
+          {claveDe(fila)} · {celdas.size} {plural(celdas.size, "columna", "columnas")}
+        </span>
+        <button
+          type="button"
+          className={styles.chipQuitar}
+          title="Deshacer la edición de esta fila"
+          onClick={() => onQuitar(fila)}
+        >
+          ✕
+        </button>
+      </span>,
+    );
+  }
+  for (const fila of edicion.borradas) {
+    chips.push(
+      <span key={`d${fila}`} className={cx(styles.chip, styles.chipDelete)}>
+        <span className={styles.chipOp}>DELETE</span>
+        <span className={styles.chipDetalle}>{claveDe(fila)}</span>
+        <button
+          type="button"
+          className={styles.chipQuitar}
+          title="No borrar esta fila"
+          onClick={() => onQuitar(fila)}
+        >
+          ✕
+        </button>
+      </span>,
+    );
+  }
+  edicion.nuevas.forEach((n, i) => {
+    chips.push(
+      <span key={`i${i}`} className={cx(styles.chip, styles.chipInsert)}>
+        <span className={styles.chipOp}>INSERT</span>
+        <span className={styles.chipDetalle}>
+          fila nueva · {n.size} {plural(n.size, "columna cargada", "columnas cargadas")}
+        </span>
+        <button
+          type="button"
+          className={styles.chipQuitar}
+          title="Quitar la fila nueva"
+          onClick={() => onQuitarNueva(i)}
+        >
+          ✕
+        </button>
+      </span>,
+    );
+  });
+
+  return (
+    <div className={styles.preparadas}>
+      <span className={styles.preparadasTitulo}>Ediciones</span>
+      {chips.length > 0 ? (
+        chips
+      ) : (
+        <span className={styles.preparadasNota}>
+          {preparadas > 0
+            ? `${preparadas} ${plural(preparadas, "cambio preparado", "cambios preparados")}: se revisan y se aplican desde «Cambios pendientes».`
+            : "sin ediciones — doble clic en una celda, o «Agregar fila»"}
+        </span>
+      )}
+      <span className={styles.grow} />
+      <span className={styles.preparadasAtajos}>
+        Enter edita · clic derecho para ver la celda, NULL y borrar
+      </span>
     </div>
   );
 }
