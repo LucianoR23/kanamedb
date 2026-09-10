@@ -239,3 +239,50 @@
 .grow {
   flex: 1;
 }
+
+/* El modo «Elementos» de un array: una lista numerada, para poder decir «el
+   tercero» sin contar. */
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.itemNo {
+  flex: none;
+  width: 28px;
+  text-align: right;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.itemValor {
+  font: 400 12.5px/1.6 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.itemNull {
+  font: 400 12.5px var(--font-mono);
+  font-style: italic;
+  color: var(--cell-null);
+}
+.itemVacio {
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-dim);
+}
+
+/* El editor del valor ocupa todo el alto disponible: el visor se abre
+   justamente cuando el valor no entra en una línea. */
+.editor {
+  height: 100%;
+  min-height: 160px;
+}

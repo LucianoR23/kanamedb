@@ -132,3 +132,14 @@
   border-color: transparent;
   color: var(--text-on-accent);
 }
+
+/* El control de varias líneas: mismo borde y misma tipografía que Input, con
+   alto propio y sin el centrado vertical de una línea. */
+.area {
+  height: auto;
+  min-height: 72px;
+  padding: 7px 8px;
+  line-height: 1.6;
+  resize: vertical;
+  white-space: pre-wrap;
+}

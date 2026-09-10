@@ -76,11 +76,10 @@ lectura.
   transacción: son de iteraciones posteriores y están deshabilitados.
 - ✅ **S07 Results grid** — solo lectura, con NULL contra cadena vacía, etiquetas
   de tipo y de clave, orden contra el servidor. Sin modo edición.
-- ⏳ **S09 Cell viewer** — modos por tipo: JSON formateado, hex para bytea, texto
-  y el caso null. Falta el modo "Items" de arrays, que necesita un parser de
-  literales de Postgres y va en Go. **Agendado en la Iteración 7**, en la
-  unidad del visor —junto con la fila entera como JSON y los botones de
-  escritura del pie, que siguen diciendo «Llega en la Iteración 7»—.
+- ✅ **S09 Cell viewer** — modos por tipo: JSON formateado, hex para bytea, texto
+  y el caso null. El modo "Items" de los arrays, la fila entera como JSON y los
+  botones de escritura del pie se completaron en la **Iteración 7**, en la
+  unidad del visor.
 - ✅ **S10 Table data tab** — grilla, orden, "cargar más", conteo exacto y aviso
   cuando la tabla no tiene clave primaria.
 - ✅ **Solo lectura** — el interruptor se adelantó desde la Iteración 5. Ver el
@@ -336,7 +335,7 @@ lo que entra y sale de la grilla.
   con tres tablas adentro no lo lee nadie. El zip se descartó: no se puede
   mirar sin abrirlo y no ahorra nada que el disco no ahorre solo. «Schema only»
   del diseño va con el volcado, que es donde vive la cobertura declarada.
-- ⏳ **El visor: la fila entera como JSON, el modo Items y los botones del
+- ✅ **El visor: la fila entera como JSON, el modo Items y los botones del
   pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
   menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
   misma unidad entra lo que S09 dejó pendiente desde la Iteración 2: el modo
@@ -1076,6 +1075,35 @@ después falla: lo escrito queda con el array de JSON **abierto**, no cerrado
 como si estuviera entero. La primera inyección que escribí no ponía nada en
 rojo —el test cancelaba antes de que el recorrido arrancara— y eso era
 justamente un test que no podía fallar.
+
+**El visor: tres cosas que S09 debía desde la Iteración 2.**
+
+- **El literal de un array se parte en Go, no en el frontend.** `{a,"b,c",NULL}`
+  tiene comas adentro de comillas, escapes con barra invertida, y un `NULL` que
+  no es lo mismo que la palabra `"NULL"`. Eso es lógica con casos borde, y
+  lógica con casos borde sin tests es lógica rota que nadie ve. `ParsePostgresArray`
+  devuelve valores **y** un vector de nulos, porque devolver solo cadenas
+  perdería justamente esa diferencia. Un array de dos dimensiones se muestra por
+  filas sin abrirlas: aplanarlo mentiría sobre la forma. MySQL tiene su propio
+  caso —una columna SET es una lista separada por comas y nada más— y SQLite no
+  tiene arrays, así que el visor lo muestra como texto.
+- **La fila entera como JSON se arma acá y no con `row_to_json`**, que era lo
+  que decía el plan. Tres motivos que aparecieron al escribirlo: la fila YA está
+  leída, así que pedirla de nuevo es un viaje por nada; `row_to_json` es de
+  Postgres y habría que escribir la consulta equivalente en los otros tres; y
+  sobre todo el resultado tiene que coincidir con lo que sale al exportar en
+  JSON — usando el MISMO escritor, coincide por construcción y no por cuidado.
+  Sale como UN objeto y no como un array de uno, y en una sola línea: indentar
+  exigiría volver a parsear los números, y ahí un `numeric` de 12.50 se
+  convertiría en 12.5. El valor exacto vale más que la sangría.
+- **Los botones del pie editan.** Es lo que el visor viene a resolver: un JSON
+  o un texto de dos mil caracteres no se edita en una celda de una línea. El
+  editor reemplaza al modo que muestra el valor tal cual y no a los demás
+  —editar un array por su lista de elementos, o la fila entera, es otra cosa—,
+  y lo que se escribe va al mismo estado de edición que la grilla, así que
+  «Preparar» lo trata igual que un doble clic. Con el resultado de una consulta
+  el visor sigue siendo de solo lectura, y lo dice: puede venir de varias
+  tablas. El componente `Textarea` se agregó a `components/ui`, no inline.
 
 **El formato SQL es el único lugar donde un valor de fila se escribe adentro de
 la SQL.** Y es legítimo, porque esa SQL **no la ejecuta Kaname**: es un archivo

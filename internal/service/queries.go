@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/engine"
+	"github.com/LucianoR23/kanamedb/internal/export"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
@@ -223,6 +224,59 @@ func (q *Queries) TableCount(
 // la que alguien use.
 func (q *Queries) Operators() []query.OperatorInfo {
 	return append([]query.OperatorInfo(nil), query.Operators...)
+}
+
+// ArrayItems parte el valor de una celda de array en sus elementos.
+//
+// Despacha por motor porque el literal no es el mismo: Postgres escribe
+// `{a,"b,c"}` con comillas y escapes, y una columna SET de MySQL es una lista
+// separada por comas y nada más. SQLite no tiene arrays, así que devuelve que
+// no lo es y el visor lo muestra como texto.
+//
+// Va en Go y no en el frontend porque el literal de Postgres tiene casos borde
+// —comas adentro de comillas, NULL contra la palabra "NULL", escapes— y lógica
+// con casos borde sin tests es lógica rota que nadie ve.
+func (q *Queries) ArrayItems(valor string) ItemsResult {
+	sesion, err := q.session.abierta()
+	if err != nil {
+		return ItemsResult{}
+	}
+	var (
+		items query.Items
+		ok    bool
+	)
+	switch sesion.db.Kind() {
+	case engine.Postgres:
+		items, ok = query.ParsePostgresArray(valor)
+	case engine.MySQL, engine.MariaDB:
+		items, ok = query.ParseMySQLSet(valor)
+	}
+	return ItemsResult{OK: ok, Items: items}
+}
+
+// ItemsResult es el array partido, o el aviso de que no era uno.
+type ItemsResult struct {
+	// OK en false significa «esto no es un array en este motor»: el visor lo
+	// muestra como texto en vez de inventar elementos.
+	OK    bool        `json:"ok"`
+	Items query.Items `json:"items"`
+}
+
+// RowJSON devuelve una fila entera como JSON.
+//
+// Se arma acá y no con `row_to_json` del servidor, que era lo que decía el
+// plan, por tres motivos que aparecieron al escribirlo: la fila YA está leída
+// —pedirla de nuevo es un viaje por nada—, `row_to_json` es de Postgres y
+// habría que escribir la consulta equivalente en los otros tres, y sobre todo
+// el resultado tiene que coincidir con lo que sale al exportar en JSON. Se usa
+// el MISMO escritor, así que coincide por construcción y no por cuidado.
+func (q *Queries) RowJSON(columns []query.Column, row []*string) (string, error) {
+	// JSONL y no JSON: una fila es UN objeto, y envolverla en un array de uno
+	// sería contar una fila como si fueran varias. Sale en una línea y no
+	// indentada a propósito: indentar exigiría volver a parsear los números, y
+	// ahí un numeric como 12.50 se convertiría en 12.5. El valor exacto vale
+	// más que la sangría.
+	return export.Render(export.JSONL, export.Options{}, columns, [][]*string{row}, 0)
 }
 
 // Cancel corta la ejecución con ese identificador.

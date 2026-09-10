@@ -94,7 +94,9 @@ export function TableDataScreen({
   const [hayMas, setHayMas] = useState(false);
   const [fallo, setFallo] = useState<Failure | null>(null);
   const [seleccion, setSeleccion] = useState<CellRef | null>(null);
-  const [visor, setVisor] = useState<CellRef | null>(null);
+  // Qué celda mira el visor y con qué modo abre. «fila» es el ítem del menú
+  // que muestra la fila entera como JSON.
+  const [visor, setVisor] = useState<{ ref: CellRef; modo: "celda" | "fila" } | null>(null);
   const [sub, setSub] = useState<"data" | StructureView>("data");
 
   // Lo editado y todavía no preparado. Ver lib/edicion.
@@ -380,6 +382,16 @@ export function TableDataScreen({
     return filas[ref.row]?.[ref.col] ?? null;
   }
 
+  /** Lo que la celda muestra ahora: lo editado si lo hay, y si no lo leído. */
+  function valorMostrado(ref: CellRef): Valor {
+    if (ref.row >= filas.length) {
+      const n = edicion.nuevas[ref.row - filas.length];
+      return n?.has(ref.col) ? (n.get(ref.col) ?? null) : null;
+    }
+    const c = edicion.celdas.get(ref.row);
+    return c?.has(ref.col) ? (c.get(ref.col) ?? null) : valorLeido(ref);
+  }
+
   // Cualquier edición nueva apaga el aviso de «N cambios preparados»: ya no
   // describe lo que hay en la tira.
   function ponerValor(ref: CellRef, valor: Valor) {
@@ -493,7 +505,14 @@ export function TableDataScreen({
         id: "ver",
         label: "Ver la celda",
         disabled: nueva,
-        onSelect: () => setVisor(ref),
+        onSelect: () => setVisor({ ref, modo: "celda" }),
+      },
+      {
+        id: "fila-json",
+        label: "Ver la fila como JSON",
+        disabled: nueva,
+        ...(nueva ? { disabledReason: "la fila todavía no existe" } : {}),
+        onSelect: () => setVisor({ ref, modo: "fila" }),
       },
       {
         id: "editar",
@@ -700,7 +719,7 @@ export function TableDataScreen({
                 result={acumulado}
                 selection={seleccion}
                 onSelect={setSeleccion}
-                onOpenCell={setVisor}
+                onOpenCell={(ref) => setVisor({ ref, modo: "celda" })}
                 sort={orden}
                 onSort={ordenarPor}
                 keys={claves}
@@ -792,11 +811,22 @@ export function TableDataScreen({
         <CellViewer
           open
           columns={acumulado.columns ?? []}
-          row={filas[visor.row] ?? []}
-          index={visor.col}
-          rowNumber={visor.row + 1}
+          row={filas[visor.ref.row] ?? []}
+          index={visor.ref.col}
+          rowNumber={visor.ref.row + 1}
           source={`${schema}.${table}`}
-          onIndexChange={(i) => setVisor({ row: visor.row, col: i })}
+          modoInicial={visor.modo}
+          {...(puedeEditar && !edicion.borradas.has(visor.ref.row)
+            ? {
+                edicion: {
+                  valor: valorMostrado(visor.ref),
+                  editado: edicion.celdas.get(visor.ref.row)?.has(visor.ref.col) ?? false,
+                  onCambiar: (v: string | null) => ponerValor(visor.ref, v),
+                  onRevertir: () => ponerValor(visor.ref, valorLeido(visor.ref)),
+                },
+              }
+            : {})}
+          onIndexChange={(i) => setVisor({ ref: { row: visor.ref.row, col: i }, modo: "celda" })}
           onClose={() => setVisor(null)}
         />
       ) : null}

@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { InputHTMLAttributes, ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 import { cx } from "../../lib/cx";
 import styles from "./Input.module.css";
 
@@ -13,6 +13,27 @@ export function Input({ invalid = false, className, ...rest }: InputProps) {
       {...rest}
       aria-invalid={invalid || undefined}
       className={cx(styles.control, invalid && styles.invalid, className)}
+    />
+  );
+}
+
+interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  invalid?: boolean;
+}
+
+/**
+ * El mismo control que Input, pero de varias líneas.
+ *
+ * Existe porque el visor de celda edita valores que no entran en una línea —un
+ * JSON, un texto largo—, que es justamente para lo que sirve abrir el visor en
+ * vez de escribir en la celda.
+ */
+export function Textarea({ invalid = false, className, ...rest }: TextareaProps) {
+  return (
+    <textarea
+      {...rest}
+      aria-invalid={invalid || undefined}
+      className={cx(styles.control, styles.area, invalid && styles.invalid, className)}
     />
   );
 }

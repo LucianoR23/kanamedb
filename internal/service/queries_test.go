@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
+	"github.com/LucianoR23/kanamedb/internal/export"
 	"github.com/LucianoR23/kanamedb/internal/postgres"
+	"github.com/LucianoR23/kanamedb/internal/query"
 
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
@@ -211,5 +213,53 @@ func TestProbarConTunelSinClaveAceptadaLoDice(t *testing.T) {
 	// El mensaje tiene que decir qué hacer, no solo qué pasó.
 	if !strings.Contains(res.Failure.Hint, "conectá") && !strings.Contains(res.Failure.Hint, "Revisá") {
 		t.Errorf("el fallo no dice qué hacer: %+v", res.Failure)
+	}
+}
+
+// TestLaFilaComoJSONSaleDelMismoEscritorQueLaExportacion.
+//
+// Si se armara aparte, el visor y el archivo dirían cosas distintas de la misma
+// fila —uno con el número entre comillas y el otro sin— y nadie sabría cuál
+// creer. Al usar el mismo escritor, coinciden por construcción.
+func TestLaFilaComoJSONSaleDelMismoEscritorQueLaExportacion(t *testing.T) {
+	q := NewQueries(NewSession(nil, nil, nil, nil))
+	cols := []query.Column{
+		{Name: "id", Class: query.ClassNumber},
+		{Name: "nombre", Class: query.ClassText},
+		{Name: "activo", Class: query.ClassBool},
+		{Name: "nada", Class: query.ClassText},
+	}
+	s := func(v string) *string { return &v }
+	fila := []*string{s("42"), s("Ana"), s("t"), nil}
+
+	got, err := q.RowJSON(cols, fila)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"id":42,"nombre":"Ana","activo":true,"nada":null}` + "\n"
+	if got != want {
+		t.Fatalf("RowJSON:\n%s\nquería:\n%s", got, want)
+	}
+
+	// Y es exactamente lo que escribe la exportación con esa misma fila.
+	deExport, err := export.Render(export.JSONL, export.Options{}, cols, [][]*string{fila}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Un numeric exacto sobrevive: indentar el JSON exigiría volver a parsearlo
+	// y 12.50 se volvería 12.5.
+	conNumeric, err := q.RowJSON(
+		[]query.Column{{Name: "monto", Class: query.ClassNumber}},
+		[]*string{s("12.50")},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conNumeric != `{"monto":12.50}`+"\n" {
+		t.Errorf("el numeric se cambió: %s", conNumeric)
+	}
+
+	if got != deExport {
+		t.Errorf("el visor dice:\n%s\ny la exportación:\n%s", got, deExport)
 	}
 }

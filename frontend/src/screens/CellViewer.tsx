@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Class } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
-import type { Column } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
-import { Badge, Button, Dialog } from "../components/ui";
+import type { Column, Items } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
+import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
+import { Badge, Button, Dialog, Textarea } from "../components/ui";
 import { cx } from "../lib/cx";
 import styles from "./CellViewer.module.css";
 
@@ -13,6 +14,18 @@ import styles from "./CellViewer.module.css";
  * deshabilitados y no ocultos, porque el diálogo se diseñó con ellos y sacarlos
  * dejaría un pie vacío.
  */
+/** Lo que hace falta para poder editar desde el visor. Sin esto, mira y nada
+ *  más: es lo que pasa con el resultado de una consulta. */
+export interface EdicionDeCelda {
+  /** El valor que quedaría, que puede no ser el leído si ya se editó. */
+  valor: string | null;
+  /** Ya hay una edición sin preparar sobre esta celda. */
+  editado: boolean;
+  onCambiar: (v: string | null) => void;
+  /** Volver al valor que trajo la base. */
+  onRevertir: () => void;
+}
+
 export function CellViewer({
   open,
   columns,
@@ -20,6 +33,8 @@ export function CellViewer({
   index,
   rowNumber,
   source,
+  modoInicial,
+  edicion,
   onIndexChange,
   onClose,
 }: {
@@ -30,17 +45,63 @@ export function CellViewer({
   rowNumber: number;
   /** Tabla o consulta de la que salió la fila, para el encabezado. */
   source: string;
+  /** Con qué modo abrir. «fila» es el ítem «Ver la fila como JSON». */
+  modoInicial?: "celda" | "fila";
+  /** Sin esto el visor es de solo lectura. */
+  edicion?: EdicionDeCelda;
   onIndexChange: (i: number) => void;
   onClose: () => void;
 }) {
   const [modo, setModo] = useState(0);
+  // Los elementos de un array los parte Go: el literal de Postgres tiene
+  // comas adentro de comillas y escapes, y partirlo acá sería lógica sin tests.
+  const [items, setItems] = useState<Items | null>(null);
+  const [borrador, setBorrador] = useState<string | null>(null);
+  const [fila, setFila] = useState<string | null>(null);
 
   const col = columns[index];
-  const valor = row[index] ?? null;
+  const valorLeido = row[index] ?? null;
+  const valor = edicion ? edicion.valor : valorLeido;
+
+  useEffect(() => {
+    // El borrador arranca en lo que hay cada vez que se cambia de celda.
+    setBorrador(null);
+  }, [index]);
+
+  useEffect(() => {
+    if (!open || col?.class !== Class.ClassArray || valor === null) {
+      setItems(null);
+      return;
+    }
+    let vivo = true;
+    void QueriesSvc.ArrayItems(valor).then((r) => {
+      if (vivo) setItems(r.ok ? r.items : null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [open, col?.class, valor]);
+
+  useEffect(() => {
+    if (!open) return;
+    let vivo = true;
+    void QueriesSvc.RowJSON([...columns], [...row])
+      .then((t) => {
+        if (vivo) setFila(t);
+      })
+      .catch(() => {
+        if (vivo) setFila(null);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [open, columns, row]);
+
   if (!col) return null;
 
-  const modos = modosDe(col.class, valor);
-  const activo = Math.min(modo, modos.length - 1);
+  const modos = modosDe(col.class, valor, items, fila, columns.length);
+  const inicial = modoInicial === "fila" ? modos.findIndex((m) => m.id === "fila") : 0;
+  const activo = Math.min(modo === 0 && inicial > 0 ? inicial : modo, modos.length - 1);
 
   return (
     <Dialog
@@ -49,18 +110,45 @@ export function CellViewer({
       size="xl"
       onClose={onClose}
       footer={
-        <>
-          <span className={styles.footHint}>
-            La edición de celdas llega con la grilla editable, en la Iteración 7.
-          </span>
-          <span className={styles.grow} />
-          <Button disabled title="Llega en la Iteración 7">
-            Revertir
-          </Button>
-          <Button variant="primary" disabled title="Llega en la Iteración 7">
-            Preparar cambio
-          </Button>
-        </>
+        edicion ? (
+          <>
+            <span className={styles.footHint}>
+              {borrador !== null
+                ? "Sin preparar todavía: «Usar este valor» lo lleva a la celda."
+                : edicion.editado
+                  ? "Esta celda ya tiene una edición sin preparar."
+                  : "Editá el valor acá cuando no entre en una celda de una línea."}
+            </span>
+            <span className={styles.grow} />
+            <Button
+              disabled={!edicion.editado && borrador === null}
+              onClick={() => {
+                setBorrador(null);
+                edicion.onRevertir();
+              }}
+            >
+              Volver al valor leído
+            </Button>
+            <Button
+              disabled={borrador === null || borrador === valor}
+              variant="primary"
+              onClick={() => {
+                if (borrador === null) return;
+                edicion.onCambiar(borrador);
+                setBorrador(null);
+              }}
+            >
+              Usar este valor
+            </Button>
+          </>
+        ) : (
+          <>
+            <span className={styles.footHint}>
+              El resultado de una consulta no se edita: puede venir de varias tablas.
+            </span>
+            <span className={styles.grow} />
+          </>
+        )
       }
     >
       <div className={styles.head}>
@@ -122,12 +210,31 @@ export function CellViewer({
             </button>
           </div>
 
-          <div className={styles.content}>{modos[activo]?.render() ?? null}</div>
+          <div className={styles.content}>
+            {/* El editor reemplaza al modo que muestra el valor tal cual —«Texto»
+                para lo común, «Crudo» para lo que tiene una vista formateada—.
+                En los demás modos se sigue mirando: editar un array por su
+                lista de elementos, o la fila entera, es otra cosa. */}
+            {edicion && esModoDeValor(modos[activo]?.id) ? (
+              <Textarea
+                className={styles.editor}
+                value={borrador ?? valor ?? ""}
+                aria-label="Valor de la celda"
+                spellCheck={false}
+                onChange={(e) => setBorrador(e.target.value)}
+              />
+            ) : (
+              (modos[activo]?.render() ?? null)
+            )}
+          </div>
         </section>
       </div>
     </Dialog>
   );
 }
+
+/** Los modos que muestran el valor tal cual, que son los que se pueden editar. */
+const esModoDeValor = (id: string | undefined) => id === "text" || id === "raw";
 
 const TAG: Record<string, string> = {
   [Class.ClassNumber]: "NUM",
@@ -157,7 +264,28 @@ interface Modo {
  * Iteración 7 necesite editarlo elemento por elemento, y ahí el parseo va en Go
  * con sus pruebas. Mostrar el literal es correcto; mostrarlo mal partido, no.
  */
-function modosDe(clase: string, valor: string | null): Modo[] {
+function modosDe(
+  clase: string,
+  valor: string | null,
+  items: Items | null,
+  fila: string | null,
+  columnas: number,
+): Modo[] {
+  const modoFila: Modo[] =
+    fila === null || columnas < 2
+      ? []
+      : [
+          {
+            id: "fila",
+            label: "La fila",
+            meta: `${columnas} columnas · JSON`,
+            render: () => <pre className={styles.pre}>{fila}</pre>,
+          },
+        ];
+  return [...modosDeCelda(clase, valor, items), ...modoFila];
+}
+
+function modosDeCelda(clase: string, valor: string | null, items: Items | null): Modo[] {
   if (valor === null) {
     return [
       {
@@ -202,6 +330,35 @@ function modosDe(clase: string, valor: string | null): Modo[] {
         label: "Formateado",
         meta: `${formateado.split("\n").length} líneas · JSON válido`,
         render: () => <pre className={styles.pre}>{formateado}</pre>,
+      },
+      crudo,
+    ];
+  }
+
+  if (clase === Class.ClassArray && items !== null) {
+    const n = items.values?.length ?? 0;
+    return [
+      {
+        id: "items",
+        label: "Elementos",
+        meta: `${n} ${n === 1 ? "elemento" : "elementos"}`,
+        render: () => (
+          <ol className={styles.items}>
+            {(items.values ?? []).map((v, i) => (
+              <li key={i} className={styles.item}>
+                <span className={styles.itemNo}>{i + 1}</span>
+                {items.nulls?.[i] ? (
+                  <span className={styles.itemNull}>[null]</span>
+                ) : v === "" ? (
+                  <span className={styles.itemVacio}>cadena vacía</span>
+                ) : (
+                  <span className={styles.itemValor}>{v}</span>
+                )}
+              </li>
+            ))}
+            {n === 0 ? <li className={styles.itemVacio}>el array está vacío</li> : null}
+          </ol>
+        ),
       },
       crudo,
     ];
