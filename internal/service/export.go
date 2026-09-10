@@ -152,6 +152,10 @@ type TableExport struct {
 	// entre dos corridas.
 	OrderBy    []string `json:"orderBy"`
 	Descending bool     `json:"descending"`
+
+	// Where es el filtro que está puesto en la grilla. Exportar «lo que estoy
+	// mirando» es exportar la tabla con el mismo filtro, y sin límite.
+	Where []query.Condition `json:"where"`
 }
 
 // PreviewTable devuelve el texto de las primeras filas de una tabla.
@@ -194,6 +198,7 @@ func (e *Exports) volcar(
 	flujo, err := sesion.db.Scan(ctx, r.Schema, r.Table, engine.ScanOptions{
 		OrderBy:    r.OrderBy,
 		Descending: r.Descending,
+		Where:      r.Where,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("leer %s: %w", nombreDeTabla(r.Schema, r.Table), err)

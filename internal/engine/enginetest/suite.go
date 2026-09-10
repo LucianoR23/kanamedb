@@ -55,6 +55,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("consultas", func(t *testing.T) { consultas(t, f) })
 	t.Run("pagina y cuenta", func(t *testing.T) { pagina(t, f) })
 	t.Run("recorre la tabla entera", func(t *testing.T) { recorrido(t, f) })
+	t.Run("filtra por columna", func(t *testing.T) { filtros(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
@@ -218,7 +219,7 @@ func pagina(t *testing.T, f Fixture) {
 			califica(c, esq, tabla), i, i))
 	}
 
-	n, fail := c.Count(ctx, esq, tabla)
+	n, fail := c.Count(ctx, esq, tabla, nil)
 	if fail != nil {
 		t.Fatalf("Count(): %s", fail.Message)
 	}
@@ -283,6 +284,162 @@ func pagina(t *testing.T, f Fixture) {
 	if len(pks) != 1 || pks[0] != "id" {
 		t.Errorf("PrimaryKeyColumns() = %v, se esperaba [id]", pks)
 	}
+}
+
+// filtros comprueba que las condiciones de la grilla den lo mismo en los cuatro
+// motores, en las tres puertas por donde se leen datos: Page, Count y Scan.
+//
+// Lo que importa no es que «anden» sino tres cosas concretas: que un comodín
+// tecleado a mano NO sea un comodín, que «no es igual a» incluya las filas sin
+// valor —que es lo que quiso decir quien filtró— y que el conteo cuente lo
+// filtrado y no la tabla.
+func filtros(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_filtro")
+	ctx := context.Background()
+	nom := califica(c, esq, tabla)
+
+	// Un nombre con un porcentaje y otro con un guion bajo, que son los dos
+	// comodines de LIKE, y una fila con NULL.
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (1, 'ana')", nom))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (2, 'banana')", nom))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (3, '50%%')", nom))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (4, '5000')", nom))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (5, 'a_b')", nom))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (6, 'axb')", nom))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (7, NULL)", nom))
+
+	casos := []struct {
+		nombre string
+		cond   query.Condition
+		ids    []string
+	}{
+		{"igual", query.Condition{Column: "nombre", Operator: query.OpEq, Values: unos("ana")}, []string{"1"}},
+		{
+			// «no es igual a» tiene que traer también la fila sin valor: con un
+			// `<> 'ana'` a secas, la 7 no aparece y quien filtró no entiende
+			// por qué le falta una fila.
+			"distinto trae los nulos",
+			query.Condition{Column: "nombre", Operator: query.OpNe, Values: unos("ana")},
+			[]string{"2", "3", "4", "5", "6", "7"},
+		},
+		{"contiene", query.Condition{Column: "nombre", Operator: query.OpContains, Values: unos("nan")}, []string{"2"}},
+		{"empieza con", query.Condition{Column: "nombre", Operator: query.OpStartsWith, Values: unos("a")}, []string{"1", "5", "6"}},
+		{"termina con", query.Condition{Column: "nombre", Operator: query.OpEndsWith, Values: unos("na")}, []string{"1", "2"}},
+		{
+			// Lo importante del caso: «50%» trae la fila que DICE 50%, no la
+			// que empieza con 50. Sin escapar, traería las dos.
+			"un porcentaje es un porcentaje",
+			query.Condition{Column: "nombre", Operator: query.OpContains, Values: unos("50%")},
+			[]string{"3"},
+		},
+		{
+			"un guion bajo es un guion bajo",
+			query.Condition{Column: "nombre", Operator: query.OpContains, Values: unos("a_b")},
+			[]string{"5"},
+		},
+		{"es nulo", query.Condition{Column: "nombre", Operator: query.OpIsNull}, []string{"7"}},
+		{"no es nulo", query.Condition{Column: "nombre", Operator: query.OpIsNotNull}, []string{"1", "2", "3", "4", "5", "6"}},
+		{"en la lista", query.Condition{Column: "id", Operator: query.OpIn, Values: unos("1", "3")}, []string{"1", "3"}},
+		{"entre", query.Condition{Column: "id", Operator: query.OpBetween, Values: unos("2", "4")}, []string{"2", "3", "4"}},
+		{"mayor", query.Condition{Column: "id", Operator: query.OpGt, Values: unos("5")}, []string{"6", "7"}},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			where := []query.Condition{caso.cond}
+			r, fail := c.Page(ctx, esq, tabla, engine.PageOptions{
+				OrderBy: []string{"id"}, Where: where,
+			})
+			if fail != nil {
+				t.Fatalf("Page() con filtro: %s", fail.Message)
+			}
+			if got := idsDe(r); !mismosIDs(got, caso.ids) {
+				t.Errorf("Page() dio %v y se esperaba %v", got, caso.ids)
+			}
+			// El conteo cuenta lo FILTRADO: es el número que la grilla muestra
+			// al lado de «de N filas», y si contara la tabla entera diría que
+			// faltan filas por cargar que no existen.
+			n, fail := c.Count(ctx, esq, tabla, where)
+			if fail != nil {
+				t.Fatalf("Count() con filtro: %s", fail.Message)
+			}
+			if int(n) != len(caso.ids) {
+				t.Errorf("Count() con filtro dio %d y se esperaba %d", n, len(caso.ids))
+			}
+			// Y el recorrido de la exportación ve exactamente lo mismo: exportar
+			// «lo que estoy mirando» tiene que dar lo que se está mirando.
+			st, err := c.Scan(ctx, esq, tabla, engine.ScanOptions{OrderBy: []string{"id"}, Where: where})
+			if err != nil {
+				t.Fatalf("Scan() con filtro: %v", err)
+			}
+			defer st.Close()
+			var delRecorrido []string
+			for st.Next() {
+				delRecorrido = append(delRecorrido, *st.Row()[0])
+			}
+			if err := st.Err(); err != nil {
+				t.Fatalf("Err(): %v", err)
+			}
+			if !mismosIDs(delRecorrido, caso.ids) {
+				t.Errorf("Scan() dio %v y se esperaba %v", delRecorrido, caso.ids)
+			}
+		})
+	}
+
+	// Varias condiciones se combinan con AND.
+	r, fail := c.Page(ctx, esq, tabla, engine.PageOptions{
+		OrderBy: []string{"id"},
+		Where: []query.Condition{
+			{Column: "nombre", Operator: query.OpStartsWith, Values: unos("a")},
+			{Column: "id", Operator: query.OpGte, Values: unos("5")},
+		},
+	})
+	if fail != nil {
+		t.Fatalf("Page() con dos condiciones: %s", fail.Message)
+	}
+	if got := idsDe(r); !mismosIDs(got, []string{"5", "6"}) {
+		t.Errorf("dos condiciones dieron %v y se esperaba [5 6]", got)
+	}
+
+	// Un filtro que no se puede aplicar no llega al motor: se rechaza antes.
+	if _, fail := c.Page(ctx, esq, tabla, engine.PageOptions{
+		Where: []query.Condition{{Column: "id", Operator: "regex", Values: unos("x")}},
+	}); fail == nil {
+		t.Error("se aceptó un operador de filtro que no existe")
+	}
+}
+
+// unos arma la lista de valores de una condición.
+func unos(vs ...string) []*string {
+	out := make([]*string, len(vs))
+	for i := range vs {
+		v := vs[i]
+		out[i] = &v
+	}
+	return out
+}
+
+// idsDe devuelve la primera columna de cada fila.
+func idsDe(r *query.Result) []string {
+	out := make([]string, 0, len(r.Rows))
+	for i := range r.Rows {
+		out = append(out, celda(r, i, 0))
+	}
+	return out
+}
+
+func mismosIDs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // recorrido comprueba Scan, que es lo que usa la exportación: la tabla entera,
@@ -402,7 +559,7 @@ func recorrido(t *testing.T, f Fixture) {
 	// Y la conexión sigue sirviendo después de cortar a la mitad: si el
 	// recorrido dejara la conexión con filas pendientes, la lectura siguiente
 	// leería las de la anterior.
-	if _, fail := c.Count(ctx, esq, tabla); fail != nil {
+	if _, fail := c.Count(ctx, esq, tabla, nil); fail != nil {
 		t.Errorf("después de cortar un recorrido, Count() falla: %s", fail.Message)
 	}
 }
@@ -692,7 +849,7 @@ func filasSobreviven(t *testing.T, f Fixture) {
 			t.Fatalf("aplicar %s:\n%s\n%v", ch.Type, st.SQL, err)
 		}
 
-		n, fail := c.Count(ctx, esq, hija)
+		n, fail := c.Count(ctx, esq, hija, nil)
 		if fail != nil {
 			t.Fatalf("Count() sobre la hija: %s", fail.Message)
 		}
@@ -701,7 +858,7 @@ func filasSobreviven(t *testing.T, f Fixture) {
 				"filas de 2. Un cambio de esquema borró datos de otra tabla, y sin "+
 				"un solo error.\nSQL:\n%s", ch.Type, padre, n, st.SQL)
 		}
-		if n, fail := c.Count(ctx, esq, padre); fail != nil || n != 2 {
+		if n, fail := c.Count(ctx, esq, padre, nil); fail != nil || n != 2 {
 			t.Fatalf("la tabla que se modificó quedó con %d filas de 2", n)
 		}
 	}

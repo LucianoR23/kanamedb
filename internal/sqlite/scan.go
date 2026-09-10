@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
@@ -21,6 +22,13 @@ func scan(
 	var b strings.Builder
 	b.WriteString("SELECT * FROM ")
 	b.WriteString(QuoteIdent(tabla))
+	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
+	if err != nil {
+		return nil, err
+	}
+	if filtro != "" {
+		b.WriteString(" WHERE " + filtro)
+	}
 	if len(opts.OrderBy) > 0 {
 		b.WriteString(" ORDER BY ")
 		for i, col := range opts.OrderBy {
@@ -34,7 +42,7 @@ func scan(
 		}
 	}
 
-	rows, err := db.QueryContext(ctx, b.String())
+	rows, err := db.QueryContext(ctx, b.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("leer %s: %w", tabla, err)
 	}

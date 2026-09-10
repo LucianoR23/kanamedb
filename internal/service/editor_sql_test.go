@@ -92,7 +92,7 @@ func TestVariasSentenciasCorrenYSeVenLasCuatro(t *testing.T) {
 				t.Fatalf("falló: %s — %s", mensajeDe(res), detalleDe(res))
 			}
 
-			filas, fail := abierta.db.Count(ctx, esq, "kn_multi")
+			filas, fail := abierta.db.Count(ctx, esq, "kn_multi", nil)
 			if fail != nil {
 				t.Fatalf("Count(): %s", fail.Message)
 			}
@@ -166,7 +166,7 @@ func TestLaSentenciaQueFallaSeUbica(t *testing.T) {
 			if res.Batch == nil || len(res.Batch.Results) != 1 {
 				t.Errorf("no viajó el resultado de la que sí corrió")
 			}
-			filas, fail := abierta.db.Count(ctx, esq, "kn_falla")
+			filas, fail := abierta.db.Count(ctx, esq, "kn_falla", nil)
 			if fail != nil {
 				t.Fatalf("Count(): %s", fail.Message)
 			}

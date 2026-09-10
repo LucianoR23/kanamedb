@@ -72,6 +72,11 @@ type TableDataRequest struct {
 	OrderBy    []string `json:"orderBy"`
 	Descending bool     `json:"descending"`
 
+	// Where son las condiciones del filtro de la grilla. Los valores viajan
+	// como parámetros: en la consulta que se ejecuta solo entra el nombre de
+	// la columna, citado por el motor.
+	Where []query.Condition `json:"where"`
+
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 }
@@ -169,6 +174,7 @@ func (q *Queries) TableData(ctx context.Context, req TableDataRequest) TableData
 		Descending: req.Descending,
 		Limit:      limite,
 		Offset:     req.Offset,
+		Where:      req.Where,
 	})
 	if f != nil {
 		return TableDataResult{Failure: q.porElTunel(f)}
@@ -187,7 +193,9 @@ type CountResult struct {
 //
 // Va aparte de TableData a propósito: en una tabla grande el conteo recorre
 // todo, y la grilla tiene que poder mostrar las primeras filas sin esperarlo.
-func (q *Queries) TableCount(ctx context.Context, runID, schema, table string) CountResult {
+func (q *Queries) TableCount(
+	ctx context.Context, runID, schema, table string, where []query.Condition,
+) CountResult {
 	sesion, err := q.session.abierta()
 	if err != nil {
 		return CountResult{Failure: &engine.Failure{
@@ -199,11 +207,22 @@ func (q *Queries) TableCount(ctx context.Context, runID, schema, table string) C
 	ctx, listo := q.registrar(ctx, runID)
 	defer listo()
 
-	n, f := sesion.db.Count(ctx, schema, table)
+	n, f := sesion.db.Count(ctx, schema, table, where)
 	if f != nil {
 		return CountResult{Failure: q.porElTunel(f)}
 	}
 	return CountResult{OK: true, Count: n}
+}
+
+// Operators son los operadores de filtro que la interfaz puede ofrecer, con su
+// nombre y cuántos valores pide cada uno.
+//
+// Sale de Go y no de una lista escrita en el frontend porque «qué operadores
+// hay» y «cuántos valores pide cada uno» ya están decididos acá: una segunda
+// copia se desincroniza en cuanto se agregue uno, y la que se olvide va a ser
+// la que alguien use.
+func (q *Queries) Operators() []query.OperatorInfo {
+	return append([]query.OperatorInfo(nil), query.Operators...)
 }
 
 // Cancel corta la ejecución con ese identificador.

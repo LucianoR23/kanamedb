@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
@@ -146,6 +147,13 @@ func page(
 ) (*query.Result, *engine.Failure) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "SELECT * FROM %s", QualifiedName(base, tabla))
+	filtro, args, err := dml.Where(opts.Where, dialectoDML(QuoteString), 0)
+	if err != nil {
+		return nil, &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
+	}
+	if filtro != "" {
+		b.WriteString(" WHERE " + filtro)
+	}
 	if len(opts.OrderBy) > 0 {
 		// El DESC va pegado a CADA columna, no una sola vez al final. `ORDER BY
 		// a, b DESC` ordena por `a` ASCENDENTE y solo desempata por `b` al
@@ -174,7 +182,7 @@ func page(
 		fmt.Fprintf(&b, " OFFSET %d", opts.Offset)
 	}
 
-	rows, err := db.QueryContext(ctx, b.String())
+	rows, err := db.QueryContext(ctx, b.String(), args...)
 	if err != nil {
 		return nil, ClassifyStatement(err, "")
 	}
@@ -189,10 +197,19 @@ func page(
 
 // count cuenta las filas, exacto. Recorre la tabla entera: es a propósito, y
 // por eso va aparte de la estimación que muestra el árbol.
-func count(ctx context.Context, db *sql.DB, base, tabla string) (int64, *engine.Failure) {
-	var n int64
+func count(
+	ctx context.Context, db *sql.DB, base, tabla string, where []query.Condition,
+) (int64, *engine.Failure) {
 	q := fmt.Sprintf("SELECT COUNT(*) FROM %s", QualifiedName(base, tabla))
-	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+	filtro, args, err := dml.Where(where, dialectoDML(QuoteString), 0)
+	if err != nil {
+		return 0, &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
+	}
+	if filtro != "" {
+		q += " WHERE " + filtro
+	}
+	var n int64
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
 		return 0, ClassifyStatement(err, "")
 	}
 	return n, nil

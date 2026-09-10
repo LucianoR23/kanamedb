@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
@@ -209,6 +210,13 @@ func page(
 ) (*query.Result, *engine.Failure) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "SELECT * FROM %s", QuoteIdent(tabla))
+	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
+	if err != nil {
+		return nil, &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
+	}
+	if filtro != "" {
+		b.WriteString(" WHERE " + filtro)
+	}
 	if len(opts.OrderBy) > 0 {
 		b.WriteString(" ORDER BY " + ordenDe(opts))
 	}
@@ -223,7 +231,7 @@ func page(
 		fmt.Fprintf(&b, " OFFSET %d", opts.Offset)
 	}
 
-	rows, err := db.QueryContext(ctx, b.String())
+	rows, err := db.QueryContext(ctx, b.String(), args...)
 	if err != nil {
 		return nil, ClassifyStatement(err, "")
 	}
@@ -237,10 +245,19 @@ func page(
 }
 
 // count cuenta las filas, exacto. Recorre la tabla entera: es a propósito.
-func count(ctx context.Context, db *sql.DB, tabla string) (int64, *engine.Failure) {
-	var n int64
+func count(
+	ctx context.Context, db *sql.DB, tabla string, where []query.Condition,
+) (int64, *engine.Failure) {
 	q := fmt.Sprintf("SELECT COUNT(*) FROM %s", QuoteIdent(tabla))
-	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+	filtro, args, err := dml.Where(where, dialectoDML, 0)
+	if err != nil {
+		return 0, &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
+	}
+	if filtro != "" {
+		q += " WHERE " + filtro
+	}
+	var n int64
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
 		return 0, ClassifyStatement(err, "")
 	}
 	return n, nil

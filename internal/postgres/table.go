@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
@@ -19,6 +20,9 @@ type TableDataOptions struct {
 
 	Limit  int
 	Offset int
+
+	// Where son las condiciones del filtro. Los valores van como parámetros.
+	Where []query.Condition
 }
 
 // TableData lee una página de una tabla.
@@ -34,6 +38,18 @@ func TableData(ctx context.Context, pool *pgxpool.Pool, schema, table string, op
 	var b strings.Builder
 	b.WriteString("select * from ")
 	b.WriteString(QualifiedName(schema, table))
+
+	// El filtro se arma con los valores APARTE y se ejecuta con parámetros, así
+	// que esta lectura ya no puede ir por Run —que manda el texto solo—: va por
+	// pool.Query, que sí los lleva. Sin filtro se sigue usando Run, que es el
+	// camino del protocolo simple y devuelve el texto del servidor.
+	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
+	if err != nil {
+		return nil, &Failure{Kind: FailureOther, Message: err.Error()}
+	}
+	if filtro != "" {
+		b.WriteString(" where " + filtro)
+	}
 
 	if len(opts.OrderBy) > 0 {
 		// El `desc` va pegado a CADA columna, no una sola vez al final.
@@ -63,22 +79,24 @@ func TableData(ctx context.Context, pool *pgxpool.Pool, schema, table string, op
 		fmt.Fprintf(&b, " offset %d", opts.Offset)
 	}
 
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, Classify(err, "la lectura de "+schema+"."+table)
+	}
+	defer conn.Release()
+
 	// RowLimit negativo: el LIMIT de la consulta ya acota, y un segundo corte
 	// del lado del cliente solo podría marcar Truncated de más.
-	lote, f := Run(ctx, pool, b.String(), RunOptions{RowLimit: Unlimited})
+	res, oids, f := leerConParams(ctx, conn.Conn().PgConn(), conn.Conn(), b.String(), args, Unlimited)
 	if f != nil {
 		return nil, f
 	}
-	// Es una sola sentencia, así que hay exactamente un resultado. Se
-	// desenvuelve acá para que quien lee una tabla no tenga que pensar en lotes.
-	if len(lote.Results) != 1 {
-		return nil, &Failure{
-			Kind:    FailureOther,
-			Message: fmt.Sprintf("La lectura de la tabla devolvió %d resultados y se esperaba uno.", len(lote.Results)),
-		}
+	// Los tipos que pgx no conoce —enums, dominios— se resuelven contra el
+	// catálogo. La conexión ya está libre: el lector se cerró adentro.
+	if err := resolverTiposDesconocidos(ctx, conn, res, oids); err != nil {
+		return nil, Classify(err, "los tipos del resultado")
 	}
-	res := lote.Results[0]
-	return &res, nil
+	return res, nil
 }
 
 // Unlimited desactiva el corte de lectura de Run.
@@ -90,10 +108,19 @@ const Unlimited = -1
 // aparte y no junto con los datos: la grilla tiene que poder mostrar las
 // primeras filas sin esperar a que termine de contar. El árbol, en cambio, usa
 // la estimación del planificador, que es gratis.
-func TableCount(ctx context.Context, pool *pgxpool.Pool, schema, table string) (int64, *Failure) {
-	var n int64
+func TableCount(
+	ctx context.Context, pool *pgxpool.Pool, schema, table string, where []query.Condition,
+) (int64, *Failure) {
 	sql := "select count(*) from " + QualifiedName(schema, table)
-	if err := pool.QueryRow(ctx, sql).Scan(&n); err != nil {
+	filtro, args, err := dml.Where(where, dialectoDML, 0)
+	if err != nil {
+		return 0, &Failure{Kind: FailureOther, Message: err.Error()}
+	}
+	if filtro != "" {
+		sql += " where " + filtro
+	}
+	var n int64
+	if err := pool.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
 		return 0, Classify(err, "el conteo de "+schema+"."+table)
 	}
 	return n, nil

@@ -344,9 +344,13 @@ lo que entra y sale de la grilla.
   cambio» del pie, que siguen deshabilitados con «Llega en la Iteración 7».
   Ahora que la grilla tiene estado de edición, el visor es la forma de editar
   un valor largo —un JSON, un texto— sin hacerlo en una celda de una línea.
-- ⏳ **Filtros por columna en la grilla** — un constructor de `WHERE` sobre la
-  tabla que se está mirando, que hoy obliga a irse al editor SQL. Va acá porque
-  comparte pantalla y modelo con la edición de celdas.
+- ✅ **Filtros por columna en la grilla** — un constructor de `WHERE` en la
+  misma pestaña donde se mira la tabla: columna, operador y valor, y varias
+  condiciones combinadas con Y. Catorce operadores que se escriben igual en los
+  cuatro motores. Los valores viajan como parámetros. El filtro alcanza a la
+  lectura, al conteo y a la exportación, así que «exportar lo que estoy
+  mirando» exporta lo que se está mirando. Probado a mano en los cuatro motores
+  el 2026-09-10.
 - ⏳ **Volcado del esquema, de los datos, o los dos.** Ver abajo: es la mitad de
   lo que la gente llama «backup», y la mitad que sí podemos hacer bien.
 
@@ -1071,6 +1075,46 @@ después falla: lo escrito queda con el array de JSON **abierto**, no cerrado
 como si estuviera entero. La primera inyección que escribí no ponía nada en
 rojo —el test cancelaba antes de que el recorrido arrancara— y eso era
 justamente un test que no podía fallar.
+
+**Los filtros: catorce operadores, y ninguno que no sepan los cuatro motores.**
+`ILIKE` es de Postgres y las expresiones regulares las escribe cada uno a su
+manera: ofrecer algo que falle en tres de cuatro es peor que no ofrecerlo. Lo
+que hay son las comparaciones (`=`, `<>`, `<`, `<=`, `>`, `>=`), tres de texto
+—contiene, empieza con, termina con—, nulo y no nulo, en la lista y no en la
+lista, y entre. Se combinan **solo con Y**: mezclar Y con O necesita paréntesis,
+y unos paréntesis que no se ven en la pantalla son una consulta que quien la
+escribió no puede leer. Para eso está el editor SQL, al lado.
+
+Tres decisiones que no se deducen del código:
+
+- **Un comodín tecleado a mano no es un comodín.** Los tres operadores de texto
+  se escriben con `LIKE`, y el patrón lo arma el renderizador escapando lo que
+  la persona escribió: buscar «50%» busca «50%», no «todo lo que empieza con
+  50». El carácter de escape es `!` y no `\`, que es lo que uno elegiría
+  primero: la barra invertida es el escape por defecto de `LIKE` en Postgres y
+  en MySQL, pero además es un escape de CADENA en MySQL salvo con
+  `NO_BACKSLASH_ESCAPES`, así que `ESCAPE '\'` dependería de una variable del
+  servidor. `!` no significa nada en ninguno de los cuatro.
+- **«No es igual a» incluye las filas sin valor.** `<> 'ana'` deja afuera los
+  NULL, que es lo que dice el estándar y lo que casi nadie espera: «no es igual
+  a ana» sin la fila que no tiene nombre parece que faltan filas. Se emite
+  `(col <> $1 OR col IS NULL)`.
+- **El conteo de la tabla y el de lo filtrado son dos números distintos.** Se
+  vio en la prueba: al usar uno solo, el encabezado pasó a decir «1 filas» de
+  una tabla de 8 porque había un filtro puesto. El encabezado dice qué tan
+  grande es la tabla y no puede encogerse porque alguien filtró; el contador de
+  la barra dice cuántas pasan, y lo aclara con «filtradas».
+
+**Y dos cosas que salieron de mirar la pantalla, no el código.** El constructor
+no entra en la barra de arriba: las pestañas de estructura ya se comen el ancho
+y quedaba en 53 píxeles, así que tiene su propia fila sobre la grilla, que es
+donde el diseño de S07 lo pone. Y el `Combobox` necesitó dos cosas nuevas, que
+se agregaron al componente en vez de resolverse en la pantalla: `label`, para
+mostrar «es igual a» cuando el valor guardado es `eq` —un desplegable que diga
+`eq` no le sirve a nadie—, y `estricto`, para las listas CERRADAS. Sin lo
+segundo, teclear «contiene» en vez de elegirlo mandaba `contiene` al motor y
+volvía con «operador de filtro desconocido». Fallaba bien, y esa parte está
+bien; ofrecer un campo libre donde no lo hay es lo que estaba mal.
 
 **Del `/code-review high` de la tabla en streaming, siete hallazgos, los siete
 arreglados. Cuatro son de unidades anteriores.** Tres merecen quedar escritos

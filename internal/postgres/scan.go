@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
@@ -34,6 +35,13 @@ func Scan(
 	var b strings.Builder
 	b.WriteString("select * from ")
 	b.WriteString(QualifiedName(esquema, tabla))
+	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
+	if err != nil {
+		return nil, err
+	}
+	if filtro != "" {
+		b.WriteString(" where " + filtro)
+	}
 	if len(opts.OrderBy) > 0 {
 		// El `desc` va pegado a CADA columna, como en TableData: `order by a, b
 		// desc` ordena por `a` ascendente y solo desempata al revés.
@@ -69,24 +77,16 @@ func Scan(
 	//
 	// Con `limit 0` la consulta vuelve enseguida, se cierra, y recién entonces
 	// arranca el recorrido sobre la misma conexión.
-	columnas, err := columnasDe(ctx, conn, b.String())
+	columnas, err := columnasDe(ctx, conn, b.String(), args)
 	if err != nil {
 		conn.Release()
 		return nil, fmt.Errorf("leer las columnas de %s.%s: %w", esquema, tabla, err)
 	}
 
-	mrr := conn.Conn().PgConn().Exec(ctx, b.String())
-	if !mrr.NextResult() {
-		// Sin resultado hay error: es una sola sentencia y siempre devuelve uno.
-		err := mrr.Close()
-		conn.Release()
-		if err == nil {
-			err = fmt.Errorf("la lectura de %s.%s no devolvió ningún resultado", esquema, tabla)
-		}
-		return nil, fmt.Errorf("leer %s.%s: %w", esquema, tabla, err)
-	}
-
-	return &flujo{mrr: mrr, rr: mrr.ResultReader(), soltar: conn.Release, columnas: columnas}, nil
+	// ExecParams y no Exec: lleva los parámetros del filtro Y pide el resultado
+	// en TEXTO —resultFormats nil—, que es la garantía que no se puede perder.
+	rr := ejecutarConParams(ctx, conn.Conn().PgConn(), b.String(), args)
+	return &flujo{rr: rr, soltar: conn.Release, columnas: columnas}, nil
 }
 
 // columnasDe averigua las columnas del recorrido sin traer ninguna fila.
@@ -95,8 +95,8 @@ func Scan(
 // que estar antes de la primera fila. Un enum llega sin nombre de tipo y se
 // resuelve contra el catálogo, igual que en una consulta del editor —y sobre
 // esta misma conexión, que en este momento está libre—.
-func columnasDe(ctx context.Context, conn *pgxpool.Conn, sql string) ([]query.Column, error) {
-	rows, err := conn.Query(ctx, sql+" limit 0")
+func columnasDe(ctx context.Context, conn *pgxpool.Conn, sql string, args []any) ([]query.Column, error) {
+	rows, err := conn.Query(ctx, sql+" limit 0", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +119,8 @@ func columnasDe(ctx context.Context, conn *pgxpool.Conn, sql string) ([]query.Co
 	return res.Columns, nil
 }
 
-// flujo adapta el lector del protocolo simple a engine.RowStream.
+// flujo adapta el lector de pgconn a engine.RowStream.
 type flujo struct {
-	mrr      *pgconn.MultiResultReader
 	rr       *pgconn.ResultReader
 	soltar   func()
 	columnas []query.Column
@@ -175,9 +174,6 @@ func (f *flujo) terminar() {
 	}
 	f.cerrado = true
 	if _, err := f.rr.Close(); err != nil && f.err == nil {
-		f.err = err
-	}
-	if err := f.mrr.Close(); err != nil && f.err == nil {
 		f.err = err
 	}
 	f.soltar()

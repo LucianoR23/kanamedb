@@ -210,7 +210,7 @@ func TestElEnsayoEncuentraLoQueLaVistaPreviaNoPuede(t *testing.T) {
 
 			// Y la fila sigue ahí. Un ensayo que arregla los datos para poder
 			// pasar sería mucho peor que uno que falla.
-			n, fail := abierta.db.Count(ctx, esq, "kn_dry_nulos")
+			n, fail := abierta.db.Count(ctx, esq, "kn_dry_nulos", nil)
 			if fail != nil {
 				t.Fatalf("Count(): %s", fail.Message)
 			}
@@ -333,7 +333,7 @@ func TestElEnsayoEnSQLiteVeLoQueSoloSeSabeAlCerrar(t *testing.T) {
 
 	// Y las filas siguen las dos ahí: la reconstrucción se revirtió entera.
 	for _, tb := range []string{"kn_dry_padre", "kn_dry_hija"} {
-		n, fail := abierta.db.Count(ctx, esq, tb)
+		n, fail := abierta.db.Count(ctx, esq, tb, nil)
 		if fail != nil {
 			t.Fatalf("Count(%s): %s", tb, fail.Message)
 		}

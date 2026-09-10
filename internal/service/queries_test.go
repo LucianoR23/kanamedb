@@ -157,7 +157,7 @@ func TestTableCountEsExactoDesdeElServicio(t *testing.T) {
 	crear(t, q, `create table `+esquema+`.t (id int)`)
 	crear(t, q, `insert into `+esquema+`.t select generate_series(1, 41)`)
 
-	res := q.TableCount(context.Background(), "c1", esquema, "t")
+	res := q.TableCount(context.Background(), "c1", esquema, "t", nil)
 	if !res.OK {
 		t.Fatalf("TableCount falló: %+v", res.Failure)
 	}

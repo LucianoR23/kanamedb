@@ -174,8 +174,10 @@ func (c *Conn) Page(
 	return page(ctx, c.db, c.base(esquema), tabla, opts)
 }
 
-func (c *Conn) Count(ctx context.Context, esquema, tabla string) (int64, *engine.Failure) {
-	return count(ctx, c.db, c.base(esquema), tabla)
+func (c *Conn) Count(
+	ctx context.Context, esquema, tabla string, where []query.Condition,
+) (int64, *engine.Failure) {
+	return count(ctx, c.db, c.base(esquema), tabla, where)
 }
 
 func (c *Conn) Scan(

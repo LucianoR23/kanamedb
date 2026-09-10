@@ -106,7 +106,7 @@ func TestExportarUnaTablaEnteraEnLosCuatroMotores(t *testing.T) {
 
 			// Cortar el recorrido a la mitad no puede dejar la conexión
 			// inservible: es lo que pasa cada vez que se mira una vista previa.
-			if _, fail := abierta.db.Count(ctx, esq, tabla); fail != nil {
+			if _, fail := abierta.db.Count(ctx, esq, tabla, nil); fail != nil {
 				t.Errorf("después de la vista previa, Count() falla: %s", fail.Message)
 			}
 		})

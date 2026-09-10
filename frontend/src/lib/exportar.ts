@@ -65,6 +65,7 @@ export function opcionesPorDefecto(): Options {
     quoteAll: false,
     bom: false,
     gzip: false,
+    neutralizeFormulas: false,
   };
 }
 

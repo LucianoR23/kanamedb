@@ -104,7 +104,7 @@ func TestTableCountEsExacto(t *testing.T) {
 	ejecutar(t, pool, fmt.Sprintf(`create table %s.t (id int)`, esquema))
 	ejecutar(t, pool, fmt.Sprintf(`insert into %s.t select generate_series(1, 137)`, esquema))
 
-	n, f := TableCount(context.Background(), pool, esquema, "t")
+	n, f := TableCount(context.Background(), pool, esquema, "t", nil)
 	if f != nil {
 		t.Fatalf("TableCount() falló: %s", f.Message)
 	}

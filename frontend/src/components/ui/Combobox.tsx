@@ -5,8 +5,16 @@ import { cx } from "../../lib/cx";
 import styles from "./Combobox.module.css";
 
 export interface ComboOption {
-  /** Lo que se guarda y lo que se muestra. */
+  /** Lo que se guarda, y lo que se muestra si no hay `label`. */
   value: string;
+  /** Qué mostrar en vez del valor.
+   *
+   *  Existe para las listas donde el valor es un código y no una palabra: el
+   *  operador de un filtro se guarda como `eq` y se lee «es igual a», y un
+   *  desplegable que dijera `eq` no le sirve a nadie. Cuando no está, el valor
+   *  se muestra tal cual, que es lo que quieren las listas de columnas y de
+   *  tipos. */
+  label?: string;
   /** Etiqueta chica a la derecha: "enum", "de esta base". */
   tag?: string;
   /** Explicación al pasar por encima. */
@@ -39,13 +47,23 @@ const SEPARACION = 3;
  * y aparece una segunda barra de desplazamiento. El portal la saca de ese
  * contenedor: flota por encima, con su propio scroll, y el diálogo no se entera.
  */
+/** Lo que se muestra de una opción. */
+const etiquetaDe = (o: ComboOption) => o.label ?? o.value;
+
+/** Lo que se muestra del valor elegido: su etiqueta si está en la lista, y si
+ *  no el valor tal cual, porque lo escrito a mano vale igual. */
+function etiquetaVisible(options: readonly ComboOption[], value: string): string {
+  return options.find((o) => o.value === value)?.label ?? value;
+}
+
 export function Combobox({
   value,
   options,
   placeholder,
   ariaLabel,
   disabled = false,
-  vacio = "Nada coincide. Lo que escribas se usa igual: la base lo va a validar.",
+  estricto = false,
+  vacio,
   onChange,
 }: {
   value: string;
@@ -53,6 +71,16 @@ export function Combobox({
   placeholder?: string;
   ariaLabel: string;
   disabled?: boolean;
+  /** El valor SOLO puede salir de la lista: lo que se escribe filtra pero no
+   *  se guarda.
+   *
+   *  Por defecto está apagado, porque en la mayoría de las listas de este
+   *  proyecto —columnas, tipos— escribir algo que no está es legítimo: la base
+   *  lo valida. No lo es en una lista cerrada como la de operadores de un
+   *  filtro, donde teclear «contiene» en vez de elegirlo mandaba `contiene` al
+   *  motor y volvía con «operador de filtro desconocido». Fallaba bien, pero
+   *  ofrecer un campo libre donde no lo hay es la parte que estaba mal. */
+  estricto?: boolean;
   /** Qué decir cuando el filtro no deja nada. */
   vacio?: string;
   onChange: (v: string) => void;
@@ -99,7 +127,7 @@ export function Combobox({
   }, [abierto]);
 
   const visibles = options.filter((o) =>
-    o.value.toLowerCase().includes(filtro.trim().toLowerCase()),
+    etiquetaDe(o).toLowerCase().includes(filtro.trim().toLowerCase()),
   );
 
   // Mantener a la vista lo resaltado al moverse con el teclado.
@@ -125,7 +153,7 @@ export function Combobox({
         spellCheck={false}
         disabled={disabled}
         className={styles.entrada}
-        value={abierto ? filtro : value}
+        value={abierto ? filtro : etiquetaVisible(options, value)}
         placeholder={placeholder}
         onFocus={() => {
           setAbierto(true);
@@ -135,8 +163,9 @@ export function Combobox({
         onChange={(e) => {
           setFiltro(e.currentTarget.value);
           setResaltado(0);
-          // Lo escrito ES el valor: si nadie elige de la lista, vale igual.
-          onChange(e.currentTarget.value);
+          // Lo escrito ES el valor, salvo en una lista cerrada: si nadie elige
+          // de la lista, vale igual.
+          if (!estricto) onChange(e.currentTarget.value);
         }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -161,7 +190,12 @@ export function Combobox({
         ? createPortal(
             <div className={styles.lista} role="listbox" ref={lista} style={posicion}>
               {visibles.length === 0 ? (
-                <div className={styles.vacio}>{vacio}</div>
+                <div className={styles.vacio}>
+                  {vacio ??
+                    (estricto
+                      ? "Nada coincide. Elegí uno de la lista: acá no vale escribir otra cosa."
+                      : "Nada coincide. Lo que escribas se usa igual: la base lo va a validar.")}
+                </div>
               ) : (
                 visibles.map((o, i) => (
                   <button
@@ -175,7 +209,7 @@ export function Combobox({
                     onMouseEnter={() => setResaltado(i)}
                     onClick={() => elegir(o.value)}
                   >
-                    <span className={styles.valor}>{o.value}</span>
+                    <span className={styles.valor}>{etiquetaDe(o)}</span>
                     {o.tag ? <span className={styles.tag}>{o.tag}</span> : null}
                   </button>
                 ))

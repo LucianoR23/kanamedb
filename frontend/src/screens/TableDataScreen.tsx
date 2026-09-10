@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
-import type { Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
+import type { Condition, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import type {
   Snapshot,
@@ -32,6 +32,7 @@ import { CellViewer } from "./CellViewer";
 import { DataReview } from "./DataReview";
 import { ExportDialog } from "./ExportDialog";
 import { esCambioDeDatos } from "../lib/cambios";
+import { TableFilters } from "./TableFilters";
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { TableStructure, bytes } from "./TableStructure";
 import { useStage } from "../lib/useStage";
@@ -104,7 +105,10 @@ export function TableDataScreen({
   const [menuCelda, setMenuCelda] = useState<{ ref: CellRef; anchor: MenuAnchor } | null>(null);
   // Lo que se quería hacer y descartaría las ediciones: ordenar por otra
   // columna. Se pregunta antes.
-  const [descartarPara, setDescartarPara] = useState<{ accion: () => void; motivo: "ordenar" | "releer" } | null>(
+  const [descartarPara, setDescartarPara] = useState<{
+    accion: () => void;
+    motivo: "ordenar" | "releer" | "filtrar";
+  } | null>(
     null,
   );
   // La base cambió —un apply desde otra pestaña, «Refrescar»— mientras acá
@@ -120,6 +124,14 @@ export function TableDataScreen({
   // no un booleano porque dos «Agregar fila» seguidos tienen que hacer dos
   // desplazamientos, y un booleano en true no vuelve a disparar el efecto.
   const [irAlFinal, setIrAlFinal] = useState(0);
+  // El filtro APLICADO. El que se está armando vive adentro de TableFilters:
+  // acá solo llega lo que se confirmó, porque cada cambio vuelve a leer.
+  const [filtro, setFiltro] = useState<Condition[]>([]);
+  // Cuántas filas pasan el filtro. Va aparte de `total` —las de la TABLA—
+  // porque los dos números se muestran en lugares distintos y significan cosas
+  // distintas: el encabezado dice qué tan grande es la tabla y no puede
+  // encogerse porque alguien filtró.
+  const [totalFiltrado, setTotalFiltrado] = useState<number | null>(null);
   const [exportando, setExportando] = useState(false);
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
@@ -164,7 +176,7 @@ export function TableDataScreen({
   const runIDExport = useRef(`${tabId}:export`).current;
 
   const cargar = useCallback(
-    async (offset: number, sort: SortState | null) => {
+    async (offset: number, sort: SortState | null, where: Condition[]) => {
       setCargando(true);
       setFallo(null);
       const res = await QueriesSvc.TableData({
@@ -175,6 +187,7 @@ export function TableDataScreen({
         descending: sort?.descending ?? false,
         limit: PAGINA,
         offset,
+        where,
       });
       setCargando(false);
 
@@ -215,13 +228,33 @@ export function TableDataScreen({
   );
 
   useEffect(() => {
-    void cargar(0, null);
+    void cargar(0, null, []);
     // El conteo exacto va aparte y sin esperarlo: en una tabla grande recorre
     // todo, y la grilla tiene que poder mostrar las primeras filas ya.
-    void QueriesSvc.TableCount(`${runID}:count`, schema, table).then((r) => {
+    void QueriesSvc.TableCount(`${runID}:count`, schema, table, []).then((r) => {
       if (r.ok) setTotal(r.count);
     });
   }, [cargar, runID, schema, table]);
+
+  // Aplicar o quitar un filtro vuelve a leer desde la primera fila y a contar:
+  // «de N filas» tiene que ser las que pasan el filtro, no las de la tabla.
+  function aplicarFiltro(conds: Condition[]) {
+    const aplicar = () => {
+      setFiltro(conds);
+      setSeleccion(null);
+      setTotalFiltrado(null);
+      void cargar(0, orden, conds);
+      if (conds.length === 0) return;
+      void QueriesSvc.TableCount(`${runID}:filtradas`, schema, table, conds).then((r) => {
+        if (r.ok) setTotalFiltrado(r.count);
+      });
+    };
+    // Filtrar vuelve a leer desde el principio, igual que ordenar: las
+    // ediciones apuntan a filas por posición y esas posiciones cambian. Se
+    // pregunta antes en vez de perderlas.
+    if (hayEdiciones(edicion)) setDescartarPara({ accion: aplicar, motivo: "filtrar" });
+    else aplicar();
+  }
 
   // Cuál es la lectura vigente. Dos llamadas superpuestas —doble clic en
   // «Actualizar», o el montaje más un refresco inmediato— se pisan: la primera
@@ -274,7 +307,7 @@ export function TableDataScreen({
       setReleerPendiente(true);
       return;
     }
-    void cargar(0, orden);
+    void cargar(0, orden, filtro);
   }, [recarga, orden, cargar, leerDetalle, leerPendientes, edicion]);
 
   function ordenarPor(columna: string) {
@@ -285,7 +318,7 @@ export function TableDataScreen({
     const ordenar = () => {
       setOrden(siguiente);
       setSeleccion(null);
-      void cargar(0, siguiente);
+      void cargar(0, siguiente, filtro);
     };
     // Ordenar vuelve a leer desde el principio y las ediciones se pierden.
     // Mejor preguntar que perder tres celdas escritas a mano por un clic en
@@ -615,7 +648,7 @@ export function TableDataScreen({
           </>
         ) : null}
         <span className={styles.grow} />
-        {enDatos ? <span className={styles.count}>{conteo(filas.length, total, orden)}</span> : null}
+        {enDatos ? <span className={styles.count}>{conteo(filas.length, filtro.length > 0 ? totalFiltrado : total, orden, filtro.length > 0)}</span> : null}
       </div>
 
       {staging.dialogo}
@@ -635,6 +668,17 @@ export function TableDataScreen({
         />
       ) : (
         <>
+          {/* El filtro va en su propia fila y no en la barra de arriba: ahí las
+              pestañas de estructura ya se comen el ancho y el constructor
+              quedaba en 53 píxeles, que no alcanza ni para leer la columna. */}
+          <div className={styles.barraFiltro}>
+            <TableFilters
+              columns={acumulado?.columns ?? []}
+              aplicados={filtro}
+              onAplicar={aplicarFiltro}
+            />
+          </div>
+
           {orderedBy.length === 0 && filas.length > 0 ? (
             <div className={styles.avisoOrden}>
               Esta tabla no tiene clave primaria, así que el orden de las filas no está
@@ -675,7 +719,7 @@ export function TableDataScreen({
                 releerPendiente={releerPendiente}
                 onReleer={() =>
                   setDescartarPara({
-                    accion: () => void cargar(0, orden),
+                    accion: () => void cargar(0, orden, filtro),
                     motivo: "releer",
                   })
                 }
@@ -685,7 +729,7 @@ export function TableDataScreen({
                   <Button
                     size="sm"
                     loading={cargando}
-                    onClick={() => void cargar(filas.length, orden)}
+                    onClick={() => void cargar(filas.length, orden, filtro)}
                   >
                     Cargar {PAGINA} más
                   </Button>
@@ -716,7 +760,7 @@ export function TableDataScreen({
         open={descartarPara !== null}
         severidad="aviso"
         title={`¿Descartar ${nEdiciones} ${plural(nEdiciones, "edición", "ediciones")}?`}
-        etiqueta={descartarPara?.motivo === "releer" ? "Descartar y releer" : "Descartar y ordenar"}
+        etiqueta={`Descartar y ${VERBO[descartarPara?.motivo ?? "ordenar"].infinitivo}`}
         onClose={() => setDescartarPara(null)}
         onConfirm={() => {
           const seguir = descartarPara;
@@ -724,7 +768,7 @@ export function TableDataScreen({
           seguir?.accion();
         }}
       >
-        {descartarPara?.motivo === "releer" ? "Releer" : "Ordenar"} vuelve a leer la tabla desde
+        {VERBO[descartarPara?.motivo ?? "ordenar"].titulo} vuelve a leer la tabla desde
         el principio, y lo que escribiste en las celdas todavía no está preparado. Se pierde. Si
         querés conservarlo, cancelá y tocá «Preparar» primero.
       </ConfirmDialog>
@@ -767,6 +811,7 @@ export function TableDataScreen({
             // Se ordena por la clave primaria si la hay: un archivo que se
             // vuelve a generar mañana tiene que poder compararse con el de hoy.
             orderBy: orderedBy,
+            where: filtro,
           }}
           nombre={table}
           runID={runIDExport}
@@ -914,6 +959,13 @@ function Preparadas({
   );
 }
 
+/** Cómo se nombra cada acción que vuelve a leer la tabla desde el principio. */
+const VERBO = {
+  ordenar: { infinitivo: "ordenar", titulo: "Ordenar" },
+  releer: { infinitivo: "releer", titulo: "Releer" },
+  filtrar: { infinitivo: "filtrar", titulo: "Filtrar" },
+} as const;
+
 /**
  * "12.481 filas · 182 MB · 7 columnas".
  *
@@ -930,7 +982,7 @@ function hechos(
   const partes: string[] = [];
 
   if (total !== null) {
-    partes.push(`${n(total)} filas`);
+    partes.push(`${n(total)} ${plural(total, "fila", "filas")}`);
   } else if (detalle && detalle.rowEstimate >= 0) {
     // Es la estimación del planificador, no un conteo. El "≈" es lo que separa
     // "son 12.481" de "el planificador cree que son como 12.481".
@@ -956,14 +1008,23 @@ function hora(iso: string): string {
  * El total va aparte de las cargadas a propósito: sin el "de N", quien mira mil
  * filas no tiene forma de saber si son todas.
  */
-function conteo(cargadas: number, total: number | null, orden: SortState | null): string {
+function conteo(
+  cargadas: number,
+  total: number | null,
+  orden: SortState | null,
+  filtrado: boolean,
+): string {
   const n = (x: number) => x.toLocaleString("es", { useGrouping: true });
   const base =
     total === null
-      ? `${n(cargadas)} filas cargadas`
+      ? `${n(cargadas)} ${plural(cargadas, "fila cargada", "filas cargadas")}`
       : cargadas >= total
-        ? `${n(total)} filas`
+        ? `${n(total)} ${plural(total, "fila", "filas")}`
         : `${n(cargadas)} de ${n(total)} filas`;
-  if (!orden) return base;
-  return `${base} · ${orden.column} ${orden.descending ? "▼" : "▲"}`;
+  const partes = [base];
+  // Con filtro, «de 12 filas» no son las de la tabla sino las que pasan: sin
+  // decirlo, el número parece que la tabla encogió.
+  if (filtrado) partes.push(plural(total ?? cargadas, "filtrada", "filtradas"));
+  if (orden) partes.push(`${orden.column} ${orden.descending ? "▼" : "▲"}`);
+  return partes.join(" · ");
 }

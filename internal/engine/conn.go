@@ -57,6 +57,11 @@ type PageOptions struct {
 
 	Limit  int
 	Offset int
+
+	// Where son las condiciones del filtro de la grilla. Vacío es la tabla
+	// entera. Los valores viajan como parámetros: lo único que entra en el
+	// texto de la consulta es el nombre de la columna, citado.
+	Where []query.Condition
 }
 
 // ScanOptions es cómo recorrer una tabla entera.
@@ -72,6 +77,10 @@ type ScanOptions struct {
 	// ordena cuando el archivo tiene que ser comparable entre dos corridas.
 	OrderBy    []string
 	Descending bool
+
+	// Where son las condiciones del filtro, igual que en PageOptions: exportar
+	// «lo que se está mirando» es exportar la tabla con el mismo filtro puesto.
+	Where []query.Condition
 }
 
 // RowStream entrega las filas de una lectura larga a medida que llegan.
@@ -148,8 +157,10 @@ type Conn interface {
 	Run(ctx context.Context, sql string, opts RunOptions) (*query.Batch, *Failure)
 	// Page lee una página de una tabla.
 	Page(ctx context.Context, esquema, tabla string, opts PageOptions) (*query.Result, *Failure)
-	// Count cuenta las filas de una tabla, exacto.
-	Count(ctx context.Context, esquema, tabla string) (int64, *Failure)
+	// Count cuenta las filas de una tabla, exacto. Con condiciones cuenta las
+	// que pasan el filtro, que es el número que la grilla muestra al lado de
+	// «de N filas».
+	Count(ctx context.Context, esquema, tabla string, where []query.Condition) (int64, *Failure)
 	// Scan recorre una tabla ENTERA sin juntarla en memoria. Es lo que usa la
 	// exportación; la grilla usa Page, que trae una página y para.
 	Scan(ctx context.Context, esquema, tabla string, opts ScanOptions) (RowStream, error)

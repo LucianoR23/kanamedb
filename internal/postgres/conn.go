@@ -96,11 +96,14 @@ func (c *Conn) Page(
 		Descending: opts.Descending,
 		Limit:      opts.Limit,
 		Offset:     opts.Offset,
+		Where:      opts.Where,
 	})
 }
 
-func (c *Conn) Count(ctx context.Context, esquema, tabla string) (int64, *engine.Failure) {
-	return TableCount(ctx, c.pool, esquema, tabla)
+func (c *Conn) Count(
+	ctx context.Context, esquema, tabla string, where []query.Condition,
+) (int64, *engine.Failure) {
+	return TableCount(ctx, c.pool, esquema, tabla, where)
 }
 
 func (c *Conn) Scan(

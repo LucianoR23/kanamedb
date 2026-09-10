@@ -16,9 +16,11 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > muestran como SQL antes de tocar nada y se aplican en una transacción con
 > progreso por sentencia; los valores de una fila viajan siempre como
 > parámetros, nunca escritos en la SQL que corre. Contra producción hay que
-> escribir el nombre de la base. Y lo que se lee se puede exportar a CSV, JSON,
-> JSON Lines o Markdown: el resultado del editor, o una tabla entera, que se
-> escribe a medida que se lee y por eso no depende de que entre en memoria.
+> escribir el nombre de la base. La grilla filtra por columna —columna,
+> operador y valor, varias condiciones combinadas— y lo que se lee se puede
+> exportar a CSV, JSON, JSON Lines o Markdown: el resultado del editor, o una
+> tabla entera con el filtro que tenga puesto, que se escribe a medida que se
+> lee y por eso no depende de que entre en memoria.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---

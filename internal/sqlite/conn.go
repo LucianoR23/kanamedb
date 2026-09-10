@@ -98,8 +98,10 @@ func (c *Conn) Page(
 	return page(ctx, c.db, tabla, opts)
 }
 
-func (c *Conn) Count(ctx context.Context, _, tabla string) (int64, *engine.Failure) {
-	return count(ctx, c.db, tabla)
+func (c *Conn) Count(
+	ctx context.Context, _, tabla string, where []query.Condition,
+) (int64, *engine.Failure) {
+	return count(ctx, c.db, tabla, where)
 }
 
 func (c *Conn) Scan(

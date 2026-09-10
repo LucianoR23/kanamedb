@@ -1,0 +1,120 @@
+/* El constructor de filtros de la barra de la tabla: un disparador que resume
+   lo aplicado y un panel con una fila por condición. */
+.caja {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.caja { flex: 0 1 auto; }
+.disparador {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Se encoge antes que los botones de la barra: con la ventana angosta, el
+     resumen se corta con puntos suspensivos en vez de empujar «Agregar fila»
+     fuera de su lugar. */
+  flex: 0 1 auto;
+  min-width: 220px;
+  max-width: 620px;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--text-dim);
+  font: 400 11.5px var(--font-mono);
+}
+.disparador:hover { background: var(--bg-hover); }
+.conFiltro { border-color: var(--accent); color: var(--text-1); }
+.lupa { flex: none; }
+.resumen {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.limpiar {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+}
+.limpiar:hover { color: var(--text-1); }
+
+.panel {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 620px;
+  padding: 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+.fila {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.juntor {
+  flex: none;
+  width: 42px;
+  text-align: right;
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+}
+.columna { flex: 0 0 170px; min-width: 0; }
+.operador { flex: 0 0 168px; min-width: 0; }
+.valores { flex: 1; display: flex; gap: 6px; min-width: 0; }
+.valores input { flex: 1; min-width: 0; }
+.sinValor {
+  align-self: center;
+  font: 400 11px var(--font-ui);
+  color: var(--text-dim);
+}
+.quitar {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+.quitar:hover:not(:disabled) { color: var(--danger); }
+.quitar:disabled { opacity: 0.3; cursor: default; }
+
+.pie {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+.agregar {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: 400 11.5px var(--font-ui);
+  padding: 0;
+}
+.grow { flex: 1; }
+.nota {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}

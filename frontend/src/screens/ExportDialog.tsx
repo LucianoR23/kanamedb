@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Format } from "../../bindings/github.com/LucianoR23/kanamedb/internal/export";
 import type { Options } from "../../bindings/github.com/LucianoR23/kanamedb/internal/export";
-import type { Column } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
+import type { Column, Condition } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type {
   FormatInfo,
   ResultExport,
@@ -66,6 +66,8 @@ export type OrigenExport =
       table: string;
       /** Por dónde ordenar. Vacío deja que el motor elija, que es más rápido. */
       orderBy?: string[];
+      /** El filtro que está puesto en la grilla, si hay alguno. */
+      where?: Condition[];
     };
 
 /**
@@ -112,6 +114,7 @@ export function ExportDialog({
   // escribía el archivo sin `.csv`.
   const extension = formatos.find((f) => f.key === formato)?.extension ?? "";
   const listo = extension !== "";
+  const conFiltro = origen.tipo === "tabla" && (origen.where?.length ?? 0) > 0;
   // Mientras se escribe el archivo no se puede cambiar lo que se está
   // escribiendo: el pedido ya salió con el formato y las opciones de antes.
   const guardando = estado.fase === "guardando";
@@ -142,6 +145,7 @@ export function ExportDialog({
       options: opts,
       orderBy: origen.orderBy ?? [],
       descending: false,
+      where: origen.where ?? [],
     };
   };
 
@@ -266,12 +270,19 @@ export function ExportDialog({
 
   const cuenta =
     filas === null
-      ? "la tabla entera"
+      ? (conFiltro ? "las filas del filtro" : "la tabla entera")
       : `${filas.toLocaleString("es", { useGrouping: true })} ${plural(filas, "fila", "filas")}`;
-  const alcance = origen.tipo === "resultado" ? "Este resultado" : `${origen.table}, entera`;
+  const alcance =
+    origen.tipo === "resultado"
+      ? "Este resultado"
+      : conFiltro
+        ? `${origen.table}, con el filtro puesto`
+        : `${origen.table}, entera`;
   const nota =
     origen.tipo === "tabla"
-      ? "Se lee del servidor y se escribe al archivo a medida que llega: no pasa por la memoria, así que el tamaño de la tabla no es un problema."
+      ? (conFiltro
+          ? "Se exportan las filas que pasan el filtro de la grilla, no las que están cargadas: se leen del servidor y se escriben al archivo a medida que llegan."
+          : "Se lee del servidor y se escribe al archivo a medida que llega: no pasa por la memoria, así que el tamaño de la tabla no es un problema.")
       : origen.truncated
         ? `Se exporta lo que está cargado en la grilla: ${cuenta}. La consulta devolvía más, cortadas por el límite de la conexión.`
         : `Se exporta lo que está cargado en la grilla: ${cuenta}, ya en memoria.`;

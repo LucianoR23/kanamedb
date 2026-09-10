@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
@@ -22,6 +23,13 @@ func scan(
 	var b strings.Builder
 	b.WriteString("SELECT * FROM ")
 	b.WriteString(QualifiedName(base, tabla))
+	filtro, args, err := dml.Where(opts.Where, dialectoDML(QuoteString), 0)
+	if err != nil {
+		return nil, err
+	}
+	if filtro != "" {
+		b.WriteString(" WHERE " + filtro)
+	}
 	if len(opts.OrderBy) > 0 {
 		// El DESC va pegado a CADA columna, como en page.
 		b.WriteString(" ORDER BY ")
@@ -36,7 +44,7 @@ func scan(
 		}
 	}
 
-	rows, err := db.QueryContext(ctx, b.String())
+	rows, err := db.QueryContext(ctx, b.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("leer %s.%s: %w", base, tabla, err)
 	}
