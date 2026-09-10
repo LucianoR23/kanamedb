@@ -75,6 +75,8 @@ export function SqlPreview({
   const [corriendo, setCorriendo] = useState(false);
   const [progreso, setProgreso] = useState<ApplyProgress | null>(null);
   const [resultado, setResultado] = useState<ApplyResult | null>(null);
+  const [ensayo, setEnsayo] = useState<ApplyResult | null>(null);
+  const [ensayando, setEnsayando] = useState(false);
   const [error, setError] = useState("");
   const timer = useRef<number | null>(null);
 
@@ -88,12 +90,53 @@ export function SqlPreview({
   const palabra = vista.confirmWord ?? "";
   const confirmado = !vista.needsConfirmation || confirmacion.trim() === palabra;
   const puedeAplicar = confirmado && !vista.readOnly && r.included > 0 && !corriendo;
+  // El ensayo pide la MISMA confirmación que aplicar contra producción. Hace el
+  // mismo trabajo y toma los mismos candados, así que el corte de servicio es
+  // idéntico; lo único que cambia es lo que queda escrito después. Go la exige
+  // igual: esto es para que el botón no se ofrezca para fallar.
+  const puedeEnsayar = vista.canDryRun && confirmado && r.included > 0 && !corriendo;
+
+  /**
+   * Corre el changeset entero adentro de una transacción y la revierte.
+   *
+   * Responde lo que la vista previa no puede: la SQL puede estar impecable y
+   * fallar igual contra los datos que hay. Solo existe donde el motor tiene DDL
+   * transaccional —lo dice `vista.canDryRun`— porque en los otros «correr y
+   * revertir» dejaría todo aplicado.
+   */
+  async function ensayar() {
+    if (!puedeEnsayar) return;
+    setCorriendo(true);
+    setEnsayando(true);
+    setError("");
+    setEnsayo(null);
+    setResultado(null);
+
+    timer.current = window.setInterval(() => {
+      void SessionSvc.ApplyStatus().then(setProgreso);
+    }, CADENCIA_MS);
+
+    try {
+      setEnsayo(await SessionSvc.DryRun(confirmacion.trim()));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (timer.current !== null) window.clearInterval(timer.current);
+      timer.current = null;
+      setProgreso(null);
+      setCorriendo(false);
+      setEnsayando(false);
+    }
+  }
 
   async function aplicar() {
     if (!puedeAplicar) return;
     setCorriendo(true);
     setError("");
     setResultado(null);
+    // El resultado del ensayo se va: dejarlo al lado del del apply es la forma
+    // más fácil de leer uno creyendo que es el otro.
+    setEnsayo(null);
 
     timer.current = window.setInterval(() => {
       void SessionSvc.ApplyStatus().then(setProgreso);
@@ -157,7 +200,11 @@ export function SqlPreview({
               <div className={styles.corriendoFila}>
                 <span className={styles.spinner} />
                 <span className={styles.corriendoTitulo}>
-                  Aplicando {(progreso?.completed ?? 0) + 1} de {progreso?.total ?? r.included}
+                  {/* Decir «Aplicando» mientras se ensaya es la peor línea posible
+                      contra una conexión de producción: la persona mira una barra
+                      que le dice que sus cambios se están aplicando. */}
+                  {ensayando ? "Ensayando" : "Aplicando"}{" "}
+                  {(progreso?.completed ?? 0) + 1} de {progreso?.total ?? r.included}
                 </span>
                 <span className={styles.grow} />
                 <span className={styles.meta}>
@@ -180,6 +227,7 @@ export function SqlPreview({
             </div>
           ) : null}
 
+          {ensayo ? <Ensayo res={ensayo} /> : null}
           {resultado ? <Resultado res={resultado} transaccion={singleTransaction} vista={vista} /> : null}
           {error ? <p className={styles.error}>{error}</p> : null}
         </div>
@@ -280,6 +328,25 @@ export function SqlPreview({
           </div>
 
           <div className={styles.acciones}>
+            {/* Antes que Aplicar: es lo que conviene hacer primero, y ponerlo
+                después sería ofrecerlo cuando ya no sirve. */}
+            {vista.canDryRun ? (
+              <Button
+                variant="secondary"
+                disabled={!puedeEnsayar}
+                loading={ensayando}
+                onClick={() => void ensayar()}
+              >
+                Ensayar sin aplicar
+              </Button>
+            ) : null}
+            {vista.canDryRun ? (
+              <p className={styles.notaEnsayo}>
+                Corre todo adentro de una transacción y la revierte. Hace el mismo trabajo
+                que aplicar y toma los mismos candados: contra una tabla grande sale lo
+                mismo, y después hay que aplicar igual.
+              </p>
+            ) : null}
             <Button
               variant={vista.needsConfirmation ? "danger" : "primary"}
               disabled={!puedeAplicar}
@@ -295,6 +362,55 @@ export function SqlPreview({
         </aside>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Cómo terminó el ensayo.
+ *
+ * Es un componente aparte y no una variante del de abajo a propósito. Un
+ * ensayo que sale bien tiene que verse DISTINTO de un apply que sale bien: son
+ * los dos verdes y significan cosas opuestas —uno dice «quedó aplicado» y el
+ * otro «no quedó nada»—, y confundirlos hace creer que el trabajo está hecho.
+ *
+ * Por eso el texto empieza por lo que NO pasó.
+ */
+function Ensayo({ res }: { res: ApplyResult }) {
+  const corridas = (res.results ?? []).length;
+  if (res.ok) {
+    return (
+      <div className={cx(styles.resultado, styles.resultadoEnsayo)}>
+        <p className={styles.resultadoTitulo}>
+          Nada aplicado.{" "}
+          {corridas === 1 ? "La sentencia corrió" : `Las ${corridas} sentencias corrieron`} adentro
+          de una transacción que se revirtió, en {(res.elapsedMs / 1000).toFixed(1)} s.
+        </p>
+        <p className={styles.resultadoHint}>
+          El motor las aceptó contra los datos que hay ahora. No es una garantía de lo que
+          va a pasar al aplicar: la base sigue viva, y una fila que entre mientras tanto
+          puede romper lo que acá pasó.
+        </p>
+      </div>
+    );
+  }
+  const fallada = (res.results ?? []).find((r) => r.error);
+  return (
+    <div className={cx(styles.resultado, styles.resultadoMal)}>
+      <p className={styles.resultadoTitulo}>
+        El ensayo falló, así que el apply también iba a fallar. No quedó nada aplicado.
+      </p>
+      {res.failure ? <p className={styles.resultadoMsg}>{res.failure.message}</p> : null}
+      {res.failure?.hint ? <p className={styles.resultadoHint}>{res.failure.hint}</p> : null}
+      {fallada ? <pre className={styles.resultadoSql}>{fallada.sql}</pre> : null}
+      {res.failure?.detail ? (
+        <p className={styles.resultadoDetalle}>
+          {res.failure.sqlState ? (
+            <span className={styles.resultadoCodigo}>{res.failure.sqlState}</span>
+          ) : null}
+          {res.failure.detail}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

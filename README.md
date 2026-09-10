@@ -87,14 +87,15 @@ servidor SSH para el túnel:
 docker compose -f docker-compose.test.yml up -d
 ```
 
-Levanta PostgreSQL, MySQL y **dos** MariaDB, cada uno en un puerto corrido para
-no chocar con una instalación local: **55432**, **53306**, **53307** (MariaDB
-12.3) y **53308** (MariaDB 10.11, la LTS más vieja que la aplicación declara
-soportar).
+Levanta PostgreSQL, **dos** MySQL y **dos** MariaDB, cada uno en un puerto
+corrido para no chocar con una instalación local: **55432**, **53306** (MySQL
+9.7), **53309** (MySQL 8.4), **53307** (MariaDB 12.3) y **53308** (MariaDB
+10.11). Las dos segundas de cada motor son las LTS anteriores, que son las que
+están instaladas en más lugares que las últimas.
 
-Las dos MariaDB a la vez no son exceso de celo. Probando solo la 12.3, la 10.11
-no conectaba en absoluto —Kaname pedía `@@transaction_read_only`, que llegó
-recién en 11.1.1— y nadie se enteraba. Declarar una versión soportada y no
+Las cuatro a la vez no son exceso de celo. Probando solo la 12.3 de MariaDB, la
+10.11 no conectaba en absoluto —Kaname pedía `@@transaction_read_only`, que
+llegó recién en 11.1.1— y nadie se enteraba. Declarar una versión soportada y no
 correr un solo test contra ella es prometer sin comprobar.
 
 **SQLite no está ahí y no hace falta levantarlo**: es un archivo, y sus tests
@@ -105,14 +106,14 @@ que no probó nada: ponerle cualquier valor a `KANAME_REQUIRE_ENGINES` lo
 convierte en un fallo.
 
 Los cuatro motores corren **la misma batería** —`internal/engine/enginetest`—,
-así que un motor pasa o no pasa contra los mismos 17 casos que los demás:
+así que un motor pasa o no pasa contra los mismos casos que los demás:
 
 ```sh
 go test ./internal/postgres/ ./internal/mysql/ ./internal/sqlite/ -run TestSuite
 ```
 
-Eso son cinco corridas de la misma batería: Postgres, MySQL, MariaDB 12.3,
-MariaDB 10.11 y SQLite.
+Eso son seis corridas de la misma batería: Postgres, las dos MySQL, las dos
+MariaDB y SQLite.
 
 Por defecto levanta PostgreSQL 18. Para probar contra otra versión de la matriz,
 `PG_VERSION` la elige — pero **hay que bajar el stack con `-v` antes de
@@ -128,8 +129,9 @@ directorio de datos del anterior y Postgres aborta con *"database files are
 incompatible with server"*. El `-v` es lo que lo borra. En CI no aparece porque
 cada pata de la matriz corre en una máquina limpia.
 
-`MYSQL_VERSION`, `MARIADB_VERSION` y `MARIADB_LTS_VERSION` hacen lo mismo para
-los otros tres. Los defaults son MySQL 9.7, MariaDB 12.3 y MariaDB 10.11.
+`MYSQL_VERSION`, `MYSQL_LTS_VERSION`, `MARIADB_VERSION` y `MARIADB_LTS_VERSION`
+hacen lo mismo para los otros cuatro. Los defaults son MySQL 9.7 y 8.4, y
+MariaDB 12.3 y 10.11.
 
 ### Datos para probar a mano
 

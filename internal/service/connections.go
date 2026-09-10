@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/engine"
@@ -138,6 +139,61 @@ func (s *Connections) Draft() (ConnectionView, error) {
 		Environment: connection.Local,
 	}.Normalize()
 	return s.view(c), nil
+}
+
+// DraftSQLite arma la conexión de un archivo que el usuario acaba de elegir.
+//
+// Es el atajo «Abrir archivo SQLite…» de S01 y S02: el selector de archivo ya
+// existe en S03, así que lo único que falta es no obligar a pasar por el
+// formulario entero —elegir el motor, tipear la ruta, inventar un nombre— para
+// abrir una base que es un archivo y nada más.
+//
+// Devuelve un borrador y NO lo guarda. El atajo termina en el editor, con todo
+// completo y un clic para conectar, en vez de escribir una conexión en la
+// libreta sin que el usuario la haya visto. Abrir un archivo para mirarlo no
+// debería dejar rastro en la lista sin avisar.
+//
+// El nombre sale del archivo porque el nombre es obligatorio y porque
+// «northwind» es lo que la persona iba a escribir igual. Puede repetirse con
+// otra conexión y no importa: lo que identifica una conexión es el ID.
+func (s *Connections) DraftSQLite(path string) (ConnectionView, error) {
+	v, err := s.Draft()
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	c := v.Connection
+	c.Engine = connection.SQLite
+	c.Database = path
+	c.Name = nombreDeArchivo(path)
+	return s.Check(c), nil
+}
+
+// nombreDeArchivo saca un nombre de conexión de una ruta.
+//
+// `C:\datos\northwind.db` da «northwind».
+//
+// Corta en los DOS separadores a mano en vez de usar `filepath`, y no es
+// pedantería: `filepath` usa el separador del sistema donde corre el programa,
+// así que en Linux `filepath.Base` de una ruta de Windows devuelve la ruta
+// ENTERA. La libreta de conexiones es un archivo que se sincroniza entre
+// máquinas, y CI corre estos tests en Linux: una ruta de Windows tiene que
+// leerse igual en los dos lados.
+//
+// Los dos casos raros son reales. Muchas bases de SQLite no tienen extensión, y
+// un archivo puede llamarse `.db` —todo extensión y nada de nombre—; sacarle la
+// extensión ahí dejaría la cadena vacía y el editor abriría con el campo del
+// nombre en rojo, que es justo lo que este atajo viene a evitar.
+// No recorta los espacios: `Normalize` ya lo hace con el nombre, y una línea
+// que ningún caso puede volver roja es una línea que sobra.
+func nombreDeArchivo(ruta string) string {
+	base := ruta
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	if i := strings.LastIndex(base, "."); i > 0 {
+		return base[:i]
+	}
+	return base
 }
 
 // Check valida una conexión sin guardarla. Es lo que usa el formulario para

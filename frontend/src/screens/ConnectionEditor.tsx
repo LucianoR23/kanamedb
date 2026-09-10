@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Dialogs } from "@wailsio/runtime";
 import * as Connections from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/connections";
 import type { ConnectionView, TestResult } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Connection } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
@@ -13,6 +12,7 @@ import {
 // `Engine.Postgres`: los VALORES hay que traerlos de donde está el enum.
 import { Kind as Engine } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import { AuthMethod } from "../../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
+import { elegirArchivoSQLite } from "../lib/archivoSQLite";
 import {
   Badge,
   Button,
@@ -222,23 +222,9 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
     setTest(null);
   }
 
-  /** elegirArchivo abre el selector del sistema para una base de SQLite.
-   *
-   *  El diálogo lo abre el sistema operativo, no la página: el navegador no
-   *  puede dar una ruta de archivo, y una ruta es exactamente lo que SQLite
-   *  necesita. */
+  /** elegirArchivo abre el selector del sistema para una base de SQLite. */
   async function elegirArchivo() {
-    const ruta = await Dialogs.OpenFile({
-      Title: "Elegir una base de SQLite",
-      CanChooseFiles: true,
-      // Se pueden elegir archivos que no estén en los filtros: las bases de
-      // SQLite se llaman de cualquier forma, y muchas no tienen extensión.
-      AllowsOtherFiletypes: true,
-      Filters: [
-        { DisplayName: "Bases de SQLite", Pattern: "*.db;*.sqlite;*.sqlite3;*.db3" },
-        { DisplayName: "Todos los archivos", Pattern: "*" },
-      ],
-    });
+    const ruta = await elegirArchivoSQLite();
     if (ruta) {
       set("database", ruta);
     }

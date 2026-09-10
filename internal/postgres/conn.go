@@ -136,3 +136,17 @@ func (t *txPG) Exec(ctx context.Context, sql string) error {
 }
 func (t *txPG) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *txPG) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
+
+// Verify adelanta las restricciones diferidas.
+//
+// `SET CONSTRAINTS ALL IMMEDIATE` obliga a comprobar en el acto todas las que
+// están DEFERRABLE INITIALLY DEFERRED, que si no se verificarían recién en el
+// COMMIT. Es lo que hace que el ensayo de S15 no diga «va a andar» sobre una
+// transacción que iba a fallar al cerrarse.
+//
+// Vale para la transacción entera y no se deshace, pero eso no molesta: en el
+// ensayo lo que sigue es el ROLLBACK, y en un apply de verdad esto no se llama.
+func (t *txPG) Verify(ctx context.Context) error {
+	_, err := t.tx.Exec(ctx, "SET CONSTRAINTS ALL IMMEDIATE")
+	return err
+}

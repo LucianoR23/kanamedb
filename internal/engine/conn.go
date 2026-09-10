@@ -156,4 +156,18 @@ type Tx interface {
 	// Rollback después de un Commit exitoso no es un error: es un no-op, para
 	// que quien la abrió pueda hacer `defer tx.Rollback()` sin pensar.
 	Rollback(ctx context.Context) error
+
+	// Verify dispara ACÁ las comprobaciones que el motor deja para el COMMIT,
+	// sin commitear.
+	//
+	// Existe por el ensayo de S15, y sin esto el ensayo mentiría en el peor
+	// sentido posible: diría «va a andar» y el apply fallaría. Hay errores que
+	// el motor NO levanta en la sentencia sino recién al cerrar —las claves
+	// DEFERRABLE INITIALLY DEFERRED de Postgres, y en SQLite el
+	// foreign_key_check que cierra una reconstrucción de tabla—, así que una
+	// transacción que se abre, corre todo y se revierte nunca los ve.
+	//
+	// Un motor sin nada diferido devuelve nil. Después de Verify la
+	// transacción sigue abierta y usable.
+	Verify(ctx context.Context) error
 }

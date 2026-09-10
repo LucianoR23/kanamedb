@@ -91,6 +91,13 @@ type ChangesetView struct {
 	// renombra. Es SQLite, y cambia el costo de «solo metadatos» al tamaño de
 	// la tabla.
 	RebuildsTables bool `json:"rebuildsTables"`
+
+	// CanDryRun dice si el botón de ensayo tiene sentido en esta conexión.
+	//
+	// Exige DDL transaccional, y no por prolijidad: sin él, «correr todo y
+	// revertir» no revierte nada y el ensayo sería el apply. Es el mismo límite
+	// que parte el apply en tramos, mirado desde el otro lado.
+	CanDryRun bool `json:"canDryRun"`
 }
 
 // soloLecturaBool es soloLectura cuando solo interesa el sí o el no.
@@ -267,6 +274,7 @@ func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 	caps := sesion.db.Caps()
 	vista.Engine = sesion.db.Kind()
 	vista.TransactionalDDL = caps.TransactionalDDL
+	vista.CanDryRun = caps.TransactionalDDL && !vista.ReadOnly
 	for _, c := range vista.Order {
 		if c.Statement.RebuildsTable {
 			vista.RebuildsTables = true
@@ -575,21 +583,9 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			ErrNeedsConfirmation, nombreDeLaBase(sesion))
 	}
 
-	pendientes := sesion.cambios.Ordered()
-	if len(pendientes) == 0 {
-		return ApplyResult{}, errors.New("no hay cambios para aplicar")
-	}
-
-	sentencias := make([]change.Statement, 0, len(pendientes))
-	for _, c := range pendientes {
-		st, err := sesion.db.RenderDDL(ctx, c)
-		if err != nil {
-			// No se ejecuta NADA si alguna no se puede escribir. Aplicar la
-			// mitad de un changeset porque la otra mitad no compila es la peor
-			// combinación posible.
-			return ApplyResult{}, fmt.Errorf("no se puede aplicar: %w", err)
-		}
-		sentencias = append(sentencias, st)
+	pendientes, sentencias, err := s.preparar(ctx, sesion)
+	if err != nil {
+		return ApplyResult{}, err
 	}
 
 	s.iniciarApply(sentencias)
@@ -618,6 +614,126 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		}
 		s.mu.Unlock()
 	}
+	return res, nil
+}
+
+// preparar ordena los cambios y escribe la SQL de todos, o no devuelve ninguna.
+//
+// Es el arranque común de Apply y DryRun. Que el ensayo pase por acá no es
+// prolijidad: si escribiera la SQL por otro camino, estaría ensayando una SQL
+// distinta de la que después se aplica.
+func (s *Session) preparar(
+	ctx context.Context, sesion *openSession,
+) ([]change.Change, []change.Statement, error) {
+	pendientes := sesion.cambios.Ordered()
+	if len(pendientes) == 0 {
+		return nil, nil, errors.New("no hay cambios para aplicar")
+	}
+	sentencias := make([]change.Statement, 0, len(pendientes))
+	for _, c := range pendientes {
+		st, err := sesion.db.RenderDDL(ctx, c)
+		if err != nil {
+			// No se ejecuta NADA si alguna no se puede escribir. Aplicar la
+			// mitad de un changeset porque la otra mitad no compila es la peor
+			// combinación posible.
+			return nil, nil, fmt.Errorf("no se puede aplicar: %w", err)
+		}
+		sentencias = append(sentencias, st)
+	}
+	return pendientes, sentencias, nil
+}
+
+// DryRun corre el changeset entero adentro de una transacción y la revierte.
+//
+// Responde la pregunta que la vista previa NO puede responder. La vista previa
+// dice qué SQL se va a mandar; el ensayo dice si el motor la va a aceptar contra
+// los datos que hay ahora. Son cosas distintas: `SET NOT NULL` sobre una columna
+// con nulos es SQL impecable que falla, y un tipo nuevo que no admite lo que hay
+// adentro también.
+//
+// Exige DDL transaccional y por eso no existe contra MySQL ni MariaDB. Ahí
+// «correr todo y revertir» no revierte nada: cada DDL se commitea solo. Un botón
+// de ensayo que aplica sería la peor pieza de interfaz que este proyecto podría
+// tener, así que no está.
+//
+// Lo que el ensayo NO promete, y por eso el resultado no dice «va a andar»:
+//
+//   - Hace el MISMO trabajo que el apply, incluidas las reescrituras de tabla
+//     enteras, y toma los MISMOS candados mientras corre. Ensayar no es barato:
+//     contra una tabla grande sale lo mismo que aplicar, y después hay que
+//     aplicar igual.
+//   - Entre el ensayo y el apply la base sigue viva. Una fila insertada en el
+//     medio puede romper el NOT NULL que el ensayo vio pasar.
+//
+// Contra producción pide la MISMA confirmación que Apply, y esto es una
+// corrección: al principio no la pedía, con el argumento de que escribir el
+// nombre de la base es la puerta de «esto queda» y esto no queda.
+//
+// El argumento era falso porque miraba la consecuencia equivocada. Lo que
+// protege esa puerta no es solo la persistencia: un ensayo hace el MISMO
+// trabajo que el apply y toma los MISMOS candados, así que contra una tabla
+// grande de producción el corte de servicio es idéntico. Lo único que cambia es
+// lo que queda escrito después. Un botón que toma un ACCESS EXCLUSIVE en
+// producción con un clic es exactamente lo que CLAUDE.md prohibe cuando dice
+// «confirmación extra en cualquier escritura».
+func (s *Session) DryRun(ctx context.Context, confirm string) (ApplyResult, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	// Una conexión de solo lectura rechaza la escritura del lado del SERVIDOR,
+	// así que el ensayo fallaría en la primera sentencia con un error de permisos
+	// que no tiene nada que ver con el changeset. Mejor decirlo antes.
+	if ro, motivo := soloLectura(sesion); ro {
+		return ApplyResult{}, fmt.Errorf("%w: %s", ErrReadOnly, motivo)
+	}
+	if !sesion.db.Caps().TransactionalDDL {
+		return ApplyResult{}, fmt.Errorf(
+			"%s no puede ensayar un cambio de esquema: cada sentencia se confirma "+
+				"sola, así que correr el changeset y revertirlo dejaría todo aplicado",
+			sesion.db.Kind().Label())
+	}
+	// Se verifica ACÁ y no en el frontend, igual que en Apply: una comprobación
+	// que vive solo del lado de la interfaz no es una protección, es un cartel.
+	if sesion.conn.Environment.NeedsWriteConfirmation() &&
+		strings.TrimSpace(confirm) != nombreDeLaBase(sesion) {
+		return ApplyResult{}, fmt.Errorf(
+			"%w: esta conexión es de producción; ensayar toma los mismos candados que "+
+				"aplicar, así que también hay que escribir %q",
+			ErrNeedsConfirmation, nombreDeLaBase(sesion))
+	}
+
+	_, sentencias, err := s.preparar(ctx, sesion)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+
+	s.iniciarApply(sentencias)
+	defer s.terminarApply()
+
+	inicio := time.Now()
+	// RolledBack NO se pone acá. Es la afirmación entera del botón —«no quedó
+	// nada»— y darla por hecha antes de revertir la convierte en una suposición:
+	// la pone `correrTramo` cuando el ROLLBACK devuelve bien.
+	res := ApplyResult{
+		OK:      true,
+		Results: make([]StatementResult, 0, len(sentencias)),
+		Tramos:  1,
+	}
+
+	// Un solo tramo con todo adentro: el motor tiene DDL transaccional, así que
+	// acá el «todo o nada» es real y no hay nada que partir. El Kind() de cada
+	// cambio no cambia el corte y por eso no se llama a TramosDe.
+	t := engine.Tramo{Desde: 0, Hasta: len(sentencias), Transaccional: true}
+	if fallo, err := s.correrTramo(ctx, sesion, sentencias, t, &res, true); err != nil {
+		res.OK = false
+		res.TramoFallido = 1
+		res.Failure = fallo
+	}
+	res.ElapsedMs = time.Since(inicio).Milliseconds()
+
+	// El changeset queda intacto: no se aplicó nada, así que no hay nada que
+	// sacar. Es la única diferencia con Apply.
 	return res, nil
 }
 
@@ -666,7 +782,7 @@ func (s *Session) aplicarPorTramos(
 
 	res := ApplyResult{OK: true, Tramos: len(tramos)}
 	for n, t := range tramos {
-		fallo, err := s.correrTramo(ctx, sesion, sts, t, &res)
+		fallo, err := s.correrTramo(ctx, sesion, sts, t, &res, false)
 		if err == nil {
 			continue
 		}
@@ -683,13 +799,28 @@ func (s *Session) aplicarPorTramos(
 }
 
 // correrTramo ejecuta un tramo. Si es transaccional, todo o nada.
+//
+// Con ensayo en true corre todo igual pero NO commitea: en vez del COMMIT llama
+// a Verify —que dispara lo que el motor deja para el cierre— y deja que el
+// Rollback diferido lo revierta. Es el mismo camino que el apply de verdad, con
+// una sola cosa distinta al final, y eso es a propósito: un ensayo que corre
+// por otro código prueba otro código.
 func (s *Session) correrTramo(
 	ctx context.Context, sesion *openSession,
-	sts []change.Statement, t engine.Tramo, res *ApplyResult,
+	sts []change.Statement, t engine.Tramo, res *ApplyResult, ensayo bool,
 ) (*engine.Failure, error) {
 	desde := len(res.Results)
 
 	if !t.Transaccional {
+		// Un ensayo sobre un tramo sin transacción APLICARÍA de verdad. No
+		// debería poder llegar acá —DryRun exige DDL transaccional— pero el
+		// costo de equivocarse es escribir en producción creyendo que se estaba
+		// ensayando, así que se corta y no se ejecuta nada.
+		if ensayo {
+			err := errors.New(
+				"un ensayo necesita una transacción y este tramo no la tiene")
+			return &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}, err
+		}
 		for i := t.Desde; i < t.Hasta; i++ {
 			r, err := s.correr(ctx, sesion, sesion.db, i, sts[i])
 			res.Results = append(res.Results, r)
@@ -722,17 +853,62 @@ func (s *Session) correrTramo(
 		res.Results = append(res.Results, r)
 		if err != nil {
 			marcarRevertidas(res.Results[desde:])
+			// En un apply, RolledBack lo pone aplicarPorTramos mirando cuántos
+			// tramos hubo. El ensayo no pasa por ahí —arma su tramo único— así
+			// que revierte y lo anota acá: un ensayo que falla tampoco deja nada,
+			// y eso hay que comprobarlo, no suponerlo.
+			if ensayo {
+				revertirEnsayo(ctx, tx, res)
+			}
 			return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
 		}
 	}
-	// El commit también puede fallar, y con razones propias: las claves
+	// El cierre también puede fallar, y con razones propias: las claves
 	// DEFERRABLE de Postgres se comprueban recién acá, y en SQLite acá corre el
 	// foreign_key_check que cierra la reconstrucción.
-	if err := tx.Commit(ctx); err != nil {
+	//
+	// El ensayo tiene que ver esos mismos errores sin quedarse con el cambio, y
+	// para eso está Verify: los adelanta y deja la transacción abierta para que
+	// el Rollback diferido la tire.
+	cerrar := tx.Commit
+	if ensayo {
+		cerrar = tx.Verify
+	}
+	if err := cerrar(ctx); err != nil {
 		marcarRevertidas(res.Results[desde:])
+		if ensayo {
+			revertirEnsayo(ctx, tx, res)
+		}
 		return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
 	}
+	if ensayo {
+		// Nada de esto queda: el ensayo termina donde el apply recién
+		// empezaría a estar aplicado.
+		marcarRevertidas(res.Results[desde:])
+		// Y se revierte ACÁ, mirando el error, en vez de dejarlo al Rollback
+		// diferido —que lo descarta—. Es la única afirmación que el botón
+		// hace, así que no puede apoyarse en un error que nadie lee.
+		if !revertirEnsayo(ctx, tx, res) {
+			err := errors.New("el ensayo corrió pero no se pudo revertir la transacción")
+			return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+		}
+	}
 	return nil, nil
+}
+
+// revertirEnsayo revierte la transacción del ensayo y anota si de verdad se
+// revirtió.
+//
+// Un ROLLBACK que falla casi siempre significa que la conexión se murió —y
+// entonces el motor aborta la transacción igual—, así que esto no es que los
+// cambios hayan quedado. Es que ya no se puede AFIRMAR que no quedaron, y esa
+// afirmación es todo lo que el botón vende.
+//
+// El Rollback diferido de arriba corre igual después; las tres
+// implementaciones de Tx tratan el segundo Rollback como un no-op.
+func revertirEnsayo(ctx context.Context, tx engine.Tx, res *ApplyResult) bool {
+	res.RolledBack = tx.Rollback(ctx) == nil
+	return res.RolledBack
 }
 
 // marcarRevertidas apaga el Applied de las sentencias de un tramo que se

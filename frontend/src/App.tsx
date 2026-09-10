@@ -16,6 +16,7 @@ import * as HostsSvc from "../bindings/github.com/LucianoR23/kanamedb/internal/s
 import { Verdict } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { Inspection } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { ConnectionFailure } from "./screens/ConnectionError";
+import { elegirArchivoSQLite } from "./lib/archivoSQLite";
 
 type Screen = "loading" | "welcome" | "manager" | "shell" | "about";
 
@@ -65,6 +66,26 @@ export default function App() {
     setError(null);
     try {
       setEditor({ view: await Connections.Draft(), isNew: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * El atajo "Abrir archivo SQLite…" de S01 y S02.
+   *
+   * Termina en el editor y no en la base: el borrador ya viene válido —motor,
+   * ruta y nombre puestos— así que es un clic para conectar. Abrir el editor y
+   * no conectar de una es a propósito: la conexión se guarda en la libreta, y
+   * escribir ahí algo que la persona no vio es cómo la lista se llena de
+   * entradas que nadie creó a sabiendas.
+   */
+  async function abrirArchivoSQLite() {
+    setError(null);
+    try {
+      const ruta = await elegirArchivoSQLite();
+      if (!ruta) return;
+      setEditor({ view: await Connections.DraftSQLite(ruta), isNew: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -216,6 +237,7 @@ export default function App() {
       {screen === "welcome" ? (
         <Welcome
           onNew={() => void openNew()}
+          onOpenFile={() => void abrirArchivoSQLite()}
           onAbout={() => setScreen("about")}
           connectionsPath={connectionsPath}
         />
@@ -224,6 +246,7 @@ export default function App() {
           connections={connections}
           error={error}
           onNew={() => void openNew()}
+          onOpenFile={() => void abrirArchivoSQLite()}
           onEdit={(view) => setEditor({ view, isNew: false })}
           onConnect={(view) => void connect(view)}
           onToggleReadOnly={(view, readOnly) =>

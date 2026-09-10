@@ -17,8 +17,8 @@
 # compila y pasa vet.
 #
 # La versión de cada motor se elige por variable —PG_VERSION, MYSQL_VERSION,
-# MARIADB_VERSION—. Los defaults son la estable actual de cada uno; CI corre la
-# matriz de versiones soportadas:
+# MYSQL_LTS_VERSION, MARIADB_VERSION, MARIADB_LTS_VERSION—. Los defaults son la
+# estable actual de cada uno; CI corre la matriz de versiones soportadas:
 #
 #   PG_VERSION=17 docker compose -f docker-compose.test.yml up -d
 #
@@ -65,6 +65,12 @@ services:
       retries: 30
 
   # MySQL. Sin volumen: todo en tmpfs, igual que Postgres.
+  #
+  # Las DOS LTS a la vez, por el mismo motivo que las dos MariaDB: el comentario
+  # de arriba decía «se prueba contra LTS: 9.7 y 8.4» y solo estaba la 9.7. Una
+  # versión declarada soportada contra la que no corre un solo test es una
+  # promesa sin comprobar, y este proyecto ya se comió una: la 10.11 de MariaDB
+  # no conectaba en absoluto.
   mysql:
     image: mysql:${MYSQL_VERSION:-9.7}
     environment:
@@ -74,6 +80,27 @@ services:
       MYSQL_PASSWORD: kaname
     ports:
       - "53306:3306"
+    tmpfs:
+      - /var/lib/mysql
+    command: >
+      --skip-innodb-doublewrite
+      --innodb-flush-log-at-trx-commit=0
+      --sync-binlog=0
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ukaname -pkaname --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  mysql-lts:
+    image: mysql:${MYSQL_LTS_VERSION:-8.4}
+    environment:
+      MYSQL_ROOT_PASSWORD: kaname
+      MYSQL_DATABASE: kaname_test
+      MYSQL_USER: kaname
+      MYSQL_PASSWORD: kaname
+    ports:
+      - "53309:3306"
     tmpfs:
       - /var/lib/mysql
     command: >

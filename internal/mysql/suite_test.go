@@ -14,23 +14,45 @@ import (
 const (
 	dsnMySQL   = "kaname:kaname@tcp(127.0.0.1:53306)/kaname_test?parseTime=true"
 	dsnMariaDB = "kaname:kaname@tcp(127.0.0.1:53307)/kaname_test?parseTime=true"
-	// La LTS más vieja que la aplicación declara soportar. Corre la batería
+	// Las LTS más viejas que la aplicación declara soportar. Corren la batería
 	// entera igual que las otras, y no por prolijidad: probando solo la 12.3,
-	// la 10.11 no conectaba en absoluto y nadie se enteraba. Declarar una
-	// versión soportada y no correr un test contra ella es prometer sin
-	// comprobar.
+	// la 10.11 de MariaDB no conectaba en absoluto y nadie se enteraba.
+	// Declarar una versión soportada y no correr un test contra ella es
+	// prometer sin comprobar.
+	//
+	// La 8.4 de MySQL es la que está instalada en más lugares que la 9.7, así
+	// que es la que más importa que ande: es la LTS anterior y le quedan años
+	// de soporte.
 	dsnMariaDBLTS = "kaname:kaname@tcp(127.0.0.1:53308)/kaname_test?parseTime=true"
+	dsnMySQLLTS   = "kaname:kaname@tcp(127.0.0.1:53309)/kaname_test?parseTime=true"
 )
+
+// motores son los cuatro servidores contra los que corren los tests que
+// dependen de la versión del motor.
+//
+// El nombre va aparte del DSN porque el nombre del subtest se IMPRIME, y un DSN
+// lleva credenciales adentro. Acá son de juguete, pero el hábito de mandar un
+// DSN a la salida es el que después manda uno de verdad. Ver CLAUDE.md.
+var motores = []struct {
+	nombre string
+	dsn    string
+}{
+	{"mysql", dsnMySQL},
+	{"mysql-lts", dsnMySQLLTS},
+	{"mariadb", dsnMariaDB},
+	{"mariadb-lts", dsnMariaDBLTS},
+}
 
 // Los dos motores corren la MISMA batería que Postgres. Es lo que hace que
 // «está implementado» signifique lo mismo para todos.
-func TestSuiteMySQL(t *testing.T)      { correr(t, dsnMySQL) }
-func TestSuiteMariaDB(t *testing.T)    { correr(t, dsnMariaDB) }
-func TestSuiteMariaDBLTS(t *testing.T) { correr(t, dsnMariaDBLTS) }
+func TestSuiteMySQL(t *testing.T)      { correr(t, "mysql", dsnMySQL) }
+func TestSuiteMySQLLTS(t *testing.T)   { correr(t, "mysql-lts", dsnMySQLLTS) }
+func TestSuiteMariaDB(t *testing.T)    { correr(t, "mariadb", dsnMariaDB) }
+func TestSuiteMariaDBLTS(t *testing.T) { correr(t, "mariadb-lts", dsnMariaDBLTS) }
 
-func correr(t *testing.T, dsn string) {
+func correr(t *testing.T, nombre, dsn string) {
 	enginetest.Correr(t, enginetest.Fixture{
-		Abrir: func(t *testing.T) engine.Conn { return abrir(t, dsn) },
+		Abrir: func(t *testing.T) engine.Conn { return abrir(t, nombre, dsn) },
 		// En MySQL «esquema» y «base» son la misma cosa.
 		Esquema: func(c engine.Conn) string { return c.Server().CurrentDB },
 		// varchar(64) y no text: MySQL rechaza varchar sin largo, y un TEXT no
@@ -42,26 +64,36 @@ func correr(t *testing.T, dsn string) {
 	})
 }
 
-func abrir(t *testing.T, dsn string) engine.Conn {
+// El nombre viaja aparte del DSN porque es lo que se IMPRIME cuando falla. Un
+// DSN lleva credenciales adentro; acá son de juguete, pero el hábito de mandar
+// uno a la salida es el que después manda uno de verdad. Ver CLAUDE.md.
+func abrir(t *testing.T, nombre, dsn string) engine.Conn {
 	t.Helper()
 	c, f := mysql.Open(context.Background(), dsn, "base de pruebas",
 		engine.OpenOptions{MaxConns: 4})
 	if f != nil {
-		// En CI saltearse no es aceptable: si el mapeo de puertos, el tag de la
-		// imagen o las credenciales se rompen, esto daría VERDE sin haber
-		// probado nada — que es exactamente cómo MariaDB estuvo salteándose sin
-		// que nadie lo notara.
-		if os.Getenv("KANAME_REQUIRE_ENGINES") != "" {
-			t.Fatalf("KANAME_REQUIRE_ENGINES está puesto y no se pudo abrir %s: %s — %s",
-				dsn, f.Message, f.Detail)
-		}
-		t.Skipf("no hay motor escuchando (%s).\n"+
-			"Si el motor está levantado, esto NO es un salteo: es un fallo.\n"+
-			"Detalle: %s\n"+
-			"Levantalo con: docker compose -f docker-compose.test.yml up -d",
-			f.Message, f.Detail)
+		saltear(t, nombre, f)
 	}
 	return c
+}
+
+// saltear corta el subtest cuando el motor no está, y lo convierte en un FALLO
+// cuando CI dice que tenía que estar.
+//
+// Sin lo segundo, un contenedor que no arranca deja el job en verde sin haber
+// probado nada — que es exactamente cómo MariaDB estuvo salteándose sin que
+// nadie lo notara.
+func saltear(t *testing.T, nombre string, f *engine.Failure) {
+	t.Helper()
+	if os.Getenv("KANAME_REQUIRE_ENGINES") != "" {
+		t.Fatalf("KANAME_REQUIRE_ENGINES está puesto y no se pudo abrir %s: %s — %s",
+			nombre, f.Message, f.Detail)
+	}
+	t.Skipf("no hay %s escuchando (%s).\n"+
+		"Si el motor está levantado, esto NO es un salteo: es un fallo.\n"+
+		"Detalle: %s\n"+
+		"Levantalo con: docker compose -f docker-compose.test.yml up -d",
+		nombre, f.Message, f.Detail)
 }
 
 // TestElModoSoloLecturaValeParaTodasLasConexiones.
@@ -77,13 +109,14 @@ func abrir(t *testing.T, dsn string) engine.Conn {
 // Por eso se prueban VARIAS escrituras seguidas, con el pool bien abierto: con
 // una sola, la conexión configurada podría ser justo la que toca.
 func TestElModoSoloLecturaValeParaTodasLasConexiones(t *testing.T) {
-	for _, dsn := range []string{dsnMySQL, dsnMariaDB} {
-		t.Run(dsn, func(t *testing.T) {
+	for _, m := range motores {
+		t.Run(m.nombre, func(t *testing.T) {
+			dsn := m.dsn
 			ctx := context.Background()
 			// Primero, con una conexión normal, se crea la tabla.
 			w, f := mysql.Open(ctx, dsn, "pruebas", engine.OpenOptions{MaxConns: 2})
 			if f != nil {
-				t.Skipf("no hay motor escuchando (%s)", f.Message)
+				saltear(t, m.nombre, f)
 			}
 			defer w.Close()
 			_ = w.Exec(ctx, "DROP TABLE IF EXISTS kn_solo_lectura")
@@ -125,14 +158,15 @@ func TestElModoSoloLecturaValeParaTodasLasConexiones(t *testing.T) {
 // se leía en ninguna parte, así que quien ponía un límite en la interfaz no
 // tenía ninguno.
 func TestElLimiteDeTiempoCortaLaSentencia(t *testing.T) {
-	for _, dsn := range []string{dsnMySQL, dsnMariaDB} {
-		t.Run(dsn, func(t *testing.T) {
+	for _, m := range motores {
+		t.Run(m.nombre, func(t *testing.T) {
+			dsn := m.dsn
 			ctx := context.Background()
 			c, f := mysql.Open(ctx, dsn, "pruebas", engine.OpenOptions{
 				MaxConns: 2, StatementTimeout: 400 * time.Millisecond,
 			})
 			if f != nil {
-				t.Skipf("no hay motor escuchando (%s)", f.Message)
+				saltear(t, m.nombre, f)
 			}
 			defer c.Close()
 

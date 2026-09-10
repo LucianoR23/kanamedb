@@ -203,6 +203,23 @@ func (t *txLite) Commit(ctx context.Context) error {
 	return err
 }
 
+// Verify corre el foreign_key_check sin commitear.
+//
+// Es exactamente la comprobación que Commit hace al final, adelantada: lo que
+// una reconstrucción de tabla puede romper no se ve en ninguna sentencia
+// —mientras la transacción corre las claves están apagadas— sino recién en este
+// chequeo. Sin esto, el ensayo de S15 abriría, correría todo, revertiría y
+// diría que salió bien.
+//
+// La transacción queda abierta y usable, que es lo que el ensayo necesita para
+// después revertirla.
+func (t *txLite) Verify(ctx context.Context) error {
+	if !t.verifica {
+		return nil
+	}
+	return t.comprobarForaneas(ctx)
+}
+
 // Rollback después de un Commit exitoso es un no-op, para que quien la abrió
 // pueda hacer `defer tx.Rollback()` sin pensar.
 func (t *txLite) Rollback(ctx context.Context) error {

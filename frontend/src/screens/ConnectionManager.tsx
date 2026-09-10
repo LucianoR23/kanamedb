@@ -26,6 +26,8 @@ type Filter = "all" | "production";
 interface Props {
   connections: readonly ConnectionView[];
   onNew: () => void;
+  /** Atajo: elegir un archivo de SQLite y abrirlo sin pasar por el formulario. */
+  onOpenFile: () => void;
   onEdit: (view: ConnectionView) => void;
   /** Cambia el modo de solo lectura de una conexión.
    *
@@ -45,6 +47,7 @@ interface Props {
 export function ConnectionManager({
   connections,
   onNew,
+  onOpenFile,
   onEdit,
   onToggleReadOnly,
   onConnect,
@@ -120,6 +123,11 @@ export function ConnectionManager({
         <span className={styles.divider} />
         <span className={styles.section}>Conexiones</span>
         <span className={styles.spacer} />
+        {/* El atajo va antes y en secundario: abrir un archivo es lo rápido,
+            pero crear una conexión sigue siendo lo que esta pantalla hace. */}
+        <Button size="sm" onClick={onOpenFile}>
+          Abrir archivo SQLite…
+        </Button>
         <Button variant="primary" size="sm" onClick={onNew}>
           Nueva conexión
         </Button>

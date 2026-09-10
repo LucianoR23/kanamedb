@@ -35,7 +35,8 @@ Manager de conexiones, keychain, conectar a Postgres, árbol de esquema.
 
 - ✅ **Contrato de Go** — `connection`, `store`, `secrets`, `postgres`, `schema`
   y `service`, con tests. Verificado contra Postgres 18, 17, 16 y 14.
-- ✅ **S01 Welcome** — sin la opción "Open SQLite file".
+- ✅ **S01 Welcome** — sin la opción "Open SQLite file", que llega en la
+  Iteración 6.
 - ✅ **S02 Connection manager** — completa.
 - ✅ **S03 Connection editor** — solo tab General. SSH, TLS, Safety y Advanced
   quedan como placeholders deshabilitados.
@@ -166,8 +167,8 @@ Backend, por motor:
 
 - ✅ `internal/engine` — la costura: `Conn`, `Caps`, `TramosDe`, vocabulario de
   fallos, `ServerInfo`, `TxOptions`.
-- ✅ `internal/engine/enginetest` — la batería de 17 casos que todo motor tiene
-  que pasar. Es la definición ejecutable de «está implementado».
+- ✅ `internal/engine/enginetest` — la batería que todo motor tiene que pasar.
+  Es la definición ejecutable de «está implementado».
 - ✅ `internal/postgres` implementa `Conn`. Pasa la batería.
 - ✅ `internal/mysql` — MySQL **y** MariaDB. Pasan la batería las dos.
 - ✅ `internal/sqlite` — incluida la reconstrucción de tabla. Pasa la batería.
@@ -185,18 +186,28 @@ Frontend y CI:
   hacer, no lo que la casilla sugiere, y el resultado explica por qué quedó a
   medias sin culpar al usuario de no haberla marcado. Aviso de reconstrucción
   de tabla para SQLite.
-- ⏳ **S15** — dry run en transacción para Postgres.
-- ⏳ **S01** — "Open SQLite file" desde la lista de conexiones. El selector de
-  archivo ya está en S03, así que esto es un atajo, no una función que falte.
-- ✅ **CI** — `KANAME_REQUIRE_ENGINES` puesto, y las dos MariaDB en el compose.
-- ⏳ Ampliar la matriz de CI a las versiones anteriores de MySQL (8.4 LTS).
+- ✅ **S15** — ensayo: corre el changeset entero adentro de una transacción y
+  la revierte. Responde lo que la vista previa no puede —la SQL puede estar
+  impecable y fallar contra los datos que hay— y solo existe donde el motor
+  tiene DDL transaccional: en MySQL y MariaDB «correr y revertir» dejaría todo
+  aplicado, así que el botón no está.
+- ✅ **S01 y S02** — "Abrir archivo SQLite…" en las dos. `DraftSQLite` arma el
+  borrador del lado de Go —motor, ruta y nombre sacado del archivo— y termina en
+  el editor, no en la base: la conexión se guarda en la libreta, y escribir ahí
+  algo que la persona no vio es cómo la lista se llena de entradas que nadie
+  creó a sabiendas.
+- ✅ **CI** — `KANAME_REQUIRE_ENGINES` puesto, y en el compose las **dos LTS de
+  cada motor**: MySQL 9.7 y 8.4, MariaDB 12.3 y 10.11. Las cuatro corren la
+  batería entera, y además los dos tests que dependen de la versión —modo solo
+  lectura y límite de tiempo por sentencia—, que son justo donde los motores se
+  separan.
 
-#### Pruebas manuales pendientes — los cuatro arreglos que salieron sin tocar UI
+#### Pruebas manuales pendientes
 
-Los cuatro se comprobaron con tests de integración contra el motor de verdad,
-pero **ninguno se miró desde la aplicación**, y los cuatro cambian lo que el
-usuario ve. Van cuando el servicio despache los cuatro motores y la interfaz
-pueda abrirlos:
+Todo esto está cubierto con tests de integración contra el motor de verdad, pero
+**nada se miró desde la aplicación**, y todo cambia lo que el usuario ve. Los
+cuatro primeros son arreglos que salieron sin tocar UI; los tres últimos son
+pantalla nueva de esta iteración.
 
 1. **MariaDB 10.11** — conectar desde S03 y ver que la barra de estado dice
    «MariaDB 10.11.x», que el árbol trae las tablas y que el detalle de una tabla
@@ -210,15 +221,24 @@ pueda abrirlos:
    correr un `SELECT SLEEP(10)` en el editor. Tiene que cortarse solo, sin
    tocar Cancelar.
 4. **Comentario con barra invertida** — ponerle a una columna el comentario
-   `C:
-uta`, aplicar, refrescar, y ver que quedó con UNA barra. Contra un
+   `C:\ruta`, aplicar, refrescar, y ver que quedó con UNA barra. Contra un
    servidor con `NO_BACKSLASH_ESCAPES` y contra uno sin él.
 
-Y una que no es de estos cuatro pero se prueba en el mismo rato:
+Y tres que no son de esos cuatro pero se prueban en el mismo rato:
 
 5. **Archivo SQLite con `#` en la ruta** — abrir una base que esté en una
    carpeta con `#` o `%` en el nombre y comprobar que muestra los datos que
-   tiene, y no una base vacía.
+   tiene, y no una base vacía. Ahora se llega desde el botón «Abrir archivo
+   SQLite…» de S01, que es el camino que la gente va a usar.
+6. **El atajo «Abrir archivo SQLite…»** — desde S01 y desde S02: tiene que
+   abrir el editor con el motor, la ruta y el nombre ya puestos, y sin nada en
+   rojo. Cancelar el selector no tiene que dejar el diálogo abierto ni crear
+   nada.
+7. **El ensayo de S15** — contra Postgres, con un cambio que va a fallar (por
+   ejemplo exigir que no sea nula una columna que tiene nulos): tiene que
+   decirlo ANTES de aplicar, y no quedar nada. Y con uno válido: tiene que
+   decir que no aplicó nada, en un color que **no** sea el verde de «quedó
+   aplicado». Contra MySQL el botón no tiene que estar.
 
 ### Iteración 7 — Grilla editable
 
@@ -716,8 +736,7 @@ función.
   interfaz no es una protección.
 - **`QuoteString` corrompía las barras invertidas bajo `NO_BACKSLASH_ESCAPES`.**
   El comentario decía que duplicarlas «es correcto en los dos modos»; no lo es,
-  y un comentario que dice `C:
-uta` se guardaba con dos barras. No es una
+  y un comentario que dice `C:\ruta` se guardaba con dos barras. No es una
   inyección —la comilla simple, que es lo único que puede cerrar el literal, se
   duplica igual en los dos modos— pero sí corrupción silenciosa. Se lee
   `@@sql_mode` al conectar.
@@ -787,6 +806,114 @@ verdad. Un changeset de puros cambios de datos —que es exactamente lo que
 produce la grilla editable— es **un solo tramo transaccional en los cuatro
 motores**. Editar celdas tiene la misma garantía contra MySQL que contra
 Postgres. La limitación es solo del esquema.
+
+---
+
+**Las dos LTS de cada motor, no la última de cada uno.** El compose levanta
+seis contenedores: PostgreSQL, MySQL 9.7 y 8.4, MariaDB 12.3 y 10.11, y el
+servidor SSH.
+
+El encabezado del compose ya decía «se prueba contra LTS: en septiembre de 2026
+eso es 9.7 y 8.4», y de MySQL solo estaba la 9.7. Un comentario que declara una
+cobertura que el archivo no tiene es peor que no tener el comentario: quien lo
+lee deja de mirar.
+
+Que esto importa está comprobado en el mismo proyecto y no en abstracto. La
+10.11 de MariaDB **no conectaba en absoluto** —Kaname pedía
+`@@transaction_read_only`, que llegó recién en 11.1.1— y se descubrió el día que
+se levantó un contenedor con esa versión. Antes de eso, «MariaDB soportada
+desde la 10.11» era una línea del README.
+
+Las 8.4 y 10.11 son además las que están instaladas en **más** lugares que las
+últimas: son las versiones de las bases de las que la gente se preocupa.
+
+Los dos tests que dependen de la versión —modo solo lectura y límite de tiempo
+por sentencia— corren contra los cuatro servidores y no contra dos. Son
+justamente los que tocan variables de sesión, que es donde MySQL y MariaDB se
+separan: `max_execution_time` en milisegundos contra `max_statement_time` en
+segundos, y cada motor rechaza la del otro.
+
+De paso, los subtests dejaron de llamarse con el DSN. El nombre de un subtest se
+imprime, y un DSN lleva credenciales adentro; acá son de juguete, pero el hábito
+de mandar un DSN a la salida es el que después manda uno de verdad.
+
+---
+
+**El ensayo de S15, y por qué abrir una transacción y revertirla no alcanza.**
+
+El ensayo corre el changeset entero adentro de una transacción y la revierte.
+Responde la pregunta que la vista previa **no puede** responder: la vista previa
+dice qué SQL se va a mandar, y esa SQL puede ser impecable y fallar igual.
+`SET NOT NULL` sobre una columna que tiene nulos es correcta como texto y la
+rechaza el motor, porque el que decide no es la sintaxis sino los datos.
+
+Lo que no era obvio: **un ensayo escrito de la forma directa mentiría**. Hay
+errores que el motor no levanta en la sentencia sino recién al cerrar —las
+claves `DEFERRABLE INITIALLY DEFERRED` de Postgres, y en SQLite el
+`foreign_key_check` que cierra una reconstrucción de tabla—, así que una
+transacción que se abre, corre todo y se revierte **nunca los ve**. El ensayo
+diría «va a andar» y el apply fallaría en el COMMIT.
+
+Por eso `engine.Tx` ganó `Verify`: dispara esas comprobaciones sin commitear.
+Postgres corre `SET CONSTRAINTS ALL IMMEDIATE` y SQLite el `foreign_key_check`
+que ya tenía; MySQL devuelve nil porque no tiene nada diferido. Está probado con
+las dos mitades: con `Verify` la violación aparece, y **sin** `Verify` la misma
+transacción se revierte sin un solo error —ese silencio es el bug—.
+
+El ensayo pasa por el **mismo** `correrTramo` que el apply de verdad, con una
+sola cosa distinta al final: `Verify` en lugar de `Commit`. Un ensayo que corre
+por otro código prueba otro código.
+
+Tres decisiones más, todas por el mismo criterio de no prometer de más:
+
+- **No existe contra MySQL ni MariaDB.** Ahí «correr todo y revertir» no
+  revierte nada, así que el botón aplicaría. `CanDryRun` sale de las
+  capacidades de la conexión abierta, no del nombre del motor.
+- **Pide la misma confirmación de producción que aplicar**, y esto es una
+  corrección: al principio no la pedía, con el argumento de que escribir el
+  nombre de la base es la puerta de «esto queda» y esto no queda. El argumento
+  miraba la consecuencia equivocada. Un ensayo hace el MISMO trabajo y toma los
+  MISMOS candados, así que contra una tabla grande de producción el corte de
+  servicio es idéntico; lo único que cambia es lo que queda escrito después. Un
+  botón que toma un ACCESS EXCLUSIVE en producción con un clic es justo lo que
+  CLAUDE.md prohibe al pedir «confirmación extra en cualquier escritura».
+- **El ensayo que sale bien no se pinta de verde.** En el resto de la pantalla
+  el verde significa «quedó aplicado», y acá significa lo contrario. Dos verdes
+  iguales con significados opuestos es cómo alguien cierra el diálogo creyendo
+  que ya aplicó. Por lo mismo, el cartel de progreso dice «Ensayando N de M» y
+  no «Aplicando», y el rojo de `.resultadoTitulo` pasó a colgar del bloque que
+  falla en vez de la clase del título —la compartían, así que un ensayo correcto
+  escribía «Nada aplicado» en rojo de error—.
+
+- **`RolledBack` se pone después de revertir, no antes.** Estaba puesto en true
+  al armar el resultado, mientras el ROLLBACK de verdad era el diferido y su
+  error se descartaba. Es la única afirmación que el botón hace: no puede
+  apoyarse en un error que nadie lee.
+
+Y lo que el ensayo **no** promete, dicho en la propia pantalla: hace el mismo
+trabajo que el apply —incluidas las reescrituras de tabla enteras— y toma los
+mismos candados, así que contra una tabla grande sale lo mismo que aplicar y
+después hay que aplicar igual; y entre el ensayo y el apply la base sigue viva.
+
+---
+
+**El atajo «Abrir archivo SQLite…» termina en el editor, no en la base.**
+
+`DraftSQLite` arma el borrador del lado de Go —motor, ruta y nombre sacado del
+archivo— y lo devuelve **sin guardar**. Podría guardar y conectar de una: es un
+clic menos. No lo hace porque la conexión se escribe en la libreta, y abrir un
+archivo para mirarlo no debería dejar una entrada que la persona nunca vio.
+
+El nombre se corta en los dos separadores a mano en vez de usar `filepath`.
+`filepath` usa el separador del sistema donde corre el programa, así que en
+Linux `filepath.Base` de una ruta de Windows devuelve la ruta entera —y la
+libreta se sincroniza entre máquinas, además de que CI corre estos tests en
+Linux—.
+
+De paso se cayó un `TrimSpace` que ninguna inyección podía volver roja:
+`Normalize` ya recorta el nombre. Una línea que no puede fallar es una línea que
+sobra, por el mismo motivo por el que un test que no puede fallar es peor que no
+tener test.
 
 ### Iteración 5 — correcciones de uso — 2026-09-09
 

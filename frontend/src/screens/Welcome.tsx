@@ -4,6 +4,8 @@ import styles from "./Welcome.module.css";
 
 interface Props {
   onNew: () => void;
+  /** Atajo: elegir un archivo de SQLite y abrirlo sin pasar por el formulario. */
+  onOpenFile: () => void;
   onAbout: () => void;
   /** Ruta del archivo de conexiones, para la barra de estado. */
   connectionsPath: string;
@@ -12,11 +14,10 @@ interface Props {
 /**
  * S01 Welcome.
  *
- * Iteración 1 sin "Open SQLite file", que llega en la 6. Tampoco están
- * "Import connections" ni la detección de motores locales: el plan no las pide
- * y escanear puertos, aunque sea local, es alcance que nadie pidió.
+ * No están "Import connections" ni la detección de motores locales: el plan no
+ * las pide y escanear puertos, aunque sea local, es alcance que nadie pidió.
  */
-export function Welcome({ onNew, onAbout, connectionsPath }: Props) {
+export function Welcome({ onNew, onOpenFile, onAbout, connectionsPath }: Props) {
   return (
     <div className={styles.screen}>
       <header className={styles.titlebar}>
@@ -37,7 +38,7 @@ export function Welcome({ onNew, onAbout, connectionsPath }: Props) {
               <div>
                 <div className={styles.name}>KANAME</div>
                 <div className={styles.tagline}>
-                  Edición de esquema y datos para PostgreSQL, MySQL y SQLite
+                  Edición de esquema y datos para PostgreSQL, MySQL, MariaDB y SQLite
                 </div>
               </div>
             </div>
@@ -52,7 +53,7 @@ export function Welcome({ onNew, onAbout, connectionsPath }: Props) {
               <Button variant="primary" size="lg" onClick={onNew}>
                 Nueva conexión
               </Button>
-              <Button size="lg" disabled title="Llega en la Iteración 6">
+              <Button size="lg" onClick={onOpenFile}>
                 Abrir archivo SQLite…
               </Button>
             </div>

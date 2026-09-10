@@ -80,6 +80,15 @@ func (t *txMy) Commit(ctx context.Context) error {
 	return t.tx.Commit()
 }
 
+// Verify no tiene nada que adelantar: ni MySQL ni MariaDB tienen restricciones
+// diferidas —`SET CONSTRAINTS` no existe y una clave foránea se comprueba fila
+// por fila—, así que un COMMIT no puede fallar por algo que las sentencias no
+// hayan fallado ya.
+//
+// De todos modos estos dos motores nunca llegan acá: el ensayo de S15 exige DDL
+// transaccional y ellos no lo tienen.
+func (t *txMy) Verify(context.Context) error { return nil }
+
 // Rollback después de un Commit exitoso es un no-op, para que quien la abrió
 // pueda hacer `defer tx.Rollback()` sin pensar. database/sql devolvería
 // ErrTxDone, que no es un error real en ese caso.

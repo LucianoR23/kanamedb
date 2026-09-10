@@ -378,3 +378,84 @@ func TestLaVistaNoLlevaLaContrasena(t *testing.T) {
 		t.Errorf("la vista lleva la contraseña: %s", rendered)
 	}
 }
+
+// TestElAtajoDeSQLiteDejaLaConexionListaParaConectar.
+//
+// El atajo de S01 y S02 existe para que abrir un archivo sea elegirlo y nada
+// más. Si el borrador que devuelve no es VÁLIDO, el atajo no ahorró nada: el
+// editor abre con un campo en rojo y hay que completarlo a mano igual.
+func TestElAtajoDeSQLiteDejaLaConexionListaParaConectar(t *testing.T) {
+	s := nuevo(t)
+
+	v, err := s.DraftSQLite(`C:\Users\yo\datos\northwind.db`)
+	if err != nil {
+		t.Fatalf("DraftSQLite: %v", err)
+	}
+	if !v.Valid() {
+		t.Fatalf("el borrador salió con problemas y hay que completarlo a mano: %v", v.Problems)
+	}
+	if v.Connection.Engine != connection.SQLite {
+		t.Errorf("el motor quedó %q", v.Connection.Engine)
+	}
+	if v.Connection.Database != `C:\Users\yo\datos\northwind.db` {
+		t.Errorf("la ruta quedó %q", v.Connection.Database)
+	}
+	if v.Connection.Name != "northwind" {
+		t.Errorf("el nombre quedó %q y se esperaba %q", v.Connection.Name, "northwind")
+	}
+	if v.Connection.ID == "" {
+		t.Error("sin ID: es la clave del keychain y la que usan Get, Update y Delete")
+	}
+	// Nunca producción por defecto, igual que Draft. Un atajo no es motivo para
+	// bajar el default seguro.
+	if v.Connection.Environment != connection.Local {
+		t.Errorf("el entorno quedó %q", v.Connection.Environment)
+	}
+
+	// Y NO se guardó: abrir un archivo para mirarlo no deja rastro en la lista.
+	lista, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(lista) != 0 {
+		t.Errorf("el atajo guardó %d conexión(es) sin que el usuario las viera", len(lista))
+	}
+
+	// Dos archivos distintos con el mismo nombre dan dos conexiones distintas:
+	// lo que identifica una conexión es el ID, no el nombre.
+	otra, err := s.DraftSQLite(`D:\backup\northwind.db`)
+	if err != nil {
+		t.Fatalf("DraftSQLite: %v", err)
+	}
+	if otra.Connection.ID == v.Connection.ID {
+		t.Error("los dos borradores comparten el ID: comparten la entrada del keychain")
+	}
+}
+
+// TestElNombreSaleDelArchivoEnLosDosSeparadores.
+//
+// `filepath` usa el separador del sistema donde corre el programa, así que en
+// Linux una ruta de Windows no se corta en ninguna parte y el nombre de la
+// conexión sería la ruta entera. La libreta se sincroniza entre máquinas y CI
+// corre esto en Linux: tiene que dar lo mismo en los dos lados.
+func TestElNombreSaleDelArchivoEnLosDosSeparadores(t *testing.T) {
+	casos := []struct{ ruta, nombre string }{
+		{`C:\Users\yo\datos\northwind.db`, "northwind"},
+		{"/home/yo/datos/northwind.db", "northwind"},
+		{"/var/lib/app/kaname.sqlite3", "kaname"},
+		// Muchas bases de SQLite no tienen extensión.
+		{`C:\datos\produccion`, "produccion"},
+		// Todo extensión y nada de nombre: sacársela dejaría el nombre vacío, y
+		// el nombre es obligatorio.
+		{`C:\datos\.db`, ".db"},
+		{"/datos/.db", ".db"},
+		// Varios puntos: solo se saca el último tramo.
+		{`C:\datos\app.v2.db`, "app.v2"},
+		{"/datos/con espacios.db", "con espacios"},
+	}
+	for _, c := range casos {
+		if got := nombreDeArchivo(c.ruta); got != c.nombre {
+			t.Errorf("nombreDeArchivo(%q) = %q, se esperaba %q", c.ruta, got, c.nombre)
+		}
+	}
+}

@@ -145,9 +145,24 @@
   background: var(--danger-quiet);
   color: var(--text-1);
 }
+/* El ensayo que sale bien NO se pinta de verde.
+   Verde significa «quedó aplicado» en el resto de la pantalla, y un ensayo que
+   sale bien significa lo contrario: no quedó nada. Dos verdes iguales con
+   significados opuestos, uno al lado del otro, es cómo alguien cierra el
+   diálogo creyendo que ya aplicó. */
+.resultadoEnsayo {
+  background: var(--accent-quiet);
+  color: var(--text-1);
+}
+/* El rojo lo pone el bloque que FALLA, no la clase del título.
+   Cuando lo llevaba el título, el ensayo que sale bien —que reusa esta clase—
+   escribía «Nada aplicado» en rojo de error: un resultado correcto que se lee
+   como un fallo, que es la confusión que .resultadoEnsayo viene a evitar. */
 .resultadoTitulo {
   margin: 0 0 5px;
   font-weight: 500;
+}
+.resultadoMal .resultadoTitulo {
   color: var(--danger);
 }
 .resultadoMsg {
@@ -358,4 +373,11 @@
   gap: 6px;
   padding: 11px 13px;
   border-top: 1px solid var(--border);
+}
+
+/* Lo que cuesta ensayar, dicho antes de apretar el botón y no después. */
+.notaEnsayo {
+  margin: -1px 0 3px;
+  font: 400 11px/1.5 var(--font-ui);
+  color: var(--text-3);
 }
