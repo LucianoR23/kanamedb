@@ -365,6 +365,7 @@ export function Shell({
                       schema={obj.schema}
                       table={obj.table}
                       readOnly={session?.readOnly ?? false}
+                      engine={session?.server?.engine ?? ""}
                       snapshot={snapshot}
                       recarga={recarga}
                       onShowInErd={openErd}

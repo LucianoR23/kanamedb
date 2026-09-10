@@ -3,9 +3,11 @@ package mysql_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/engine/enginetest"
 	"github.com/LucianoR23/kanamedb/internal/mysql"
@@ -191,6 +193,99 @@ func TestElLimiteDeTiempoCortaLaSentencia(t *testing.T) {
 			if pasado := time.Since(inicio); pasado > 3*time.Second {
 				t.Errorf("un SELECT SLEEP(5) tardó %v con un límite de 400ms: el "+
 					"servidor no lo cortó", pasado)
+			}
+		})
+	}
+}
+
+// TestElValorPorDefectoVuelveAEscribirseComoSQL.
+//
+// MySQL no tiene COMMENT ON: comentar una columna la reescribe entera con
+// MODIFY, así que hay que repetirle el tipo, la nulabilidad y el DEFAULT o los
+// pierde. Y el DEFAULT sale del catálogo… que en MySQL lo devuelve SIN comillas.
+//
+// Resultado: `DEFAULT nuevo`, y el motor contesta 42000. Encontrado desde la
+// aplicación, no por un test: la costura estaba bien y el viaje completo no.
+//
+// Los dos motores difieren y por eso corre contra los cuatro servidores:
+// MariaDB entrega el default ya escrito como expresión —un literal con comillas,
+// una función sin ellas— y MySQL entrega el valor pelado marcando las
+// expresiones en `extra`.
+func TestElValorPorDefectoVuelveAEscribirseComoSQL(t *testing.T) {
+	for _, m := range motores {
+		t.Run(m.nombre, func(t *testing.T) {
+			ctx := context.Background()
+			c, f := mysql.Open(ctx, m.dsn, "pruebas", engine.OpenOptions{MaxConns: 2})
+			if f != nil {
+				saltear(t, m.nombre, f)
+			}
+			t.Cleanup(c.Close)
+
+			const tabla = "kn_def_sql"
+			_ = c.Exec(ctx, "DROP TABLE IF EXISTS "+tabla)
+			if err := c.Exec(ctx, "CREATE TABLE "+tabla+" ("+
+				"id bigint PRIMARY KEY,"+
+				"texto varchar(20) NOT NULL DEFAULT 'nuevo',"+
+				"numero int DEFAULT 5,"+
+				"cuando timestamp DEFAULT CURRENT_TIMESTAMP)"); err != nil {
+				t.Fatalf("crear la tabla: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP TABLE IF EXISTS "+tabla) })
+
+			d, err := c.Detail(ctx, "", tabla)
+			if err != nil {
+				t.Fatalf("Detail(): %v", err)
+			}
+			porNombre := map[string]string{}
+			for _, col := range d.Columns {
+				porNombre[col.Name] = col.Default
+			}
+			if got := porNombre["texto"]; got != "'nuevo'" {
+				t.Errorf("el default de texto quedó %q y tiene que ser %q: sin comillas, "+
+					"un MODIFY que lo repita da error de sintaxis", got, "'nuevo'")
+			}
+			if got := porNombre["numero"]; got != "5" {
+				t.Errorf("el default de numero quedó %q y tiene que ser 5 pelado", got)
+			}
+			// La expresión NO se cita: citarla guardaría el texto en vez de
+			// llamar a la función.
+			if got := porNombre["cuando"]; strings.HasPrefix(got, "'") {
+				t.Errorf("el default de cuando quedó citado (%q): es una expresión", got)
+			}
+
+			// Y lo que de verdad importa: que el DDL que sale de ahí lo acepte
+			// el motor. Es el viaje entero, que es donde estaba el bug.
+			st, err := c.RenderDDL(ctx, change.Change{
+				Type: change.SetColumnComment, Table: tabla,
+				Column: &change.Column{
+					Name: "texto", DataType: "varchar(20)",
+					Nullable: false, Default: porNombre["texto"],
+				},
+				Comment: `C:\ruta\del\backup`,
+			})
+			if err != nil {
+				t.Fatalf("RenderDDL(): %v", err)
+			}
+			if err := c.Exec(ctx, st.SQL); err != nil {
+				t.Fatalf("el motor rechazó la sentencia:\n%s\n%v", st.SQL, err)
+			}
+
+			// Releer: el default sigue, y el comentario quedó con UNA barra.
+			d2, err := c.Detail(ctx, "", tabla)
+			if err != nil {
+				t.Fatalf("Detail() después: %v", err)
+			}
+			for _, col := range d2.Columns {
+				if col.Name != "texto" {
+					continue
+				}
+				if col.Default != "'nuevo'" {
+					t.Errorf("comentar la columna le cambió el default a %q", col.Default)
+				}
+				if col.Comment != `C:\ruta\del\backup` {
+					t.Errorf("el comentario quedó %q y se escribió %q",
+						col.Comment, `C:\ruta\del\backup`)
+				}
 			}
 		})
 	}

@@ -212,7 +212,9 @@ func leerClaves(ctx context.Context, db *sql.DB, base, tabla string) ([]schema.F
 }
 
 // detail lee todo lo de UNA tabla.
-func detail(ctx context.Context, db *sql.DB, base, tabla string, kind engine.Kind) (*schema.TableDetail, error) {
+func detail(
+	ctx context.Context, db *sql.DB, base, tabla string, kind engine.Kind, sinEscapes bool,
+) (*schema.TableDetail, error) {
 	d := &schema.TableDetail{
 		Schema: base, Name: tabla, RowEstimate: -1, CapturedAt: time.Now(),
 	}
@@ -231,7 +233,7 @@ func detail(ctx context.Context, db *sql.DB, base, tabla string, kind engine.Kin
 	}
 
 	var err error
-	if d.Columns, err = detalleColumnas(ctx, db, base, tabla); err != nil {
+	if d.Columns, err = detalleColumnas(ctx, db, base, tabla, kind, sinEscapes); err != nil {
 		return nil, err
 	}
 	if d.Indexes, err = detalleIndices(ctx, db, base, tabla, kind); err != nil {
@@ -263,7 +265,9 @@ func detail(ctx context.Context, db *sql.DB, base, tabla string, kind engine.Kin
 	return d, nil
 }
 
-func detalleColumnas(ctx context.Context, db *sql.DB, base, tabla string) ([]schema.DetailColumn, error) {
+func detalleColumnas(
+	ctx context.Context, db *sql.DB, base, tabla string, kind engine.Kind, sinEscapes bool,
+) ([]schema.DetailColumn, error) {
 	const q = `
 		SELECT column_name, column_type, is_nullable = 'YES', ordinal_position,
 		       COALESCE(column_default, ''), COALESCE(column_comment, ''),
@@ -301,6 +305,8 @@ func detalleColumnas(ctx context.Context, db *sql.DB, base, tabla string) ([]sch
 			// que ya se cometió con Postgres: ofrecer «sacar el valor por
 			// defecto» sobre una columna generada.
 			c.Default = ""
+		} else {
+			c.Default = normalizarDefault(c.Default, c.DataType, extra, kind, sinEscapes)
 		}
 		if strings.Contains(extra, "auto_increment") {
 			// El equivalente más cercano a una columna de identidad.
@@ -544,4 +550,67 @@ func primaryKeyColumns(ctx context.Context, db *sql.DB, base, tabla string) ([]s
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// normalizarDefault deja el valor por defecto escrito como SQL, listo para
+// volver a ponerlo en un DDL.
+//
+// Hace falta porque los dos motores lo devuelven de forma DISTINTA, y el que
+// más se usa es el que lo devuelve mal:
+//
+//	varchar DEFAULT 'nuevo'    MySQL: nuevo              MariaDB: 'nuevo'
+//	int     DEFAULT 5          MySQL: 5                  MariaDB: 5
+//	CURRENT_TIMESTAMP          MySQL: CURRENT_TIMESTAMP  MariaDB: current_timestamp()
+//	                                  + extra=DEFAULT_GENERATED
+//
+// O sea que en MySQL un literal de texto llega SIN comillas. Y como MySQL no
+// tiene COMMENT ON, comentar una columna la reescribe entera con MODIFY —hay
+// que repetirle el tipo, la nulabilidad y el default o los pierde—, así que ese
+// valor vuelve a salir en un DDL. Sin comillas, sale
+// `DEFAULT nuevo` y el motor contesta un error de sintaxis. Comprobado contra
+// MySQL 9.7 desde la aplicación.
+//
+// La regla es por motor porque la ambigüedad es por motor:
+//
+//   - MariaDB ya lo entrega como expresión: un literal de texto viene con
+//     comillas y una función viene sin ellas. No hay nada que decidir.
+//   - MySQL entrega el VALOR pelado, y marca las expresiones en `extra`. Lo que
+//     no esté marcado es un literal, y hay que citarlo salvo que la columna sea
+//     numérica —donde `b'1'` de un bit y el `5` de un int ya están escritos como
+//     hay que escribirlos—.
+func normalizarDefault(valor, tipo, extra string, kind engine.Kind, sinEscapes bool) string {
+	if valor == "" {
+		return ""
+	}
+	if kind == engine.MariaDB {
+		return valor
+	}
+	// MySQL 8.0.13+ marca así los defaults que son expresión.
+	if strings.Contains(extra, "DEFAULT_GENERATED") {
+		return valor
+	}
+	if tipoNumerico(tipo) {
+		return valor
+	}
+	// Se cita en el modo del SERVIDOR: con NO_BACKSLASH_ESCAPES la barra no
+	// escapa nada, y duplicarla guardaría dos. Es el mismo error que ya se
+	// cometió una vez con los comentarios.
+	return quoteString(valor, sinEscapes)
+}
+
+// tipoNumerico dice si el tipo escribe su default sin comillas.
+//
+// Se mira el TIPO y no si el valor parece un número: un `varchar` con default
+// `5` guarda el texto "5", y dejarlo pelado ahí sería suerte, no criterio.
+func tipoNumerico(tipo string) bool {
+	t := strings.ToLower(tipo)
+	if i := strings.IndexAny(t, "( "); i > 0 {
+		t = t[:i]
+	}
+	switch t {
+	case "tinyint", "smallint", "mediumint", "int", "integer", "bigint",
+		"decimal", "dec", "numeric", "fixed", "float", "double", "real", "bit", "bool", "boolean":
+		return true
+	}
+	return false
 }

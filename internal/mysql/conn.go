@@ -117,7 +117,7 @@ func (c *Conn) Introspect(ctx context.Context) (*schema.Snapshot, error) {
 }
 
 func (c *Conn) Detail(ctx context.Context, esquema, tabla string) (*schema.TableDetail, error) {
-	return detail(ctx, c.db, c.base(esquema), tabla, c.server.Kind)
+	return detail(ctx, c.db, c.base(esquema), tabla, c.server.Kind, c.sinEscapes)
 }
 
 func (c *Conn) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) {

@@ -216,7 +216,7 @@ incluido—.
 | 1 | MariaDB 10.11 desde S03 | ✅ conecta, «MariaDB 10.11.19» en la barra, árbol y detalle sin errores |
 | 2 | Solo lectura contra MySQL | ✅ el DELETE falla con 25006 y «esta conexión está abierta en modo solo lectura» |
 | 3 | Límite de tiempo | ✅ `SELECT SLEEP(10)` cortado a los **2012 ms** |
-| 4 | Comentario con barra invertida | ⛔ **no se puede probar**: ver abajo |
+| 4 | Comentario con barra invertida | ✅ hecha el 2026-09-09, después de construirle la puerta de entrada |
 | 5 | SQLite con `#` y `%` en la ruta | ✅ abre el archivo real y muestra sus 3 filas, no una base vacía |
 | 6 | Atajo «Abrir archivo SQLite…» | ⚠️ el botón está y llega al editor; **el selector nativo no se puede manejar por CDP** y queda para probar a mano |
 | 7 | Ensayo de S15 | ✅ el cambio inválido se caza antes de aplicar, con SQLSTATE 23502 y la consulta para encontrar las filas; el válido dice «Nada aplicado» en violeta, no en verde |
@@ -247,12 +247,10 @@ por mirar la aplicación y no el código:
   solo lista «S03 — tabs TLS y Advanced». Mientras tanto el límite de tiempo por
   sentencia y las otras dos protecciones solo se editan en `connections.toml`
   —que es lo que hubo que hacer para correr la prueba 3—.
-- ⏳ **`setColumnComment` no se puede crear desde ninguna pantalla.** El
-  changeset sabe renderizarlo y aplicarlo, y `PendingChanges` sabe cómo
-  nombrarlo, pero no hay menú ni campo que lo produzca. Por eso la prueba 4
-  —que existe porque `QuoteString` corrompía las barras invertidas— no se puede
-  hacer: el arreglo está probado contra el motor y no hay forma de llegar a él
-  desde la interfaz.
+- ✅ **`setColumnComment` ya tiene puerta de entrada**: «Comentar…» en el menú
+  contextual de la columna, deshabilitado con SQLite y explicando por qué. Y el
+  campo «Comentario» del alta de columna, que existía y no hacía nada, ahora
+  arma su propio cambio. Ver el registro de la iteración 6.
 
 ### Iteración 7 — Grilla editable
 
@@ -938,6 +936,64 @@ Y lo que el ensayo **no** promete, dicho en la propia pantalla: hace el mismo
 trabajo que el apply —incluidas las reescrituras de tabla enteras— y toma los
 mismos candados, así que contra una tabla grande sale lo mismo que aplicar y
 después hay que aplicar igual; y entre el ensayo y el apply la base sigue viva.
+
+---
+
+**El campo «Comentario» del alta de columna se escribía y se perdía, y el bug de
+las barras invertidas era imposible de ver.**
+
+`SetColumnComment` estaba implementado de punta a punta —`COMMENT ON COLUMN` en
+Postgres, `MODIFY` en MySQL, `ErrUnsupported` honesto en SQLite— y **ninguna
+pantalla lo producía**. El vocabulario del changeset se armó completo por motor;
+la puerta de entrada nunca se construyó. Peor: el diálogo de alta de columna SÍ
+tenía un campo «Comentario», que viajaba adentro del `AddColumn` y que **ningún
+motor renderiza**. Se escribía y desaparecía.
+
+Ahora hay «Comentar…» en el menú contextual de la columna, y el comentario del
+alta se arma como su **propio cambio** en vez de ir adentro del `AddColumn`:
+Postgres necesita un `COMMENT ON` aparte de todos modos, un cambio produce una
+sentencia, y así además aparece en la lista de pendientes.
+
+**Y al probarlo apareció el bug que lo tapaba todo: `DEFAULT nuevo`, sin
+comillas.** MySQL no tiene `COMMENT ON`, así que comentar una columna la
+reescribe entera con `MODIFY` —hay que repetirle tipo, nulabilidad y default o
+los pierde— y ese default sale del catálogo. Los dos motores lo entregan
+distinto:
+
+| | MySQL 9.7 | MariaDB |
+|---|---|---|
+| `varchar DEFAULT 'nuevo'` | `nuevo` **sin comillas** | `'nuevo'` |
+| `int DEFAULT 5` | `5` | `5` |
+| `DEFAULT CURRENT_TIMESTAMP` | `CURRENT_TIMESTAMP`, marcado en `extra` | `current_timestamp()`, sin marca |
+
+O sea que en MySQL un literal de texto llega pelado, y al volver a escribirlo en
+el DDL sale `DEFAULT nuevo` y el motor contesta 42000. `normalizarDefault` lo
+deja escrito como SQL en la introspección, que es donde nace la diferencia: en
+MariaDB no hay nada que decidir —ya viene como expresión— y en MySQL se cita lo
+que no esté marcado como expresión, salvo que la columna sea numérica. Se cita
+en el modo del servidor, no en el normal: con `NO_BACKSLASH_ESCAPES` duplicar la
+barra guardaría dos, que es el mismo error de antes.
+
+Comprobado el viaje entero desde la aplicación contra MySQL 9.7: el comentario
+`C:\ruta\del\backup` queda en la base con **18 bytes**, una barra por cada una,
+y el default sigue siendo `'nuevo'`.
+
+---
+
+**El editor SQL corre varias sentencias contra Postgres y no contra MySQL.**
+
+Los comentarios NO son el problema: `--`, `/* */`, al final de una línea y
+sueltos al final del texto andan en los dos. Lo que cambia es que el editor
+manda el texto **entero** en una sola llamada: pgx acepta varias sentencias en
+una consulta simple y devuelve un resultado por cada una —por eso `query.Batch`
+tiene una lista—, y el driver de MySQL tiene `multiStatements` apagado, así que
+contesta un error de sintaxis señalando el segundo `SELECT`.
+
+⏳ Queda por decidir cómo cerrarlo. Encender `multiStatements` es una línea y
+   ensancha lo que puede hacer una sola llamada al driver; partir las sentencias
+   del lado del cliente es más trabajo pero no cambia la postura de seguridad y
+   da tiempo por sentencia. Mientras tanto la pantalla **no lo dice**, que es lo
+   peor de las dos opciones.
 
 ---
 

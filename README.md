@@ -142,6 +142,21 @@ vacía. Para mirar la aplicación con algo que se parezca a un esquema real:
 docker exec -i kaname-postgres-1 psql -U kaname -d kaname_test < docker/demo.sql
 ```
 
+Y una base de SQLite, que es un archivo y no necesita contenedor. Sirve para
+probar «Abrir archivo SQLite…», que si no pide tener una a mano:
+
+```sh
+sqlite3 kaname-demo.db < docker/demo-sqlite.sql
+# sin el cliente de sqlite3, Python lo trae:
+python -c "import sqlite3;sqlite3.connect('kaname-demo.db').executescript(open('docker/demo-sqlite.sql',encoding='utf-8').read())"
+```
+
+Adentro hay lo que conviene mirar en SQLite y no en los otros: una clave foránea
+con `ON DELETE CASCADE` —reconstruir la tabla padre con las claves encendidas
+borraría las filas de la hija en silencio—, una columna generada que la
+reconstrucción no debe copiar, un índice parcial, un trigger y una vista, que es
+lo que obliga a `PRAGMA legacy_alter_table`.
+
 Deja tres esquemas: **`demo`** con identidad, columnas generadas, restricciones
 sin validar, índices de todas las formas y triggers activos y deshabilitados;
 **`aristas`** con una tabla por cada forma de relación, para comparar cómo se

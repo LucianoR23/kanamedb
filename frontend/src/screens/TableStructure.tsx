@@ -24,6 +24,7 @@ import { ConstraintEditor } from "./ConstraintEditor";
 import type { ObjetoNuevo } from "./ConstraintEditor";
 import type { ColumnaNueva } from "./ColumnEditor";
 import { cx } from "../lib/cx";
+import { nombreDeMotor, soportaComentarios } from "../lib/motor";
 import styles from "./TableStructure.module.css";
 
 /** Las vistas de estructura que existen, en el orden en que se muestran. */
@@ -47,6 +48,7 @@ export function TableStructure({
   loading,
   error,
   readOnly,
+  engine,
   tablas,
   pendientes = sinPendientes(),
   onStage,
@@ -57,6 +59,9 @@ export function TableStructure({
   error: string;
   /** Sin escritura no se ofrece ninguna edición: el menú explica por qué. */
   readOnly: boolean;
+  /** El motor de la conexión. Decide qué opciones tienen sentido: SQLite no
+   *  guarda comentarios en ningún lado. */
+  engine: string;
   /** Las tablas del esquema, para elegir a cuál apunta una clave foránea. */
   tablas: string[];
   /** Lo que el changeset le agrega o le saca a esta tabla y todavía no existe. */
@@ -94,6 +99,7 @@ export function TableStructure({
           columnas={detail.columns ?? []}
           claves={detail.foreignKeys ?? []}
           readOnly={readOnly}
+          engine={engine}
           onStage={onStage}
         />
       );
@@ -168,18 +174,22 @@ function Columnas({
   columnas,
   claves,
   readOnly,
+  engine,
   onStage,
 }: {
   detail: TableDetail;
   columnas: DetailColumn[];
   claves: ForeignKey[];
   readOnly: boolean;
+  engine: string;
   onStage: (c: Change) => void;
 }) {
   const [menu, setMenu] = useState<{ ancla: MenuAnchor; col: DetailColumn } | null>(null);
-  const [editor, setEditor] = useState<{ modo: "agregar" | "renombrar"; col?: DetailColumn } | null>(
-    null,
-  );
+  const [editor, setEditor] = useState<{
+    modo: "agregar" | "renombrar" | "comentar";
+    col?: DetailColumn;
+  } | null>(null);
+  const comentarios = soportaComentarios(engine);
 
   // Todo cambio lleva de dónde salió: la pantalla de pendientes lo muestra para
   // poder volver al lugar donde se hizo la edición.
@@ -201,6 +211,15 @@ function Columnas({
       disabled: readOnly,
       disabledReason: "solo lectura",
       onSelect: () => setEditor({ modo: "renombrar", col: c }),
+    },
+    {
+      id: "comentar",
+      label: c.comment ? "Cambiar el comentario…" : "Comentar…",
+      disabled: readOnly || !comentarios,
+      disabledReason: readOnly
+        ? "solo lectura"
+        : `${nombreDeMotor(engine)} no guarda comentarios de columna`,
+      onSelect: () => setEditor({ modo: "comentar", col: c }),
     },
     {
       id: "nulos",
@@ -370,9 +389,28 @@ function Columnas({
           modo={editor.modo}
           {...(editor.col ? { columna: editor.col } : {})}
           tabla={detail.name}
+          soportaComentarios={comentarios}
           onCerrar={() => setEditor(null)}
           onGuardar={(v: ColumnaNueva) => {
             setEditor(null);
+            if (editor.modo === "comentar" && editor.col) {
+              onStage(
+                base({
+                  type: OpType.SetColumnComment,
+                  // La definición entera y no solo el nombre: MySQL no tiene
+                  // COMMENT ON, así que reescribe la columna con MODIFY —y lo
+                  // que no se le repita, lo pierde—.
+                  column: {
+                    name: editor.col.name,
+                    dataType: editor.col.dataType,
+                    nullable: editor.col.nullable,
+                    ...(editor.col.default ? { default: editor.col.default } : {}),
+                  },
+                  comment: v.comment,
+                }),
+              );
+              return;
+            }
             if (editor.modo === "renombrar" && editor.col) {
               onStage(
                 base({
@@ -395,10 +433,23 @@ function Columnas({
                   dataType: v.dataType,
                   nullable: v.nullable,
                   ...(v.default ? { default: v.default } : {}),
-                  ...(v.comment ? { comment: v.comment } : {}),
                 },
               }),
             );
+            // El comentario va como su PROPIO cambio y no adentro del
+            // AddColumn. Iba adentro, y ningún motor lo renderizaba: se
+            // escribía en el diálogo y se perdía en silencio. Postgres necesita
+            // un COMMENT ON aparte de todos modos, y un cambio produce una
+            // sentencia; así además se ve en la lista de pendientes.
+            if (v.comment) {
+              onStage(
+                base({
+                  type: OpType.SetColumnComment,
+                  column: { name: v.name, dataType: v.dataType, nullable: v.nullable },
+                  comment: v.comment,
+                }),
+              );
+            }
           }}
         />
       ) : null}

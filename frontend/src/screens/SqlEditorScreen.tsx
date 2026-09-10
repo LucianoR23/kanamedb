@@ -10,7 +10,7 @@ import { SqlEditor } from "../components/SqlEditor";
 import { CellViewer } from "./CellViewer";
 import { Splitter } from "../components/Splitter";
 import { cx } from "../lib/cx";
-import { nombreDeMotor } from "../lib/motor";
+import { nombreDeMotor, plural } from "../lib/motor";
 import styles from "./SqlEditorScreen.module.css";
 
 type Estado =
@@ -213,7 +213,7 @@ export function SqlEditorScreen({
           {result ? (
             <span className={styles.meta}>
               {result.returnsRows
-                ? `${(result.rows ?? []).length.toLocaleString("es", { useGrouping: true })} filas`
+                ? `${(result.rows ?? []).length.toLocaleString("es", { useGrouping: true })} ${plural((result.rows ?? []).length, "fila", "filas")}`
                 : result.command}
               {result.truncated ? " · cortado por el límite" : ""}
             </span>
@@ -280,7 +280,7 @@ export function SqlEditorScreen({
               <p className={styles.sinFilasNota}>
                 {result.affectedRows === 1
                   ? "1 fila afectada."
-                  : `${result.affectedRows} filas afectadas.`}{" "}
+                  : `${result.affectedRows} ${plural(result.affectedRows, "fila afectada", "filas afectadas")}.`}{" "}
                 Esta sentencia no devuelve resultados.
               </p>
             </div>
@@ -394,7 +394,7 @@ function metaDe(e: Estado): string {
     case "listo": {
       const rs = e.batch.results ?? [];
       const partes: string[] = [`${e.batch.elapsedMs} ms`];
-      if (rs.length > 1) partes.unshift(`${rs.length} sentencias`);
+      if (rs.length > 1) partes.unshift(`${rs.length} sentencias`); // solo se muestra con >1
       return partes.join(" · ");
     }
     default:

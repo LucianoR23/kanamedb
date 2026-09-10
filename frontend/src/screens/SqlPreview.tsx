@@ -7,7 +7,7 @@ import type {
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { Button, CopyButton, Dialog, Input } from "../components/ui";
 import { cx } from "../lib/cx";
-import { nombreDeMotor } from "../lib/motor";
+import { nombreDeMotor, plural } from "../lib/motor";
 import styles from "./SqlPreview.module.css";
 
 /** Cada cuánto se pregunta por dónde va el apply. */
@@ -167,7 +167,8 @@ export function SqlPreview({
         <div className={styles.izquierda}>
           <div className={styles.barraSql}>
             <span className={styles.meta}>
-              {contarLineas(vista.script)} líneas · {r.included} sentencias
+              {contarLineas(vista.script)} {plural(contarLineas(vista.script), "línea", "líneas")} ·{" "}
+              {r.included} {plural(r.included, "sentencia", "sentencias")}
             </span>
             <span className={styles.grow} />
             <span className={styles.txn}>{textoDeTxn(vista, singleTransaction)}</span>
@@ -422,7 +423,9 @@ function Resultado({
   if (res.ok) {
     return (
       <div className={cx(styles.resultado, styles.resultadoOk)}>
-        Se aplicaron {(res.results ?? []).length} sentencias en {(res.elapsedMs / 1000).toFixed(1)} s.
+        Se aplicó{plural((res.results ?? []).length, "", "aron")} {(res.results ?? []).length}{" "}
+        {plural((res.results ?? []).length, "sentencia", "sentencias")} en{" "}
+        {(res.elapsedMs / 1000).toFixed(1)} s.
       </div>
     );
   }
@@ -435,8 +438,8 @@ function Resultado({
           ? "Falló y se revirtió todo: la base quedó como estaba."
           : hechas === 0
             ? "Falló en la primera sentencia: no quedó nada aplicado."
-            : `Falló a la mitad. Las ${hechas} sentencias anteriores YA quedaron aplicadas y ` +
-              "salieron de la lista."}
+            : `Falló a la mitad. ${plural(hechas, "La", "Las")} ${hechas} ${plural(hechas, "sentencia anterior", "sentencias anteriores")} YA ${plural(hechas, "quedó", "quedaron")} ` +
+              `${plural(hechas, "aplicada y salió", "aplicadas y salieron")} de la lista.`}
       </p>
       {/* Por qué quedó a medias, que no siempre es lo mismo.
 

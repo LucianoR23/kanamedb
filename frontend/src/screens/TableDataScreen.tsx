@@ -37,6 +37,7 @@ export function TableDataScreen({
   schema,
   table,
   readOnly,
+  engine,
   snapshot,
   recarga,
   onShowInErd,
@@ -46,6 +47,8 @@ export function TableDataScreen({
   schema: string;
   table: string;
   readOnly: boolean;
+  /** El motor de la conexión, para las opciones que dependen de él. */
+  engine: string;
   snapshot: Snapshot | null;
   /** Sube cada vez que hay que releer: «Refrescar», o un apply que tocó la base. */
   recarga: number;
@@ -303,6 +306,7 @@ export function TableDataScreen({
           loading={detalleCargando}
           error={detalleError}
           readOnly={readOnly}
+          engine={engine}
           tablas={tablasDelEsquema}
           pendientes={pendientes}
           onStage={(c) => void staging.stage(c)}

@@ -53,3 +53,25 @@ export function dialectoDe(k: string): SQLDialect {
   // sería adivinar.
   return StandardSQL;
 }
+
+/**
+ * Si el motor guarda una descripción de las tablas y las columnas.
+ *
+ * SQLite no: no existe en ningún lado, y `internal/sqlite` devuelve
+ * `ErrUnsupported` con ese motivo. Preguntarlo ANTES es lo que evita ofrecer
+ * una opción que al aplicar va a hacer fallar el changeset entero.
+ */
+export function soportaComentarios(k: string): boolean {
+  return k !== "sqlite";
+}
+
+/**
+ * Plural en castellano para los contadores que se muestran.
+ *
+ * Existe porque «1 filas» y «1 sentencias» aparecieron en cuatro lugares
+ * distintos, y cada uno se arregló por separado hasta que fueron demasiados. Un
+ * contador que no concuerda hace dudar del resto del mensaje.
+ */
+export function plural(n: number, uno: string, varios: string): string {
+  return n === 1 ? uno : varios;
+}
