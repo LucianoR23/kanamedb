@@ -60,6 +60,44 @@ type ImportPlan struct {
 	Mapping []string `json:"mapping"`
 
 	OnConflict OnConflict `json:"onConflict"`
+
+	// Confirm es el nombre de LA BASE escrito a mano, igual que en Apply.
+	//
+	// Importar es escribir, y contra producción escribir exige tipear. Vale
+	// también para el ENSAYO, y no por simetría: el ensayo inserta de verdad
+	// antes de revertir, así que toma los mismos candados de la tabla y
+	// consume los valores de las secuencias —que un ROLLBACK no devuelve—.
+	Confirm string `json:"confirm,omitempty"`
+}
+
+// ImportTarget es lo que el asistente necesita saber ANTES de dejar importar.
+//
+// Va en un pedido propio y no se deduce del estado de la conexión que ya tiene
+// el frontend, porque la regla vive en Go: quien decide si hace falta escribir
+// el nombre de la base es el mismo código que después lo exige.
+type ImportTarget struct {
+	// ReadOnly dice que esta sesión no escribe, y Reason por cuál de las tres
+	// razones: elegida, réplica, o servidor en solo lectura.
+	ReadOnly bool   `json:"readOnly"`
+	Reason   string `json:"reason,omitempty"`
+
+	// NeedsConfirmation avisa que hay que escribir ConfirmWord para importar.
+	NeedsConfirmation bool   `json:"needsConfirmation"`
+	ConfirmWord       string `json:"confirmWord,omitempty"`
+}
+
+// Target dice si se puede importar en esta conexión y con qué candados.
+func (i *Imports) Target() (ImportTarget, error) {
+	sesion, err := i.queries.session.abierta()
+	if err != nil {
+		return ImportTarget{}, err
+	}
+	t := ImportTarget{NeedsConfirmation: sesion.conn.Environment.NeedsWriteConfirmation()}
+	t.ReadOnly, t.Reason = soloLectura(sesion)
+	if t.NeedsConfirmation {
+		t.ConfirmWord = nombreDeLaBase(sesion)
+	}
+	return t, nil
 }
 
 // ImportResult es cómo terminó.
@@ -77,15 +115,51 @@ type ImportResult struct {
 	Failure *engine.Failure `json:"failure,omitempty"`
 	// Line es la línea del archivo donde estaba el problema, si se sabe.
 	Line int `json:"line,omitempty"`
+
+	// RolledBack es la afirmación del ensayo —«no quedó nada»— y NO se pone por
+	// adelantado: la pone el ROLLBACK cuando devuelve bien.
+	//
+	// La diferencia importa porque el ensayo INSERTA de verdad. Si el rollback
+	// falla —la conexión se cayó entre el último lote y el final— las filas
+	// pueden haber quedado, y decir «se revirtió» ahí sería exactamente la
+	// clase de afirmación que este proyecto no da sin comprobar.
+	RolledBack bool `json:"rolledBack,omitempty"`
 }
 
-// filasPorLote es cuántas filas van en cada INSERT.
+// filasPorLote es el tope de filas de cada INSERT.
 //
-// Mil, como dice el diseño. Una por fila hace un viaje al servidor por fila;
-// todas juntas se pasa del tamaño máximo de paquete y además del límite de
-// parámetros —Postgres admite 65535 por sentencia, así que con veinte columnas
-// el tope real está en 3276 filas—. Mil deja margen para tablas anchas.
+// Mil, como dice el diseño: una por fila hace un viaje al servidor por fila, y
+// todas juntas se pasa del tamaño máximo de paquete.
 const filasPorLote = 1000
+
+// maxParametros es cuántos marcadores admite UNA sentencia.
+//
+// 65535 porque el protocolo extendido de Postgres cuenta los parámetros en 16
+// bits; el protocolo binario de MySQL tiene el mismo tope. No es un detalle de
+// un motor: es el mismo número en los dos.
+const maxParametros = 65535
+
+// filasDelLote decide cuántas filas entran en un INSERT de `n` columnas.
+//
+// «Mil deja margen para tablas anchas» era exactamente al revés: el límite de
+// parámetros es 65535 POR SENTENCIA, así que a más columnas entran MENOS filas,
+// no más. Con 66 columnas mapeadas, mil filas son 66.000 marcadores y el
+// servidor rechaza el primer lote con un error crudo del driver — una tabla
+// ancha no se podía importar y el motivo no se leía en ninguna parte.
+func filasDelLote(n int) int {
+	if n <= 0 {
+		return filasPorLote
+	}
+	if cabe := maxParametros / n; cabe < filasPorLote {
+		// Al menos una: una tabla de más de 65535 columnas no existe en ningún
+		// motor, pero devolver cero sería un bucle infinito.
+		if cabe < 1 {
+			return 1
+		}
+		return cabe
+	}
+	return filasPorLote
+}
 
 // Run corre la importación entera adentro de UNA transacción.
 //
@@ -111,11 +185,26 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 	if err != nil {
 		return ImportResult{Failure: &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}}
 	}
-	if sesion.conn.Safety.ReadOnly {
+	// Las TRES razones, no solo el interruptor: apuntar a una réplica también
+	// impide escribir, y el error del driver no lo explica.
+	if ro, motivo := soloLectura(sesion); ro {
 		return ImportResult{Failure: &engine.Failure{
 			Kind:    engine.FailureOther,
-			Message: "Esta conexión está abierta en modo solo lectura.",
+			Message: "Esta conexión no escribe: " + motivo,
 			Hint:    "El interruptor está en el gestor de conexiones, en «Abrir en solo lectura».",
+		}}
+	}
+	// La confirmación se verifica ACÁ y no en el asistente. Una comprobación
+	// que vive solo del lado de la interfaz no es una protección: es un cartel.
+	// Vale para el ensayo también: inserta de verdad antes de revertir.
+	if sesion.conn.Environment.NeedsWriteConfirmation() &&
+		strings.TrimSpace(p.Confirm) != nombreDeLaBase(sesion) {
+		return ImportResult{Failure: &engine.Failure{
+			Kind: engine.FailureOther,
+			Message: fmt.Sprintf(
+				"Esta conexión es de producción: para importar hay que escribir %q.",
+				nombreDeLaBase(sesion)),
+			Hint: "El ensayo también lo pide: inserta las filas de verdad antes de revertirlas.",
 		}}
 	}
 
@@ -131,16 +220,23 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 	if err != nil {
 		return ImportResult{Failure: sesion.db.ClassifyStatement(err, "abrir la transacción de la importación")}
 	}
-	// Un ensayo SIEMPRE revierte, haya salido bien o mal.
-	commiteado := false
+	// Un ensayo SIEMPRE revierte, haya salido bien o mal. El defer es la red
+	// para los caminos que se van por un error; el ensayo que llega al final lo
+	// hace explícito, porque necesita SABER si el rollback anduvo.
+	//
+	// `WithoutCancel` es para que revertir funcione aunque lo que cortó la
+	// importación haya sido la cancelación: con el contexto muerto, el ROLLBACK
+	// no llegaría a salir y la transacción quedaría colgada hasta el timeout.
+	cerrada := false
 	defer func() {
-		if !commiteado {
+		if !cerrada {
 			_ = tx.Rollback(context.WithoutCancel(ctx))
 		}
 	}()
 
 	res := ImportResult{}
-	lote := make([][]*string, 0, filasPorLote)
+	porLote := filasDelLote(len(destino))
+	lote := make([][]*string, 0, porLote)
 	primeraDelLote := 0
 
 	descargar := func() error {
@@ -167,7 +263,7 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 			primeraDelLote = linea
 		}
 		lote = append(lote, valores)
-		if len(lote) >= filasPorLote {
+		if len(lote) >= porLote {
 			return descargar()
 		}
 		return nil
@@ -180,20 +276,33 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 		var el *erroDeLinea
 		if errors.As(err, &el) {
 			res.Line = el.linea
-			res.Failure = fallaDeImportacion(sesion, el.err, el.linea)
+			res.Failure = fallaDeImportacion(sesion, el.err, el.linea, porLote)
 		} else {
 			res.Failure = &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
 		}
 		return res
 	}
 
-	if !ensayo {
+	if ensayo {
+		// El ensayo revierte acá, mirando el error: es la única forma de que
+		// «no quedó nada» sea algo comprobado y no una suposición.
+		if err := tx.Rollback(context.WithoutCancel(ctx)); err != nil {
+			cerrada = true
+			res.ElapsedMs = time.Since(arranque).Milliseconds()
+			res.Failure = sesion.db.ClassifyStatement(err, "revertir el ensayo")
+			res.Failure.Hint = strings.TrimSpace(res.Failure.Hint +
+				" Las filas del ensayo pueden haber quedado: revisá la tabla antes de importar de nuevo.")
+			return res
+		}
+		cerrada = true
+		res.RolledBack = true
+	} else {
 		if err := tx.Commit(ctx); err != nil {
 			res.ElapsedMs = time.Since(arranque).Milliseconds()
 			res.Failure = sesion.db.ClassifyStatement(err, "confirmar la importación")
 			return res
 		}
-		commiteado = true
+		cerrada = true
 	}
 	res.OK = true
 	res.ElapsedMs = time.Since(arranque).Milliseconds()
@@ -214,10 +323,14 @@ func (e *erroDeLinea) Unwrap() error { return e.err }
 
 // fallaDeImportacion clasifica el error del motor y le agrega la línea.
 //
-// La línea del lote es la PRIMERA del lote, no la culpable: un INSERT de mil
+// La línea del lote es la PRIMERA del lote, no la culpable: un INSERT de varias
 // filas que falla no dice cuál fue. Se dice así, en vez de señalar una fila que
 // puede no ser la que rompió.
-func fallaDeImportacion(sesion *openSession, err error, linea int) *engine.Failure {
+//
+// `porLote` es el tamaño REAL del lote y no la constante: en una tabla ancha el
+// lote es más chico, y prometer «las 1000 siguientes» mandaría a buscar el
+// error mucho más lejos de donde puede estar.
+func fallaDeImportacion(sesion *openSession, err error, linea, porLote int) *engine.Failure {
 	f := sesion.db.ClassifyStatement(err, "la importación")
 	if f == nil {
 		f = &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
@@ -225,7 +338,7 @@ func fallaDeImportacion(sesion *openSession, err error, linea int) *engine.Failu
 	if linea > 0 {
 		f.Hint = strings.TrimSpace(f.Hint + fmt.Sprintf(
 			" El lote que falló empieza en la línea %d del archivo; el error puede estar en cualquiera de las %d siguientes.",
-			linea, filasPorLote))
+			linea, porLote))
 	}
 	return f
 }

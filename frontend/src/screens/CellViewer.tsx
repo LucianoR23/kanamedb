@@ -52,7 +52,13 @@ export function CellViewer({
   onIndexChange: (i: number) => void;
   onClose: () => void;
 }) {
-  const [modo, setModo] = useState(0);
+  // `null` significa «todavía nadie eligió pestaña»: ahí manda `modoInicial`.
+  //
+  // Antes esto era un 0 y el modo inicial se reaplicaba en CADA render cuando
+  // `modo` valía 0. Abriendo el visor con «Ver la fila como JSON», la primera
+  // pestaña quedaba inalcanzable: elegirla ponía `modo = 0`, que era otra vez
+  // la señal de «usá el inicial», y volvía sola a la fila.
+  const [modo, setModo] = useState<number | null>(null);
   // Los elementos de un array los parte Go: el literal de Postgres tiene
   // comas adentro de comillas y escapes, y partirlo acá sería lógica sin tests.
   const [items, setItems] = useState<Items | null>(null);
@@ -101,7 +107,7 @@ export function CellViewer({
 
   const modos = modosDe(col.class, valor, items, fila, columns.length);
   const inicial = modoInicial === "fila" ? modos.findIndex((m) => m.id === "fila") : 0;
-  const activo = Math.min(modo === 0 && inicial > 0 ? inicial : modo, modos.length - 1);
+  const activo = Math.min(modo ?? Math.max(inicial, 0), modos.length - 1);
 
   return (
     <Dialog
@@ -171,7 +177,9 @@ export function CellViewer({
                 className={cx(styles.sideItem, i === index && styles.sideItemOn)}
                 onClick={() => {
                   onIndexChange(i);
-                  setModo(0);
+                  // Otra celda arranca en su primera pestaña, no en la que
+                  // estaba: los modos de una celda no son los de otra.
+                  setModo(null);
                 }}
               >
                 <span className={styles.sideTag}>{TAG[c.class] ?? "···"}</span>

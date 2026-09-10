@@ -249,7 +249,17 @@ func primerasLineas(r io.Reader, n int) (string, bool, error) {
 		return "", false, fmt.Errorf("leer el principio del archivo: %w", err)
 	}
 	buf = buf[:leidos]
-	malo := !utf8.Valid(buf)
+	// El corte del búfer cae en un byte cualquiera, así que si un carácter de
+	// varios bytes queda partido al final, `utf8.Valid` diría que el archivo no
+	// es UTF-8 — de un archivo perfectamente válido, solo por ser más grande
+	// que el búfer. Se descarta la secuencia incompleta del final antes de
+	// mirar, salvo que el archivo entero haya entrado: ahí no hay corte y un
+	// final truncado ES un archivo mal formado.
+	mirar := buf
+	if leidos == tope {
+		mirar = sinColaPartida(buf)
+	}
+	malo := !utf8.Valid(mirar)
 
 	texto := strings.TrimPrefix(string(buf), "\uFEFF")
 	lineas := strings.SplitN(texto, "\n", n+1)
@@ -257,6 +267,24 @@ func primerasLineas(r io.Reader, n int) (string, bool, error) {
 		lineas = lineas[:n]
 	}
 	return strings.TrimRight(strings.Join(lineas, "\n"), "\r\n"), malo, nil
+}
+
+// sinColaPartida recorta el carácter incompleto que pueda haber quedado al
+// final de un corte arbitrario.
+//
+// Un carácter UTF-8 mide como mucho cuatro bytes, así que mirar los últimos
+// tres alcanza: se busca hacia atrás el arranque de secuencia más cercano y, si
+// lo que sigue no llega a estar completo, se corta ahí.
+func sinColaPartida(b []byte) []byte {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(b[i]) {
+			if r, n := utf8.DecodeRune(b[i:]); r == utf8.RuneError && n <= 1 {
+				return b[:i]
+			}
+			return b
+		}
+	}
+	return b
 }
 
 func nombreDe(ruta string) string {

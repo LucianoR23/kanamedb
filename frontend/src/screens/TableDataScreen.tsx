@@ -31,6 +31,7 @@ import { plural } from "../lib/motor";
 import { CellViewer } from "./CellViewer";
 import { DataReview } from "./DataReview";
 import { ExportDialog } from "./ExportDialog";
+import { ImportWizard } from "./ImportWizard";
 import { esCambioDeDatos } from "../lib/cambios";
 import { TableFilters } from "./TableFilters";
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
@@ -135,6 +136,7 @@ export function TableDataScreen({
   // encogerse porque alguien filtró.
   const [totalFiltrado, setTotalFiltrado] = useState<number | null>(null);
   const [exportando, setExportando] = useState(false);
+  const [importando, setImportando] = useState(false);
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
   // datos.
@@ -229,14 +231,37 @@ export function TableDataScreen({
     [runID, schema, table],
   );
 
+  // El conteo exacto va aparte y sin esperarlo: en una tabla grande recorre
+  // todo, y la grilla tiene que poder mostrar las primeras filas ya.
+  //
+  // Está separado de `cargar` porque hay que volver a pedirlo cada vez que la
+  // tabla CAMBIA de tamaño, y eso pasa en tres momentos distintos: al abrirla,
+  // al refrescar —«Actualizar», o un apply que tocó la base— y al importar.
+  // Pedirlo solo al montar era lo que hacía que el encabezado dijera «0 filas»
+  // arriba de una grilla con filas.
+  // Con un filtro puesto se cuentan LAS DOS cosas, porque el encabezado muestra
+  // la filtrada: contar solo el total dejaba «de N filas» con el número de
+  // antes de importar, arriba de una grilla que ya tenía las filas nuevas.
+  const contar = useCallback(
+    (conds: Condition[]) => {
+      void QueriesSvc.TableCount(`${runID}:count`, schema, table, []).then((r) => {
+        if (r.ok) setTotal(r.count);
+      });
+      if (conds.length === 0) {
+        setTotalFiltrado(null);
+        return;
+      }
+      void QueriesSvc.TableCount(`${runID}:filtradas`, schema, table, conds).then((r) => {
+        if (r.ok) setTotalFiltrado(r.count);
+      });
+    },
+    [runID, schema, table],
+  );
+
   useEffect(() => {
     void cargar(0, null, []);
-    // El conteo exacto va aparte y sin esperarlo: en una tabla grande recorre
-    // todo, y la grilla tiene que poder mostrar las primeras filas ya.
-    void QueriesSvc.TableCount(`${runID}:count`, schema, table, []).then((r) => {
-      if (r.ok) setTotal(r.count);
-    });
-  }, [cargar, runID, schema, table]);
+    contar([]);
+  }, [cargar, contar]);
 
   // Aplicar o quitar un filtro vuelve a leer desde la primera fila y a contar:
   // «de N filas» tiene que ser las que pasan el filtro, no las de la tabla.
@@ -246,10 +271,7 @@ export function TableDataScreen({
       setSeleccion(null);
       setTotalFiltrado(null);
       void cargar(0, orden, conds);
-      if (conds.length === 0) return;
-      void QueriesSvc.TableCount(`${runID}:filtradas`, schema, table, conds).then((r) => {
-        if (r.ok) setTotalFiltrado(r.count);
-      });
+      contar(conds);
     };
     // Filtrar vuelve a leer desde el principio, igual que ordenar: las
     // ediciones apuntan a filas por posición y esas posiciones cambian. Se
@@ -301,6 +323,7 @@ export function TableDataScreen({
     ultimaRecarga.current = recarga;
     void leerDetalle();
     void leerPendientes();
+    contar(filtro);
     // Con ediciones sin preparar no se pisan las filas: un apply hecho desde
     // OTRA pestaña recarga todas las abiertas, y perder tres celdas escritas a
     // mano por eso sería peor que mostrar la página vieja un rato más. Se
@@ -310,7 +333,7 @@ export function TableDataScreen({
       return;
     }
     void cargar(0, orden, filtro);
-  }, [recarga, orden, cargar, leerDetalle, leerPendientes, edicion]);
+  }, [recarga, orden, filtro, cargar, contar, leerDetalle, leerPendientes, edicion]);
 
   function ordenarPor(columna: string) {
     const siguiente: SortState =
@@ -659,6 +682,23 @@ export function TableDataScreen({
             <Button size="sm" onClick={() => setExportando(true)}>
               Exportar…
             </Button>
+            {/* Importar NO pide clave primaria: un INSERT no tiene que
+                identificar ninguna fila. Lo único que lo impide es que la
+                conexión no escriba. */}
+            <Button
+              size="sm"
+              disabled={readOnly || detalle === null}
+              title={
+                readOnly
+                  ? "La conexión es de solo lectura"
+                  : detalle === null
+                    ? "Todavía se están leyendo las columnas de la tabla"
+                    : undefined
+              }
+              onClick={() => setImportando(true)}
+            >
+              Importar…
+            </Button>
             {nEdiciones > 0 ? (
               <Button size="sm" variant="primary" onClick={preparar}>
                 Preparar {nEdiciones} {plural(nEdiciones, "cambio", "cambios")}
@@ -847,6 +887,26 @@ export function TableDataScreen({
           nombre={table}
           runID={runIDExport}
           onClose={() => setExportando(false)}
+        />
+      ) : null}
+
+      {importando ? (
+        <ImportWizard
+          open
+          schema={schema}
+          table={table}
+          columnas={detalle?.columns ?? []}
+          onClose={() => setImportando(false)}
+          // Lo importado tiene que verse sin cerrar la pestaña, y el conteo
+          // también. Con ediciones sin preparar NO se pisan las filas —se
+          // perderían celdas escritas a mano—: se avisa en la tira, igual que
+          // cuando la base cambia desde otra pestaña.
+          onImportado={() => {
+            void leerDetalle();
+            contar(filtro);
+            if (hayEdiciones(edicion)) setReleerPendiente(true);
+            else void cargar(0, orden, filtro);
+          }}
         />
       ) : null}
     </div>

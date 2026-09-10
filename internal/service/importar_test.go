@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/csvimport"
+	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
 func csvDePrueba(t *testing.T, contenido string) string {
@@ -233,5 +235,256 @@ func TestUnLoteBuenoYDespuesUnoMaloNoDejanNada(t *testing.T) {
 	// que deja ir a buscarla.
 	if res.Line != filasPorLote+2 {
 		t.Errorf("Line = %d, quería %d", res.Line, filasPorLote+2)
+	}
+}
+
+// TestImportarContraProduccionExigeEscribirElNombreDeLaBase.
+//
+// Importar es escribir, y contra producción escribir exige tipear. El caso que
+// hace falta cubrir no es el obvio —el botón deshabilitado— sino el que sí
+// protege: que la comprobación esté en Go. Una que viva solo en el asistente
+// no es una protección, es un cartel, y cualquiera que llame al binding
+// directamente la saltea.
+//
+// El ENSAYO también lo pide, y no por simetría: inserta las filas de verdad
+// antes de revertirlas, así que toma los mismos candados de la tabla y consume
+// los valores de las secuencias, que un ROLLBACK no devuelve.
+func TestImportarContraProduccionExigeEscribirElNombreDeLaBase(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq, tabla := tablaDeDatos(t, sesion, c, "kn_import_prod", true)
+	abierta, _ := sesion.abierta()
+	if err := abierta.db.Exec(ctx, "DELETE FROM "+califica(c, esq, tabla)); err != nil {
+		t.Fatal(err)
+	}
+	abierta.conn.Environment = connection.Production
+
+	imp := NewImports(NewQueries(sesion))
+	base := ImportPlan{
+		RunID: "impProd", Path: csvDePrueba(t, "id,nombre\n1,uno\n"),
+		Schema: esq, Table: tabla,
+		Options: csvimport.Options{HasHeader: true},
+		Mapping: []string{"id", "nombre"},
+	}
+
+	// Sin confirmación no entra nada, ni importando ni ensayando.
+	for _, caso := range []struct {
+		nombre string
+		correr func(ImportPlan) ImportResult
+	}{
+		{"importar", func(p ImportPlan) ImportResult { return imp.Run(ctx, p) }},
+		{"ensayar", func(p ImportPlan) ImportResult { return imp.DryRun(ctx, p) }},
+	} {
+		t.Run(caso.nombre, func(t *testing.T) {
+			res := caso.correr(base)
+			if res.OK {
+				t.Fatal("corrió contra producción sin confirmación")
+			}
+			if res.Failure == nil || !strings.Contains(res.Failure.Message, "producción") {
+				t.Errorf("el fallo no dice que es producción: %+v", res.Failure)
+			}
+			// Una palabra que no es la de la base tampoco sirve.
+			mal := base
+			mal.Confirm = "no es el nombre"
+			if caso.correr(mal).OK {
+				t.Error("aceptó una confirmación que no coincide")
+			}
+			if n, _ := abierta.db.Count(ctx, esq, tabla, nil); n != 0 {
+				t.Fatalf("quedaron %d filas de un intento sin confirmar", n)
+			}
+		})
+	}
+
+	// Y con la palabra correcta sí: una puerta que no se puede abrir tampoco
+	// sirve. Target es lo que el asistente usa para saber qué pedir, así que
+	// tiene que decir exactamente la misma palabra que exige la importación.
+	target, err := imp.Target()
+	if err != nil {
+		t.Fatalf("Target(): %v", err)
+	}
+	if !target.NeedsConfirmation || target.ConfirmWord != nombreDeLaBase(abierta) {
+		t.Fatalf("Target() = %+v, quería la confirmación con %q", target, nombreDeLaBase(abierta))
+	}
+	bien := base
+	bien.Confirm = target.ConfirmWord
+	if res := imp.Run(ctx, bien); !res.OK {
+		t.Fatalf("con la confirmación correcta falló: %+v", res.Failure)
+	}
+	if n, _ := abierta.db.Count(ctx, esq, tabla, nil); n != 1 {
+		t.Errorf("quedaron %d filas, quería 1", n)
+	}
+}
+
+// TestElEnsayoAfirmaQueRevirtioSoloDespuesDeRevertir.
+//
+// `RolledBack` es la afirmación entera del ensayo —«no quedó nada»— y el punto
+// del test es que sea una comprobación y no una suposición: se pone cuando el
+// ROLLBACK devuelve bien, no al empezar. Un import de verdad no la pone nunca,
+// porque ahí las filas se quedan a propósito.
+func TestElEnsayoAfirmaQueRevirtioSoloDespuesDeRevertir(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq, tabla := tablaDeDatos(t, sesion, c, "kn_import_rb", true)
+	abierta, _ := sesion.abierta()
+	if err := abierta.db.Exec(ctx, "DELETE FROM "+califica(c, esq, tabla)); err != nil {
+		t.Fatal(err)
+	}
+
+	imp := NewImports(NewQueries(sesion))
+	plan := ImportPlan{
+		RunID: "impRB", Path: csvDePrueba(t, "id,nombre\n7,siete\n"),
+		Schema: esq, Table: tabla,
+		Options: csvimport.Options{HasHeader: true},
+		Mapping: []string{"id", "nombre"},
+	}
+
+	ens := imp.DryRun(ctx, plan)
+	if !ens.OK || !ens.RolledBack {
+		t.Fatalf("el ensayo no afirma haber revertido: %+v", ens)
+	}
+	if n, _ := abierta.db.Count(ctx, esq, tabla, nil); n != 0 {
+		t.Fatalf("el ensayo dejó %d filas mientras dice que revirtió", n)
+	}
+
+	// Un ensayo que falla NO afirma nada: no llegó al rollback explícito.
+	malo := plan
+	malo.Path = csvDePrueba(t, "id,nombre\nno es un número,mal\n")
+	if fallo := imp.DryRun(ctx, malo); fallo.OK || fallo.RolledBack {
+		t.Errorf("un ensayo que falló afirma haber revertido: %+v", fallo)
+	}
+
+	// Y una importación de verdad tampoco: sus filas quedan.
+	res := imp.Run(ctx, plan)
+	if !res.OK || res.RolledBack {
+		t.Errorf("la importación afirma haber revertido: %+v", res)
+	}
+	if n, _ := abierta.db.Count(ctx, esq, tabla, nil); n != 1 {
+		t.Errorf("quedaron %d filas, quería 1", n)
+	}
+}
+
+// TestUnaConexionDeSoloLecturaLoDiceConLaRazon.
+//
+// Son TRES razones distintas y quien importa merece saber cuál: no es lo mismo
+// haberlo elegido que descubrir que estás apuntando a una réplica. Antes se
+// miraba solo el interruptor, así que contra una réplica la importación se iba
+// a estrellar con el error crudo del driver.
+func TestUnaConexionDeSoloLecturaLoDiceConLaRazon(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq, tabla := tablaDeDatos(t, sesion, c, "kn_import_ro", true)
+	abierta, _ := sesion.abierta()
+	abierta.server = &engine.ServerInfo{InRecovery: true}
+
+	imp := NewImports(NewQueries(sesion))
+	res := imp.Run(ctx, ImportPlan{
+		RunID: "impRO", Path: csvDePrueba(t, "id,nombre\n1,uno\n"),
+		Schema: esq, Table: tabla,
+		Options: csvimport.Options{HasHeader: true},
+		Mapping: []string{"id", "nombre"},
+	})
+	if res.OK {
+		t.Fatal("importó contra una réplica")
+	}
+	if res.Failure == nil || !strings.Contains(res.Failure.Message, "réplica") {
+		t.Errorf("el fallo no dice que es una réplica: %+v", res.Failure)
+	}
+
+	// Y Target dice lo mismo antes de dejar empezar.
+	target, err := imp.Target()
+	if err != nil {
+		t.Fatalf("Target(): %v", err)
+	}
+	if !target.ReadOnly || !strings.Contains(target.Reason, "réplica") {
+		t.Errorf("Target() = %+v, quería solo lectura por réplica", target)
+	}
+}
+
+// TestUnaTablaAnchaNoSePasaDelLimiteDeParametros.
+//
+// «Mil filas por lote deja margen para tablas anchas» era exactamente al revés:
+// el límite de 65535 marcadores es POR SENTENCIA, así que a más columnas entran
+// MENOS filas. Con 66 columnas mapeadas, mil filas son 66.000 marcadores y el
+// servidor rechaza el primer lote con un error crudo del driver.
+func TestUnaTablaAnchaNoSePasaDelLimiteDeParametros(t *testing.T) {
+	for _, n := range []int{1, 20, 65, 66, 200, 70000} {
+		filas := filasDelLote(n)
+		if filas < 1 {
+			t.Errorf("con %d columnas el lote quedó en %d filas: no avanzaría nunca", n, filas)
+		}
+		if p := filas * n; p > maxParametros && filas > 1 {
+			t.Errorf("con %d columnas van %d filas = %d marcadores, y el tope es %d",
+				n, filas, p, maxParametros)
+		}
+	}
+	// Y una tabla angosta sigue yendo de a mil: el tope no puede volverse el
+	// caso normal.
+	if got := filasDelLote(6); got != filasPorLote {
+		t.Errorf("con 6 columnas el lote quedó en %d y tendría que ser %d", got, filasPorLote)
+	}
+}
+
+// TestImportarEnUnaTablaAncha lo prueba contra el motor de verdad.
+//
+// El test de arriba comprueba la cuenta; este comprueba que el servidor la
+// acepte, que es lo único que cierra el caso.
+func TestImportarEnUnaTablaAncha(t *testing.T) {
+	sesion, _ := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	abierta, _ := sesion.abierta()
+
+	const columnas = 80
+	esq := "kn_suite"
+	var cols, cab strings.Builder
+	for i := 0; i < columnas; i++ {
+		if i > 0 {
+			cols.WriteString(", ")
+			cab.WriteString(",")
+		}
+		fmt.Fprintf(&cols, "c%d text", i)
+		fmt.Fprintf(&cab, "c%d", i)
+	}
+	tabla := "kn_import_ancha"
+	completo := fmt.Sprintf(`"%s"."%s"`, esq, tabla)
+	if err := abierta.db.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+esq); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, "DROP TABLE IF EXISTS "+completo); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (%s)", completo, cols.String())); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = abierta.db.Exec(context.Background(), "DROP TABLE IF EXISTS "+completo) })
+
+	// Mil filas × 80 columnas son 80.000 marcadores si el lote no se achica.
+	const filas = 1000
+	var b strings.Builder
+	b.WriteString(cab.String() + "\n")
+	for f := 0; f < filas; f++ {
+		for i := 0; i < columnas; i++ {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, "v%d-%d", f, i)
+		}
+		b.WriteString("\n")
+	}
+	mapeo := make([]string, columnas)
+	for i := range mapeo {
+		mapeo[i] = fmt.Sprintf("c%d", i)
+	}
+
+	imp := NewImports(NewQueries(sesion))
+	res := imp.Run(ctx, ImportPlan{
+		RunID: "impAncha", Path: csvDePrueba(t, b.String()), Schema: esq, Table: tabla,
+		Options: csvimport.Options{HasHeader: true},
+		Mapping: mapeo,
+	})
+	if !res.OK {
+		t.Fatalf("una tabla de %d columnas no se pudo importar: %+v", columnas, res.Failure)
+	}
+	if res.Inserted != filas {
+		t.Errorf("entraron %d filas de %d", res.Inserted, filas)
 	}
 }

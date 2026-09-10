@@ -1,6 +1,9 @@
 package service
 
 import (
+	"compress/gzip"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,5 +159,73 @@ func TestElResultadoDelEditorNoAceptaElFormatoSQL(t *testing.T) {
 	}
 	if _, err := os.Stat(ruta); !os.IsNotExist(err) {
 		t.Error("el rechazo dejó un archivo")
+	}
+}
+
+// TestElGzipDeVariasTablasEnUnArchivoComprimeDeVerdad.
+//
+// El archivo salía con nombre `.sql.gz` y contenido en claro: el gzip se
+// apagaba tabla por tabla —bien— y no se ponía nunca alrededor del conjunto,
+// aunque el comentario dijera que sí. `gunzip` se negaba a abrir una
+// exportación que la app decía haber comprimido.
+func TestElGzipDeVariasTablasEnUnArchivoComprimeDeVerdad(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq, t1 := tablaDeDatos(t, sesion, c, "kn_gz_una", true)
+	_, t2 := tablaDeDatos(t, sesion, c, "kn_gz_dos", true)
+
+	exp := NewExports(NewQueries(sesion))
+	destino := filepath.Join(t.TempDir(), "volcado.sql.gz")
+	if _, err := exp.SaveTables(ctx, TablesExport{
+		RunID: "gz1", Schema: esq, Tables: []string{t1, t2},
+		Format: export.SQL, Options: export.Options{Gzip: true},
+	}, destino); err != nil {
+		t.Fatalf("SaveTables(): %v", err)
+	}
+
+	f, err := os.Open(destino)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("el archivo .gz no es gzip: %v", err)
+	}
+	defer gz.Close()
+	adentro, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatalf("no se pudo descomprimir entero: %v", err)
+	}
+	// Y adentro están LAS DOS tablas: el gzip va una vez alrededor de todo, no
+	// uno por tabla pegado al siguiente.
+	for _, tabla := range []string{t1, t2} {
+		if !strings.Contains(string(adentro), tabla) {
+			t.Errorf("la tabla %q no está en el script descomprimido", tabla)
+		}
+	}
+}
+
+// TestDosTablasQueSeLimpianIgualNoSePisan.
+//
+// `pedidos/2026` y `pedidos-2026` son dos tablas legales y distintas que dan el
+// mismo nombre de archivo. La segunda pisaba a la primera y las dos se
+// informaban como escritas: un archivo menos del que la app decía haber dejado.
+func TestDosTablasQueSeLimpianIgualNoSePisan(t *testing.T) {
+	nombres := nombresDeArchivo([]string{"pedidos/2026", "pedidos-2026", "pedidos:2026"}, ".csv")
+	vistos := map[string]bool{}
+	for _, n := range nombres {
+		if vistos[n] {
+			t.Fatalf("dos tablas comparten el archivo %q: %v", n, nombres)
+		}
+		vistos[n] = true
+	}
+	if nombres[0] != "pedidos-2026.csv" {
+		t.Errorf("la primera tendría que quedarse con el nombre limpio: %q", nombres[0])
+	}
+	// Una sola tabla no lleva sufijo: el desempate aparece solo cuando hace
+	// falta.
+	if uno := nombresDeArchivo([]string{"clientes"}, ".csv"); uno[0] != "clientes.csv" {
+		t.Errorf("una tabla sola quedó como %q", uno[0])
 	}
 }

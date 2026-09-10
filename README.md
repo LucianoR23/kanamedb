@@ -20,7 +20,9 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > operador y valor, varias condiciones combinadas— y lo que se lee se puede
 > exportar a CSV, JSON, JSON Lines o Markdown: el resultado del editor, o una
 > tabla entera con el filtro que tenga puesto, que se escribe a medida que se
-> lee y por eso no depende de que entre en memoria.
+> lee y por eso no depende de que entre en memoria. Y al revés: un CSV entra en
+> una tabla con un asistente que ensaya la importación de verdad —adentro de
+> una transacción, y la revierte— antes de escribir nada.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---

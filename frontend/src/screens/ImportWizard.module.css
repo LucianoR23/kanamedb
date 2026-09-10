@@ -1,0 +1,344 @@
+/* S18 CSV import wizard. Riel de pasos a la izquierda, un paso por vez a la
+   derecha, con scroll por dentro: el diálogo no cambia de tamaño al avanzar. */
+.marco {
+  display: grid;
+  grid-template-columns: 178px minmax(0, 1fr);
+  height: min(72vh, 640px);
+  margin: -4px -2px 0;
+  border-top: 1px solid var(--border);
+}
+.grow { flex: 1; }
+.dim {
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.nota {
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+}
+.ok {
+  font: 500 12px var(--font-ui);
+  color: var(--success);
+}
+
+/* ---- riel ---------------------------------------------------------------- */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.railPaso {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 12px;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+}
+.railNum {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  font: 500 10px var(--font-mono);
+}
+.railActivo {
+  color: var(--text-1);
+  background: var(--bg-sel);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.railActivo .railNum {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.railHecho { color: var(--text-2); }
+.railHecho .railNum {
+  border-color: var(--success);
+  color: var(--success);
+}
+.railNota {
+  margin: 0;
+  padding: 12px;
+  font: 400 10.5px var(--font-ui);
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+/* ---- cuerpo -------------------------------------------------------------- */
+
+.cuerpo {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 20px;
+}
+.titulo {
+  margin: 0 0 4px;
+  font: 600 13px var(--font-ui);
+  color: var(--text-1);
+}
+.subtitulo {
+  margin: 0 0 14px;
+  max-width: 62ch;
+  font: 400 11.5px var(--font-ui);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.etiqueta {
+  margin: 16px 0 7px;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ---- 1. origen ----------------------------------------------------------- */
+
+.rutaFila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.rutaFila input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pill {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font: 400 11px var(--font-ui);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pill:hover:not(:disabled) { background: var(--bg-hover); }
+.pill:disabled { opacity: 0.45; cursor: default; }
+.pillActiva {
+  border-color: var(--accent);
+  background: var(--accent-quiet);
+  color: var(--text-1);
+}
+.opciones {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 14px;
+}
+.hechos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 18px 0 4px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+}
+.hecho { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.hechoValor {
+  font: 500 12px var(--font-mono);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hechoLabel {
+  font: 400 10px var(--font-ui);
+  color: var(--text-dim);
+}
+.crudo {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 132px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  font: 400 11px var(--font-mono);
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre;
+}
+
+/* ---- avisos -------------------------------------------------------------- */
+
+.aviso {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 9px 11px;
+  border-radius: var(--r-md);
+  font: 400 11.5px var(--font-ui);
+  line-height: 1.5;
+}
+.avisoOjo {
+  background: var(--warning-quiet);
+  color: var(--text-2);
+  border: 1px solid var(--warning);
+}
+.avisoMalo {
+  background: var(--danger-quiet);
+  color: var(--text-2);
+  border: 1px solid var(--danger);
+}
+.avisoBang {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: var(--text-on-accent);
+  font: 700 10px var(--font-ui);
+}
+.avisoMalo .avisoBang { background: var(--danger); }
+
+/* ---- 2. mapeo ------------------------------------------------------------ */
+
+.mapa {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.mapaFila {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px 210px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mapaFila:last-child { border-bottom: 0; }
+.mapaFila:nth-child(odd) { background: var(--bg-stripe); }
+.mapaOrigen { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mapaNombre {
+  font: 500 12px var(--font-mono);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mapaMuestra {
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mapaFlecha {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.mapaDestino { min-width: 0; }
+.pieNota {
+  margin: 10px 0 0;
+  font: 400 11px var(--font-ui);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* ---- 3 y 4 --------------------------------------------------------------- */
+
+.resultado { margin-top: 18px; }
+.enEspera {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cargando {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+.veredicto { display: flex; flex-direction: column; gap: 4px; }
+.fallo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-quiet);
+}
+.falloMensaje {
+  margin: 0;
+  font: 500 12px var(--font-ui);
+  color: var(--text-1);
+}
+.fallo p { margin: 0; }
+.error {
+  margin: 10px 0 0;
+  font: 400 11.5px var(--font-ui);
+  color: var(--danger);
+}
+.resumen {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0 0 4px;
+}
+.resumen dt {
+  font: 400 11px var(--font-ui);
+  color: var(--text-dim);
+}
+.resumen dd {
+  margin: 0;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- confirmación de producción ------------------------------------------ */
+
+.confirmar {
+  margin-top: 16px;
+  padding: 11px 13px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-quiet);
+}
+.confirmarTitulo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  font: 600 12px var(--font-ui);
+  color: var(--text-1);
+}
+.confirmarTitulo .avisoBang { background: var(--danger); }
+.confirmar p { margin: 0 0 8px; }
+.okInput { border-color: var(--success); }
+.malInput { border-color: var(--danger); }
+
+/* ---- pie ----------------------------------------------------------------- */
+
+.pieError {
+  font: 400 11px var(--font-ui);
+  color: var(--danger);
+}

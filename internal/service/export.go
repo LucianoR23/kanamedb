@@ -1,6 +1,7 @@
 package service
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -351,6 +352,20 @@ func (e *Exports) SaveTables(ctx context.Context, r TablesExport, destino string
 func (e *Exports) aUnArchivo(ctx context.Context, r TablesExport, destino string) (TablesInfo, error) {
 	info := TablesInfo{Path: destino}
 	total, err := e.guardar(destino, func(w io.Writer) (int, error) {
+		// El gzip va UNA vez alrededor de todo el script, acá. Cada tabla se
+		// escribe sin comprimir: comprimir tabla por tabla dejaría varios
+		// miembros gzip pegados, que se descomprimen bien pero confunden a
+		// cualquiera que mire el archivo.
+		//
+		// Estaba escrito como si lo pusiera `guardar`, y `guardar` no comprime:
+		// el archivo salía con nombre .gz y contenido en claro, así que `gunzip`
+		// se negaba a abrir una exportación que la app decía haber comprimido.
+		cerrar := func() error { return nil }
+		if r.Options.Gzip {
+			gz := gzip.NewWriter(w)
+			w = gz
+			cerrar = gz.Close
+		}
 		suma := 0
 		for _, t := range r.Tables {
 			n, err := e.volcar(ctx, TableExport{
@@ -367,6 +382,9 @@ func (e *Exports) aUnArchivo(ctx context.Context, r TablesExport, destino string
 			info.Files = append(info.Files, SaveInfo{Path: destino, Rows: n})
 			suma += n
 		}
+		if err := cerrar(); err != nil {
+			return suma, fmt.Errorf("cerrar el gzip: %w", err)
+		}
 		return suma, nil
 	})
 	if err != nil {
@@ -377,10 +395,8 @@ func (e *Exports) aUnArchivo(ctx context.Context, r TablesExport, destino string
 	return info, nil
 }
 
-// sinComprimir apaga el gzip de cada tabla: cuando todo va a un archivo, el
-// gzip lo pone `guardar` una sola vez alrededor de todo. Comprimir tabla por
-// tabla dejaría varios miembros gzip pegados, que se descomprimen bien pero
-// confunden a cualquiera que mire el archivo.
+// sinComprimir apaga el gzip de cada tabla. Cuando todo va a un archivo lo
+// pone `aUnArchivo`, una sola vez alrededor del script entero.
 func sinComprimir(o export.Options) export.Options {
 	o.Gzip = false
 	return o
@@ -400,9 +416,16 @@ func (e *Exports) aUnDirectorio(ctx context.Context, r TablesExport, dir string)
 		ext += ".gz"
 	}
 
+	// Los nombres se resuelven ANTES de escribir nada, porque dos tablas
+	// distintas pueden dar el mismo archivo: `pedidos/2026` y `pedidos-2026` se
+	// limpian igual. La segunda pisaba a la primera y las dos se informaban
+	// como escritas — un archivo menos del que la app decía haber dejado, sin
+	// error y sin aviso.
+	nombres := nombresDeArchivo(r.Tables, ext)
+
 	info := TablesInfo{Path: dir}
-	for _, t := range r.Tables {
-		ruta := filepath.Join(dir, archivoDeTabla(t)+ext)
+	for i, t := range r.Tables {
+		ruta := filepath.Join(dir, nombres[i])
 		uno, err := e.SaveTable(ctx, TableExport{
 			RunID:   r.RunID,
 			Schema:  r.Schema,
@@ -421,6 +444,31 @@ func (e *Exports) aUnDirectorio(ctx context.Context, r TablesExport, dir string)
 		info.Bytes += uno.Bytes
 	}
 	return info, nil
+}
+
+// nombresDeArchivo da un archivo distinto a cada tabla, en el mismo orden.
+//
+// Limpiar el nombre pierde información —`/` y `-` terminan los dos en `-`— así
+// que dos tablas legales pueden querer el mismo archivo. Cuando pasa, la
+// segunda lleva un sufijo: es feo y es raro, pero es mejor que perder una
+// exportación en silencio.
+//
+// Volver a exportar a la misma carpeta SÍ reemplaza lo que había: es lo que se
+// espera de «guardar acá otra vez», y es la misma semántica que el selector de
+// «guardar como» de una tabla sola.
+func nombresDeArchivo(tablas []string, ext string) []string {
+	out := make([]string, len(tablas))
+	usados := make(map[string]bool, len(tablas))
+	for i, t := range tablas {
+		base := archivoDeTabla(t)
+		nombre := base + ext
+		for n := 2; usados[strings.ToLower(nombre)]; n++ {
+			nombre = fmt.Sprintf("%s-%d%s", base, n, ext)
+		}
+		usados[strings.ToLower(nombre)] = true
+		out[i] = nombre
+	}
+	return out
 }
 
 // archivoDeTabla saca de un nombre de tabla lo que ningún sistema de archivos

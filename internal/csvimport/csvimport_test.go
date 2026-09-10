@@ -252,3 +252,52 @@ func TestUnArchivoVacio(t *testing.T) {
 		t.Errorf("archivo vacío: %+v", i)
 	}
 }
+
+// TestUnArchivoGrandeYValidoNoSeAvisaComoNoUTF8.
+//
+// El aviso se decide mirando un prefijo de 64 KiB, y el corte cae en un byte
+// cualquiera. Si un carácter de varios bytes queda partido justo ahí, el
+// archivo —perfectamente válido— se marcaba como «no es UTF-8» y el asistente
+// mandaba a guardarlo de nuevo desde donde salió.
+//
+// El caso se construye a propósito: la eñe queda a caballo del límite del
+// búfer, con su primer byte adentro y el segundo afuera.
+func TestUnArchivoGrandeYValidoNoSeAvisaComoNoUTF8(t *testing.T) {
+	const tope = 64 << 10
+	cabecera := "id,nombre\n1,"
+	relleno := strings.Repeat("a", tope-len(cabecera)-1)
+	contenido := cabecera + relleno + "ñ" + strings.Repeat("b", 500) + "\n"
+
+	i, err := Inspect(archivo(t, contenido), Options{HasHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i.NotUTF8 {
+		t.Error("un archivo UTF-8 válido se avisó como que no lo es, solo por ser más grande que el búfer")
+	}
+
+	// Y uno GRANDE que de verdad tiene basura se sigue avisando: el arreglo no
+	// puede volverse una forma de no avisar nunca.
+	//
+	// El byte malo va en el medio del prefijo y no pegado al corte, y no es
+	// para que el test pase: en el corte exacto la pregunta NO tiene respuesta.
+	// Un `0xF1` en la última posición del búfer es a la vez el primer byte de
+	// un carácter de cuatro que sigue afuera y una eñe de latin-1, y distinguir
+	// los dos casos exige leer el archivo entero, que es justamente lo que este
+	// prefijo evita. Se elige no avisar, porque el costo de los dos errores no
+	// es el mismo: el falso aviso manda a rehacer un archivo que está bien.
+	ruta := filepath.Join(t.TempDir(), "latin-grande.csv")
+	crudo := []byte(cabecera + relleno[:len(relleno)/2])
+	crudo = append(crudo, 0xF1)
+	crudo = append(crudo, []byte(relleno[len(relleno)/2:]+"\n")...)
+	if err := os.WriteFile(ruta, crudo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j, err := Inspect(ruta, Options{HasHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !j.NotUTF8 {
+		t.Error("un archivo grande con bytes que no son UTF-8 dejó de avisarse")
+	}
+}

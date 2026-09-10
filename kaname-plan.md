@@ -309,12 +309,20 @@ lo que entra y sale de la grilla.
   Se abre desde la grilla («Revisar las filas») y desde Cambios pendientes.
   La variante de producción es la de siempre: la confirmación la pide Go al
   preparar y al aplicar. Probada a mano en los cuatro motores el 2026-09-10.
-- ⏳ **S18 CSV import wizard.** **El contrato de Go está hecho y probado en los
-  cuatro motores** (`internal/csvimport` + `service.Imports`): leer el archivo,
-  mapear columnas, ensayar y correr en una sola transacción. **Falta la
-  pantalla**: el asistente de cuatro pasos —origen, mapeo, validación,
-  importar— que es justamente lo caro, y por eso es una pantalla y no un botón.
-  Falta también el review de esta unidad.
+- ✅ **S18 CSV import wizard** — «Importar…» en la barra de la tabla abre el
+  asistente de cuatro pasos, y son cuatro porque cada uno responde una
+  pregunta que el siguiente da por contestada: **origen** (el archivo, el
+  delimitador, si la primera línea es el encabezado, si el vacío es NULL, con
+  las líneas crudas y los avisos de UTF-8 y de líneas desparejas), **mapeo**
+  (emparejado por nombre sin distinguir mayúsculas; lo que no coincide queda
+  sin elegir a propósito), **validación** (el ensayo, que arranca solo) e
+  **importar**. La ruta se puede **escribir**, igual que en el formulario de
+  SQLite de S03: el selector del sistema es la comodidad, no el único camino.
+  Importar no pide clave primaria —un INSERT no identifica ninguna fila—, así
+  que lo único que lo impide es que la conexión no escriba. Probado a mano en
+  los cuatro motores el 2026-09-10, incluidos el archivo con la fecha
+  inválida, el delimitador equivocado y las tres formas de «saltear las que
+  chocan».
 - ✅ **Exportar el resultado del editor SQL** — CSV, JSON, JSON Lines y
   Markdown, desde «Exportar…» en la barra de resultados, con el diálogo de
   S19 —formato, delimitador, opciones, vista previa, guardar y copiar— y un
@@ -1109,6 +1117,98 @@ Tres decisiones más de esa unidad:
   El default es abortar: es el único que no pierde información en silencio.
   «Actualizar las que ya están» del diseño queda pendiente, porque necesita
   saber por qué clave y armar el SET.
+
+**La pantalla de S18, y tres candados que el contrato no tenía.**
+
+El asistente es de cuatro pasos porque cada uno responde una pregunta que el
+siguiente da por contestada, y el tercero es el que justifica que esto sea una
+pantalla y no un botón. Al escribirlo aparecieron tres agujeros del lado de Go
+—los tres del lado que escribe, así que los tres con test y con la inyección en
+rojo—:
+
+- **Importar es escribir, y contra producción escribir exige tipear el nombre
+  de la base.** El contrato no lo pedía: cualquiera que llamara al binding
+  escribía en producción sin confirmar. Se verifica en Go y no en el asistente,
+  igual que en Apply: una comprobación que vive solo del lado de la interfaz no
+  es una protección, es un cartel. **El ensayo también lo pide**, y no por
+  simetría: inserta las filas de verdad antes de revertirlas, así que toma los
+  mismos candados de la tabla y consume los valores de las secuencias, que un
+  ROLLBACK no devuelve.
+- **Solo lectura tiene TRES razones y solo se miraba una.** Se miraba el
+  interruptor de la conexión, así que apuntar a una réplica se estrellaba con
+  el error crudo del driver en vez de decir «el servidor es una réplica». Ahora
+  usa `soloLectura`, la misma función que Apply.
+- **«Se revirtió» era una suposición.** El ensayo revierte en un `defer` que
+  ignoraba el error, y aun así el resultado decía que había revertido. Ahora el
+  ensayo hace el ROLLBACK explícito, mirando lo que devuelve, y `RolledBack` es
+  lo que ese ROLLBACK afirma. Si falla, lo dice: las filas pueden haber quedado.
+
+Dos decisiones de la pantalla que no se deducen del diseño:
+
+- **La ruta del archivo se puede escribir**, y el selector del sistema es la
+  comodidad. Es lo mismo que hace el formulario de SQLite de S03, y por el
+  mismo motivo: pegar una ruta que ya se tiene es más rápido que buscarla, y
+  si el selector falla el asistente sigue sirviendo.
+- **Lo que no empareja por nombre queda sin elegir**, en vez de asignarse por
+  posición. Un archivo con las columnas en otro orden se importaría cruzado y
+  en silencio, que es la peor forma de fallar: la importación diría que salió
+  bien.
+
+**El conteo del encabezado se pedía una sola vez.** Encontrado probando el
+asistente a mano: después de importar, la grilla mostraba las filas nuevas y el
+encabezado seguía diciendo «0 filas». No era de S18 —el conteo exacto se pedía
+al montar la pestaña y nunca más, así que también quedaba viejo después de
+«Actualizar» o de un apply que tocara la tabla—. Ahora se vuelve a pedir en los
+tres momentos en que la tabla cambia de tamaño.
+
+**El review `high` de esta unidad: siete hallazgos, y cuatro no eran de acá.**
+Revisar el rango entero y no solo el diff nuevo es lo que volvió a encontrar
+cosas de S09 y de S19, ya commiteadas. Los siete arreglados, con test y con la
+inyección en rojo:
+
+- **El gzip de «todas las tablas a un archivo» no comprimía.** El archivo salía
+  con nombre `.sql.gz` y contenido en claro, así que `gunzip` se negaba a abrir
+  una exportación que la app decía haber comprimido. Se apagaba tabla por tabla
+  —bien, para no dejar varios miembros gzip pegados— y no se ponía nunca
+  alrededor del conjunto, aunque el comentario dijera que lo ponía `guardar`.
+  Es el caso de un comentario que describe lo que *debería* pasar y nadie
+  comprueba: el test ahora descomprime y busca las dos tablas adentro.
+- **Mil filas por lote se pasaba del límite de parámetros en una tabla ancha.**
+  «Mil deja margen para tablas anchas» era exactamente al revés: el tope de
+  65535 marcadores es POR SENTENCIA, así que a más columnas entran MENOS filas.
+  Con 66 columnas mapeadas son 66.000 marcadores y el servidor rechaza el
+  primer lote. El lote ahora es `min(1000, 65535/columnas)`, y el aviso de «el
+  error puede estar en las N siguientes» usa el tamaño real del lote y no la
+  constante.
+- **Un CSV de más de 64 KiB se avisaba como que no era UTF-8.** El aviso mira un
+  prefijo de 64 KiB y el corte cae en un byte cualquiera: un carácter de varios
+  bytes partido ahí marcaba como inválido un archivo perfectamente bueno, y el
+  asistente mandaba a rehacerlo. Se descarta la secuencia incompleta del final
+  antes de mirar. **En el corte exacto la pregunta no tiene respuesta** —un
+  `0xF1` ahí es a la vez el arranque de un carácter que sigue afuera y una eñe
+  de latin-1— y se elige no avisar, porque el costo de los dos errores no es el
+  mismo: el falso aviso manda a rehacer un archivo que está bien. Escrito en el
+  test, para que no parezca un descuido.
+- **El visor abierto en «La fila» dejaba la primera pestaña inalcanzable.** El
+  modo inicial se reaplicaba en cada render cuando el elegido era 0, así que
+  tocar la primera pestaña la ponía en 0 —que era otra vez la señal de «usá el
+  inicial»— y volvía sola. Ahora `null` significa «nadie eligió todavía» y el
+  inicial siembra una vez.
+- **La ruta del archivo se recortaba para mirarlo y no para importarlo.** Una
+  ruta pegada con un espacio al final —lo que pasa al copiarla de una terminal—
+  encontraba las columnas en el paso 1 y fallaba después con «no se pudo
+  abrir». Se recorta donde se usa y NO al tipear: recortar en cada tecla no
+  dejaría escribir `C:\Program Files\…`.
+- **El conteo filtrado quedaba viejo.** El arreglo del conteo del encabezado
+  refrescaba solo el total, y con un filtro puesto el encabezado muestra el
+  filtrado: importar filas que pasan el filtro dejaba «de N filas» con el
+  número de antes.
+- **Dos tablas distintas podían dar el mismo archivo.** `pedidos/2026` y
+  `pedidos-2026` se limpian igual, así que la segunda pisaba a la primera y las
+  dos se informaban como escritas: un archivo menos del que la app decía haber
+  dejado, sin error y sin aviso. Los nombres se resuelven antes de escribir
+  nada y la segunda lleva sufijo. Volver a exportar a la misma carpeta SÍ
+  reemplaza lo que había, que es lo que se espera de «guardar acá otra vez».
 
 **El visor: tres cosas que S09 debía desde la Iteración 2.**
 
