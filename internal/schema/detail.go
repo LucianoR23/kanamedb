@@ -289,7 +289,16 @@ const (
 	ObjProcedure ObjectKind = "procedure"
 	ObjTrigger   ObjectKind = "trigger"
 	ObjPolicy    ObjectKind = "policy"
-	ObjType      ObjectKind = "type"
+	// Los tres tipos propios de Postgres van por separado y no como un «type»
+	// genérico. No es cosmética: se comportan distinto y se editan distinto.
+	// Un enum se cambia agregando valores; un dominio es una restricción sobre
+	// otro tipo; un compuesto es una forma de fila. Un árbol que los muestra a
+	// los tres como «tipo» obliga a abrirlos para saber cuál es cuál, y la
+	// cobertura del volcado decía «3 tipos» donde puede decir «2 enums y 1
+	// dominio».
+	ObjEnum      ObjectKind = "enum"
+	ObjDomain    ObjectKind = "domain"
+	ObjComposite ObjectKind = "composite"
 	ObjSequence  ObjectKind = "sequence"
 	ObjExtension ObjectKind = "extension"
 	ObjEvent     ObjectKind = "event"

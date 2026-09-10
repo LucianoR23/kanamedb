@@ -21,6 +21,15 @@ type Snapshot struct {
 	Schemas []Schema `json:"schemas"`
 	// CapturedAt permite mostrar cuán viejo es lo que se está viendo.
 	CapturedAt time.Time `json:"capturedAt"`
+
+	// ObjectsError es por qué no se pudo leer la lista de objetos, si pasó.
+	//
+	// No rompe la conexión: el árbol de tablas es útil igual, y hacer fallar un
+	// «Conectar» entero porque una consulta al catálogo no se pudo leer sería
+	// una regresión sobre lo que funcionaba. Pero tampoco se calla, que es la
+	// otra forma de equivocarse: sin esto, un esquema lleno de vistas se vería
+	// exactamente igual que uno que no tiene ninguna.
+	ObjectsError string `json:"objectsError,omitempty"`
 }
 
 // Schema es un esquema y lo que contiene.
@@ -28,6 +37,17 @@ type Schema struct {
 	Name   string  `json:"name"`
 	Owner  string  `json:"owner"`
 	Tables []Table `json:"tables"`
+
+	// Objects son los objetos que NO son tablas: vistas, vistas
+	// materializadas, funciones, procedimientos, triggers, políticas, enums,
+	// dominios, tipos compuestos y secuencias.
+	//
+	// Viajan con el snapshot y no a demanda por dos motivos. El árbol los
+	// muestra todos juntos, y el buscador de arriba filtra sobre TODO lo que
+	// hay: una lista que se carga al abrir un nodo no se puede buscar sin
+	// abrirlos todos. Y son solo nombres —la definición, que sí puede pesar
+	// kilobytes, se pide de a una cuando alguien la abre—.
+	Objects []Object `json:"objects,omitempty"`
 
 	// Comment es la descripción que tenga el esquema en el catálogo.
 	Comment string `json:"comment,omitempty"`
@@ -153,6 +173,19 @@ func (s *Snapshot) Normalize() {
 		tablas := s.Schemas[i].Tables
 		sort.SliceStable(tablas, func(a, b int) bool {
 			return strings.ToLower(tablas[a].Name) < strings.ToLower(tablas[b].Name)
+		})
+		// Los objetos se ordenan por CLASE y después por nombre, que es como
+		// los agrupa el árbol. Ordenarlos solo por nombre dejaría una vista
+		// entre dos funciones y obligaría a la UI a reordenarlos para dibujar
+		// los grupos — dos ordenamientos para la misma lista.
+		objetos := s.Schemas[i].Objects
+		sort.SliceStable(objetos, func(a, b int) bool {
+			if objetos[a].Kind != objetos[b].Kind {
+				return objetos[a].Kind < objetos[b].Kind
+			}
+			ka := strings.ToLower(objetos[a].Name + "\x00" + objetos[a].Args)
+			kb := strings.ToLower(objetos[b].Name + "\x00" + objetos[b].Args)
+			return ka < kb
 		})
 	}
 }

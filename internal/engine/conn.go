@@ -206,6 +206,13 @@ type Conn interface {
 	// Cada motor sabe qué puede haber en él, así que la lista sale de acá y no
 	// de una constante en el servicio. Lo que el catálogo tiene y no está
 	// contemplado aparece con su propio tipo en vez de desaparecer.
+	//
+	// Devuelve LO QUE ALCANZÓ A LEER junto con el error, y las dos cosas
+	// importan. Son varias consultas al catálogo y una puede fallar sola —la
+	// de los eventos de MariaDB, que va última—; cortar ahí tiraba las vistas
+	// y las funciones que ya se habían leído. Quien llama decide: el árbol
+	// muestra lo que hay y dice qué faltó, el volcado se niega a escribir un
+	// archivo incompleto.
 	Objects(ctx context.Context, esquemas []string) ([]schema.Object, error)
 
 	// ObjectDefinition devuelve la definición de UN objeto de los que lista

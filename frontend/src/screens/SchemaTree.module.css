@@ -7,3 +7,16 @@
   color: var(--text-dim);
   text-wrap: pretty;
 }
+
+/* El catálogo de objetos no se pudo leer. Ámbar y no rojo: el árbol de tablas
+   sigue sirviendo, así que no es un fallo de la pantalla sino una parte que
+   falta — y decirlo con el color del error haría pensar que no hay nada. */
+.aviso {
+  margin: 6px 8px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  background: var(--warning-quiet);
+  color: var(--warning);
+  font: 400 11.5px/1.55 var(--font-ui);
+  text-wrap: pretty;
+}

@@ -14,6 +14,9 @@ import {
   TabStrip,
 } from "../components/ui";
 import type { TabItem } from "../components/ui";
+import type { $Object as DBObject } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
+import { glifoDe, idDe as idDeObjeto } from "../lib/objetos";
+import { ObjectScreen } from "./ObjectScreen";
 import { SchemaTree } from "./SchemaTree";
 import { SqlEditorScreen } from "./SqlEditorScreen";
 import { TableDataScreen } from "./TableDataScreen";
@@ -107,8 +110,29 @@ export function Shell({
   function openTable(schema: string, table: string) {
     const id = `tabla:${schema}.${table}`;
     setSelected(`${schema}.${table}`);
+    setEsquemaSel(schema);
     setTabs((prev) =>
       prev.some((t) => t.id === id) ? prev : [...prev, { id, label: table, kind: "table" }],
+    );
+    setActiveTab(id);
+  }
+
+  // Los objetos abiertos, por id de pestaña. El OBJETO entero se guarda y no
+  // solo su nombre: la clase y la firma son parte de su identidad —dos
+  // sobrecargas de una función se llaman igual— y volver a buscarlo en el
+  // snapshot por nombre elegiría cualquiera de las dos.
+  const [objetos, setObjetos] = useState<Record<string, DBObject>>({});
+
+  // El esquema de lo último que se eligió en el árbol. Ver esquemaPrincipal().
+  const [esquemaSel, setEsquemaSel] = useState<string | null>(null);
+
+  function openObject(o: DBObject) {
+    const id = `objeto:${idDeObjeto(o)}`;
+    setSelected(idDeObjeto(o));
+    setEsquemaSel(o.schema);
+    setObjetos((prev) => (prev[id] ? prev : { ...prev, [id]: o }));
+    setTabs((prev) =>
+      prev.some((t) => t.id === id) ? prev : [...prev, { id, label: o.name, kind: glifoDe(o.kind) }],
     );
     setActiveTab(id);
   }
@@ -170,13 +194,20 @@ export function Shell({
 
   /** El esquema del que conviene abrir el diagrama.
    *
-   *  El de la tabla seleccionada en el árbol, y si no hay ninguna, el primero
-   *  QUE TENGA TABLAS. El snapshot pone `public` primero porque es donde está
-   *  casi todo, pero en una base donde no se usa queda vacío y el diagrama
-   *  abría en blanco: elegir el primero a secas es correcto y molesto. */
+   *  El de lo último que se eligió en el árbol —tabla u objeto— y si no hay
+   *  nada, el primero QUE TENGA TABLAS. El snapshot pone `public` primero
+   *  porque es donde está casi todo, pero en una base donde no se usa queda
+   *  vacío y el diagrama abría en blanco: elegir el primero a secas es correcto
+   *  y molesto.
+   *
+   *  El esquema se GUARDA al elegir en vez de deducirse del id seleccionado.
+   *  Se deducía partiendo por el primer punto, y eso funcionaba mientras el id
+   *  fuera siempre `esquema.tabla`; el id de un objeto es
+   *  `view:public.v_ventas`, así que elegir una vista dejaba el esquema en
+   *  «view:public» y «Diagrama» abría una pestaña vacía contra un esquema que
+   *  no existe. */
   function esquemaPrincipal(): string {
-    const sel = selected?.includes(".") ? selected.slice(0, selected.indexOf(".")) : "";
-    if (sel) return sel;
+    if (esquemaSel) return esquemaSel;
     const conTablas = (snapshot?.schemas ?? []).find((sc) => (sc.tables ?? []).length > 0);
     return conTablas?.name ?? snapshot?.schemas?.[0]?.name ?? "public";
   }
@@ -305,6 +336,7 @@ export function Shell({
                 query={query}
                 selected={selected}
                 onSelect={openTable}
+                onSelectObject={openObject}
               />
             ) : (
               <p className={styles.emptySmall}>
@@ -387,6 +419,8 @@ export function Shell({
                         void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
                       }}
                     />
+                  ) : objetos[t.id] ? (
+                    <ObjectScreen objeto={objetos[t.id]!} recarga={recarga} />
                   ) : t.id === ID_CAMBIOS ? (
                     <PendingChanges
                       active={t.id === activeTab}

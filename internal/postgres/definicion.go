@@ -19,7 +19,7 @@ import (
 // objetos que caen acá siguen apareciendo en el árbol y en la cobertura del
 // volcado —esconderlos sería el silencio que este proyecto evita— pero se abren
 // diciendo qué son y que todavía no se editan.
-var ErrSinDefinicion = errors.New("sin definición")
+var ErrSinDefinicion = errors.New("Kaname todavía no sabe leer esta clase de objeto")
 
 // Definition devuelve la definición de un objeto como un CREATE completo.
 //
@@ -104,14 +104,20 @@ func Definition(ctx context.Context, pool *pgxpool.Pool, o schema.Object) (schem
 		}
 		def.SQL = sql
 
-	case schema.ObjType:
-		return tipo(ctx, pool, def, nombre)
+	case schema.ObjEnum:
+		return enum(ctx, pool, def, nombre)
 
 	case schema.ObjSequence:
 		return secuencia(ctx, pool, def, nombre)
 
 	default:
-		return def, fmt.Errorf("%w: Kaname todavía no sabe leer la definición de %s", ErrSinDefinicion, etiquetaDeTipo(o.Kind))
+		// Un dominio, un tipo compuesto o una política de RLS tienen
+		// definición, pero no una que Kaname sepa escribir todavía. Se dice
+		// cuál es. Lo que NO se hace es devolver un `CREATE TYPE … AS ENUM ()`
+		// vacío para que la pantalla muestre algo: eso sería una mentira
+		// ejecutable, y correrla crearía un enum sin valores donde había un
+		// dominio.
+		return def, fmt.Errorf("%s es %s: %w", o.Completo(), etiquetaDeTipo(o.Kind), ErrSinDefinicion)
 	}
 	return def, nil
 }
@@ -181,33 +187,21 @@ func funcion(ctx context.Context, pool *pgxpool.Pool, o schema.Object) (string, 
 	}
 }
 
-// tipo escribe un enum. Los dominios y los compuestos se dicen, no se inventan.
-func tipo(ctx context.Context, pool *pgxpool.Pool, def schema.ObjectDefinition, nombre string) (schema.ObjectDefinition, error) {
-	var clase string
+// enum escribe un CREATE TYPE … AS ENUM con los valores en su orden de
+// declaración, que en Postgres es el orden en que ordenan y comparan.
+func enum(ctx context.Context, pool *pgxpool.Pool, def schema.ObjectDefinition, nombre string) (schema.ObjectDefinition, error) {
 	var valores []string
 	err := pool.QueryRow(ctx, `
-		SELECT t.typtype,
-		       COALESCE(array_agg(e.enumlabel ORDER BY e.enumsortorder)
+		SELECT COALESCE(array_agg(e.enumlabel ORDER BY e.enumsortorder)
 		                FILTER (WHERE e.enumlabel IS NOT NULL), '{}')
 		FROM pg_catalog.pg_type t
 		JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 		LEFT JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
-		WHERE n.nspname = $1 AND t.typname = $2
-		GROUP BY t.typtype`,
-		def.Object.Schema, def.Object.Name).Scan(&clase, &valores)
+		WHERE n.nspname = $1 AND t.typname = $2 AND t.typtype = 'e'
+		GROUP BY t.oid`,
+		def.Object.Schema, def.Object.Name).Scan(&valores)
 	if err != nil {
 		return def, envolver(err, def.Object)
-	}
-	if clase != "e" {
-		// Un dominio o un compuesto tiene definición, pero no ESTA. Decir cuál
-		// es vale más que devolver un CREATE TYPE … AS ENUM vacío, que sería
-		// una mentira ejecutable.
-		que := "un tipo compuesto"
-		if clase == "d" {
-			que = "un dominio"
-		}
-		return def, fmt.Errorf("%w: %s es %s, y Kaname todavía solo escribe enums",
-			ErrSinDefinicion, def.Object.Completo(), que)
 	}
 
 	def.Values = valores
@@ -276,6 +270,10 @@ func etiquetaDeTipo(k schema.ObjectKind) string {
 	switch k {
 	case schema.ObjPolicy:
 		return "una política de RLS"
+	case schema.ObjDomain:
+		return "un dominio"
+	case schema.ObjComposite:
+		return "un tipo compuesto"
 	case schema.ObjExtension:
 		return "una extensión"
 	case schema.ObjEvent:

@@ -71,17 +71,28 @@ func (c Cobertura) PorTipo() []grupo {
 	return out
 }
 
+// ordenDeTipos es en qué orden se cuentan las clases en el aviso.
+//
+// Es el MISMO que el de los grupos del árbol, en `frontend/src/lib/objetos.ts`.
+// No es casualidad y hay que mantenerlo: las dos listas salen de la misma
+// llamada al catálogo, así que ver los mismos objetos en dos órdenes distintos
+// —uno en el árbol, otro en el panel de cobertura— hace dudar de si son la
+// misma información. De lo más usado a lo menos.
 var ordenDeTipos = []schema.ObjectKind{
 	schema.ObjView,
 	schema.ObjMatView,
 	schema.ObjFunction,
 	schema.ObjProcedure,
 	schema.ObjTrigger,
-	schema.ObjPolicy,
-	schema.ObjType,
+	schema.ObjEnum,
+	schema.ObjDomain,
+	schema.ObjComposite,
 	schema.ObjSequence,
-	schema.ObjExtension,
+	schema.ObjPolicy,
 	schema.ObjEvent,
+	schema.ObjExtension,
+	// Las columnas van últimas y aparte: no son un objeto del catálogo sino lo
+	// que el volcado dejó afuera de una tabla que sí escribió.
 	schema.ObjColumn,
 }
 
@@ -129,8 +140,12 @@ func etiqueta(k schema.ObjectKind, n int) string {
 		singular, plural = "trigger", "triggers"
 	case schema.ObjPolicy:
 		singular, plural = "política de RLS", "políticas de RLS"
-	case schema.ObjType:
-		singular, plural = "tipo", "tipos"
+	case schema.ObjEnum:
+		singular, plural = "enum", "enums"
+	case schema.ObjDomain:
+		singular, plural = "dominio", "dominios"
+	case schema.ObjComposite:
+		singular, plural = "tipo compuesto", "tipos compuestos"
 	case schema.ObjSequence:
 		singular, plural = "secuencia", "secuencias"
 	case schema.ObjExtension:

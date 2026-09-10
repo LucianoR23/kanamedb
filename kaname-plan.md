@@ -548,8 +548,9 @@ Vistas, funciones, procedures, triggers y enums como editor de definición.
 - ⏳ **S16 Object editor** — completa, con lista de dependientes y aviso de
   DROP + CREATE.
 - ⏳ **S17 Enum / type editor** — completa.
-- ⏳ **S05** — nodos de vistas, materialized views, funciones, procedures,
-  triggers, enums y sequences en el árbol.
+- ✅ **S05** — nodos de vistas, materialized views, funciones, procedures,
+  triggers, enums, dominios, tipos compuestos, secuencias, políticas y eventos
+  en el árbol, agrupados por clase, y la definición de cada uno para leer.
 
 > **Con qué arranca.** La cobertura del volcado de la iteración 7 ya recorre el
 > catálogo de los cuatro motores buscando vistas, funciones, triggers,
@@ -825,6 +826,100 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 8 — 2026-09-10
+
+**Los objetos viajan con el snapshot, y por qué.** El árbol podría cargarlos al
+abrir cada grupo, y sería más barato. No se hace porque el buscador de arriba
+filtra sobre TODO lo que hay: una lista que se carga al abrir no se puede buscar
+sin abrirla, y escribir «pedidos» tiene que encontrar la vista
+`pedidos_del_mes` con el grupo Vistas cerrado. Son solo nombres; la definición,
+que sí puede pesar kilobytes, se pide de a una cuando alguien la abre.
+
+Se llenan en `service`, después del `Introspect` de cada motor y no adentro de
+los tres: es una implementación en vez de tres, y es exactamente la misma
+llamada que usa la cobertura del volcado, así que el árbol y el archivo no
+pueden discrepar sobre qué hay en la base.
+
+**Que el catálogo no se pueda leer no rompe la conexión, pero tampoco se
+calla.** Son dos errores opuestos y los dos son fáciles de cometer. Hacer fallar
+un «Conectar» entero porque una consulta al catálogo falló es una regresión
+sobre lo que venía funcionando —las tablas se leyeron bien y el árbol sirve—; y
+tragarse el fallo haría que un esquema lleno de vistas se viera idéntico a uno
+que no tiene ninguna. Queda en `Snapshot.ObjectsError` y el árbol lo muestra
+arriba, en ámbar y no en rojo: falta una parte, no falló la pantalla.
+
+**`type` se partió en enum, dominio y tipo compuesto.** Se comportan distinto y
+se editan distinto: un enum se cambia agregando valores, un dominio es una
+restricción sobre otro tipo, un compuesto es una forma de fila. Un árbol que
+muestra los tres como «tipo» obliga a abrirlos para saber cuál es cuál. La
+cobertura del volcado gana precisión gratis: donde decía «3 tipos» ahora dice
+«2 enums y 1 dominio».
+
+**El design system tenía el mismo problema que el backend, y se arregló igual.**
+Los glifos de S00 declaraban su propia lista de clases —`matview` donde Go dice
+`materializedView`— así que mostrar un objeto obligaba a traducir en cada
+pantalla: una tabla de equivalencias que hay que acordarse de actualizar dos
+veces, y que en el último lugar que la copie va a estar desactualizada. Ahora
+los nombres son los que manda el backend. `table`, `index`, `primaryKey`,
+`foreignKey`, `schema`, `query` y `erd` siguen siendo de la interfaz, porque no
+vienen del catálogo.
+
+**Los grupos arrancan cerrados y los esquemas abiertos.** No es inconsistencia:
+un esquema tiene uno o dos hermanos, y los grupos son hasta doce por esquema.
+Abiertos, empujan las tablas —que es lo que casi siempre se busca— fuera de la
+pantalla. Buscar expande las dos cosas, porque esconder una coincidencia detrás
+de un nodo cerrado es lo contrario de lo que se pidió.
+
+**Dos bugs que solo aparecieron mirando la pantalla.** Los tests estaban en
+verde y la interfaz decía «Editar **un** secuencia»: el artículo salía de un
+caso especial escrito para la única palabra que se había probado. El género va
+en la tabla de clases, al lado del nombre. Y el mensaje de un dominio llegaba
+como «leer la definición: sin definición: kn_s05.positivo es un dominio, y
+Kaname todavía solo escribe enums» —dos encabezados antes de la frase que
+explica algo—. El servicio dejó de re-envolver, porque los mensajes de cada
+motor ya nombran al objeto, y el texto del `ErrSinDefinicion` pasó a ser la
+cláusula que cierra la frase en vez de un prefijo suelto. Al arreglarlo me pasé
+para el otro lado —quedó diciendo lo mismo dos veces— y hubo que sacar la
+duplicación: ahora es «kn_s05.positivo es un dominio: Kaname todavía no sabe
+leer esta clase de objeto».
+
+**Del review `high`, siete hallazgos, y tres importaban.** El peor lo
+introduje al hacer que el árbol comparta `selected` entre tablas y objetos: el
+esquema en curso se deducía partiendo el id por el primer punto, y el id de un
+objeto es `view:public.v_ventas`, así que elegir una vista dejaba el esquema en
+«view:public» y «Diagrama» abría una pestaña vacía contra un esquema inexistente
+—y guardaba un layout bajo esa clave—. El esquema ahora se GUARDA al elegir en
+vez de deducirse de un id cuya forma cambió.
+
+El segundo: la pestaña del objeto no escuchaba el contador de «Refrescar», así
+que recrear una vista desde el editor y refrescar dejaba la definición vieja en
+pantalla, con la única salida de cerrar y reabrir. Es exactamente la regresión
+para la que el contador se inventó en la grilla.
+
+El tercero contradecía lo que esta sección dice dos párrafos más arriba.
+`Objects` son ocho consultas al catálogo y **cortaba en la primera que fallara**,
+devolviendo nada: la de los eventos va última y en algunas variantes de MariaDB
+no se puede leer, así que por ella desaparecían del árbol las vistas, las
+funciones y los triggers que ya se habían leído bien. Ahora los fallos se juntan,
+el recorrido sigue, y el método devuelve **lo que alcanzó a leer junto con el
+error**. Quien llama decide con las dos mitades: el árbol muestra lo que hay y
+dice qué faltó, el volcado se niega a escribir un archivo incompleto.
+
+Y cuatro chicos que igual se ven: el orden de los grupos del árbol **no era** el
+de la cobertura del volcado aunque el comentario jurara que sí —se alinearon los
+dos, y cada lista nombra a la otra—; el glifo de una secuencia y el de una
+consulta decían los dos «SQ», indistinguibles en la barra de pestañas desde que
+una secuencia se puede abrir; el aviso de error colgaba adentro del
+`role="tree"`, donde un lector de pantalla lo descarta; y el contador del
+esquema contaba solo tablas, así que buscar «ventas» mostraba «0 de 40» justo
+encima de la vista que sí coincidía.
+
+**Probado a mano contra Postgres 18 y MySQL 9.7**, con objetos de las siete
+clases. La vista vuelve con su `WITH (security_invoker=true)`, el enum con sus
+tres valores en orden de declaración, la secuencia sin su `last_value`, las dos
+sobrecargas de `calcular` como dos nodos distinguibles con su propio cuerpo, y
+el dominio con el mensaje que dice qué es. En MySQL la vista vuelve con su
+`DEFINER`, como se decidió. MariaDB y SQLite quedaron cubiertos por los tests
+—que corren el mismo código— pero no se miraron en la interfaz.
 
 **Una sola lista de objetos, no dos.** La cobertura del volcado ya recorría el
 catálogo de los cuatro motores buscando vistas, matviews, funciones,

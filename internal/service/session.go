@@ -298,6 +298,7 @@ func (s *Session) Schema(ctx context.Context, refresh bool) (*schema.Snapshot, e
 	if err != nil {
 		return nil, fmt.Errorf("leer el esquema de %s: %w", sesion.conn.Describe(), err)
 	}
+	conObjetos(ctx, sesion.db, snap)
 
 	s.mu.Lock()
 	// Puede haberse desconectado o reconectado mientras se leía: solo se guarda
@@ -458,4 +459,74 @@ func poolSize(c connection.Connection) int32 {
 		return 2
 	}
 	return 4
+}
+
+// conObjetos le agrega al snapshot los objetos que no son tablas.
+//
+// Va acá y no adentro de cada `Introspect` por el mismo motivo por el que
+// `Conn.Objects` existe: es UNA implementación en vez de tres, y es exactamente
+// la misma llamada que usa la cobertura del volcado, así que el árbol y el
+// archivo no pueden discrepar sobre qué hay en la base.
+//
+// Un fallo NO rompe la lectura del esquema. El árbol de tablas sirve igual, y
+// hacer fallar un «Conectar» entero porque una consulta al catálogo no se pudo
+// leer sería una regresión sobre lo que venía funcionando. Queda dicho en
+// `ObjectsError`, que la pantalla muestra: callarlo haría que un esquema lleno
+// de vistas se viera igual que uno sin ninguna, que es el silencio que este
+// proyecto no acepta.
+func conObjetos(ctx context.Context, db engine.Conn, snap *schema.Snapshot) {
+	if snap == nil || len(snap.Schemas) == 0 {
+		return
+	}
+	nombres := make([]string, 0, len(snap.Schemas))
+	for _, sc := range snap.Schemas {
+		nombres = append(nombres, sc.Name)
+	}
+
+	// Las dos mitades se usan: `Objects` devuelve lo que alcanzó a leer JUNTO
+	// con el error, así que una consulta al catálogo que falla —la de los
+	// eventos de MariaDB es la candidata— cuesta sus objetos y no todos los
+	// demás. El volcado hace lo contrario con el mismo par: se niega a escribir
+	// un archivo incompleto.
+	objetos, err := db.Objects(ctx, nombres)
+	if err != nil {
+		snap.ObjectsError = err.Error()
+	}
+	if len(objetos) == 0 {
+		return
+	}
+
+	porEsquema := make(map[string][]schema.Object, len(snap.Schemas))
+	for _, o := range objetos {
+		porEsquema[o.Schema] = append(porEsquema[o.Schema], o)
+	}
+	for i := range snap.Schemas {
+		// SQLite no tiene esquemas: sus objetos vienen con «main» y el único
+		// esquema del snapshot se llama de otra forma. Con una sola entrada no
+		// hay ambigüedad posible, así que van todos ahí.
+		if len(snap.Schemas) == 1 {
+			snap.Schemas[i].Objects = objetos
+			break
+		}
+		snap.Schemas[i].Objects = porEsquema[snap.Schemas[i].Name]
+	}
+	snap.Normalize()
+}
+
+// ObjectDefinition devuelve la definición de un objeto del árbol.
+//
+// Se pide de a uno y a demanda, al revés que la lista: los nombres viajan con
+// el snapshot porque el buscador los necesita todos, pero la definición de una
+// vista puede ser de kilobytes y traerlas todas serían cientos de textos que
+// nadie va a mirar.
+func (s *Session) ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return schema.ObjectDefinition{}, err
+	}
+	// El error NO se vuelve a envolver: los mensajes de cada motor ya nombran al
+	// objeto y dicen qué pasó. Un prefijo acá daba «leer la definición: sin
+	// definición: kn_s05.positivo es un dominio…», con dos encabezados antes de
+	// la frase que explica algo —probando a mano se ve enseguida—.
+	return sesion.db.ObjectDefinition(ctx, o)
 }

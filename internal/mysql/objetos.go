@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,32 +28,35 @@ func Objects(ctx context.Context, db *sql.DB, esquemas []string) ([]schema.Objec
 	}
 
 	var out []schema.Object
+	// Los fallos se juntan y NO cortan el recorrido. `information_schema.EVENTS`
+	// no existe en algunas variantes si el scheduler nunca se habilitó, y es la
+	// ÚLTIMA consulta: cortar ahí tiraba las vistas, las funciones, los
+	// procedimientos y los triggers que ya se habían leído bien. Se avisa igual
+	// —callarse produce el archivo silencioso que esto existe para evitar— pero
+	// avisar no puede costar todo lo demás.
+	var fallos []error
 	for _, q := range consultasDeCobertura {
 		filas, err := db.QueryContext(ctx, fmt.Sprintf(q.sql, marcadores), args...)
 		if err != nil {
-			// `information_schema.EVENTS` no existe si el scheduler nunca se
-			// habilitó en algunas variantes; se avisa igual en vez de tragarlo,
-			// porque quedarse callado produce el archivo silencioso que esto
-			// existe para evitar.
-			return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
+			fallos = append(fallos, fmt.Errorf("leer %s del catálogo: %w", q.que, err))
+			continue
 		}
 		for filas.Next() {
 			o := schema.Object{Kind: q.kind}
 			var tabla sql.NullString
 			if err := filas.Scan(&o.Schema, &o.Name, &tabla); err != nil {
-				filas.Close()
-				return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
+				fallos = append(fallos, fmt.Errorf("leer %s del catálogo: %w", q.que, err))
+				break
 			}
 			o.Table = tabla.String
 			out = append(out, o)
 		}
 		if err := filas.Err(); err != nil {
-			filas.Close()
-			return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
+			fallos = append(fallos, fmt.Errorf("leer %s del catálogo: %w", q.que, err))
 		}
 		filas.Close()
 	}
-	return out, nil
+	return out, errors.Join(fallos...)
 }
 
 type consultaDeCobertura struct {

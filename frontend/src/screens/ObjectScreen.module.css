@@ -1,0 +1,104 @@
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 14px 16px;
+  overflow: auto;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nombre {
+  margin: 0;
+  font: 500 13.5px/1.3 var(--font-ui);
+  color: var(--text);
+}
+
+.esquema { color: var(--text-dim); font-weight: 400; }
+
+/* La firma en mono: es SQL, y en la tipografía de la interfaz `integer[]` se
+   lee peor que el nombre que la acompaña. */
+.args {
+  font: 400 12px/1.3 var(--font-mono);
+  color: var(--text-dim);
+}
+
+.sobre { font: 400 11.5px/1.3 var(--font-ui); color: var(--text-dim); }
+.spacer { flex: 1; }
+
+.subtitulo {
+  margin: 0 0 6px;
+  font: 500 11.5px/1.3 var(--font-ui);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.cuantos { color: var(--text-faint); font-weight: 400; }
+
+.lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.valor {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font: 400 11.5px/1.5 var(--font-mono);
+  color: var(--text);
+}
+
+.sql {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font: 400 12px/1.65 var(--font-mono);
+  color: var(--text);
+  /* El texto viene del motor con su propia indentación y sus saltos, y se
+     respeta: reformatearlo sería mostrar algo distinto de lo que la base tiene.
+     Se envuelve en vez de recortar porque un cuerpo de función largo leído a
+     través de una barra horizontal no se lee. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+
+.estado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font: 400 12px/1.5 var(--font-ui);
+  color: var(--text-dim);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--warning-quiet);
+  color: var(--warning);
+  font: 400 12px/1.6 var(--font-ui);
+  text-wrap: pretty;
+}
+
+.nota {
+  margin: 0;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-faint);
+  text-wrap: pretty;
+}

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,21 +28,31 @@ func Objects(ctx context.Context, pool *pgxpool.Pool, esquemas []string) ([]sche
 		return nil, nil
 	}
 	var out []schema.Object
+	// Los fallos se juntan y NO cortan el recorrido, y lo que se alcanzó a leer
+	// se devuelve igual.
+	//
+	// Un catálogo que no se puede leer no se traga —quedarse callado produce el
+	// archivo silencioso que este código existe para evitar— pero cortar en la
+	// primera consulta que falla tiraba TODO lo demás: la de los eventos va
+	// última y no siempre se puede leer, y por ella desaparecían del árbol las
+	// vistas, las funciones y los triggers que ya se habían leído bien. Quien
+	// llama decide qué hacer con las dos mitades: el volcado se niega a
+	// escribir un archivo incompleto, el árbol muestra lo que hay y dice qué
+	// faltó.
+	var fallos []error
 
 	for _, q := range consultasDeCobertura {
 		filas, err := pool.Query(ctx, q.sql, esquemas)
 		if err != nil {
-			// Un catálogo que no se puede leer NO se traga: quedarse callado
-			// acá produce exactamente el archivo silencioso que este código
-			// existe para evitar.
-			return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
+			fallos = append(fallos, fmt.Errorf("leer %s del catálogo: %w", q.que, err))
+			continue
 		}
 		for filas.Next() {
 			o := schema.Object{Kind: q.kind}
-			var tabla, args *string
-			if err := filas.Scan(&o.Schema, &o.Name, &tabla, &args); err != nil {
-				filas.Close()
-				return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
+			var tabla, args, clase *string
+			if err := filas.Scan(&o.Schema, &o.Name, &tabla, &args, &clase); err != nil {
+				fallos = append(fallos, fmt.Errorf("leer %s del catálogo: %w", q.que, err))
+				break
 			}
 			if tabla != nil {
 				o.Table = *tabla
@@ -49,20 +60,26 @@ func Objects(ctx context.Context, pool *pgxpool.Pool, esquemas []string) ([]sche
 			if args != nil {
 				o.Args = *args
 			}
+			// Casi todas las consultas traen una sola clase de objeto y la
+			// declaran arriba. La de los tipos no puede: enum, dominio y
+			// compuesto salen de la MISMA fila del catálogo y se distinguen por
+			// una columna, así que ahí la clase viaja con el dato.
+			if clase != nil {
+				o.Kind = schema.ObjectKind(*clase)
+			}
 			out = append(out, o)
 		}
 		if err := filas.Err(); err != nil {
-			filas.Close()
-			return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
+			fallos = append(fallos, fmt.Errorf("leer %s del catálogo: %w", q.que, err))
 		}
 		filas.Close()
 	}
-	return out, nil
+	return out, errors.Join(fallos...)
 }
 
-// consultaDeCobertura es una clase de objeto y cómo encontrarla. Las cuatro
+// consultaDeCobertura es una clase de objeto y cómo encontrarla. Las cinco
 // columnas son siempre las mismas —esquema, nombre, tabla o NULL, argumentos o
-// NULL— para que el lector sea uno solo.
+// NULL, clase o NULL— para que el lector sea uno solo.
 type consultaDeCobertura struct {
 	kind schema.ObjectKind
 	que  string
@@ -73,7 +90,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjView,
 		que:  "las vistas",
-		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text
+		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text, NULL::text
 		      FROM pg_catalog.pg_class c
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		      WHERE c.relkind = 'v' AND n.nspname = ANY($1)`,
@@ -81,7 +98,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjMatView,
 		que:  "las vistas materializadas",
-		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text
+		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text, NULL::text
 		      FROM pg_catalog.pg_class c
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		      WHERE c.relkind = 'm' AND n.nspname = ANY($1)`,
@@ -93,7 +110,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		kind: schema.ObjFunction,
 		que:  "las funciones",
 		sql: `SELECT n.nspname, p.proname, NULL::text,
-		             pg_catalog.pg_get_function_identity_arguments(p.oid)
+		             pg_catalog.pg_get_function_identity_arguments(p.oid), NULL::text
 		      FROM pg_catalog.pg_proc p
 		      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 		      WHERE p.prokind = 'f' AND n.nspname = ANY($1)
@@ -105,7 +122,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		kind: schema.ObjProcedure,
 		que:  "los procedimientos",
 		sql: `SELECT n.nspname, p.proname, NULL::text,
-		             pg_catalog.pg_get_function_identity_arguments(p.oid)
+		             pg_catalog.pg_get_function_identity_arguments(p.oid), NULL::text
 		      FROM pg_catalog.pg_proc p
 		      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 		      WHERE p.prokind = 'p' AND n.nspname = ANY($1)
@@ -119,7 +136,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// se renderiza.
 		kind: schema.ObjTrigger,
 		que:  "los triggers",
-		sql: `SELECT n.nspname, t.tgname, c.relname, NULL::text
+		sql: `SELECT n.nspname, t.tgname, c.relname, NULL::text, NULL::text
 		      FROM pg_catalog.pg_trigger t
 		      JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -128,7 +145,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjPolicy,
 		que:  "las políticas de RLS",
-		sql: `SELECT n.nspname, p.polname, c.relname, NULL::text
+		sql: `SELECT n.nspname, p.polname, c.relname, NULL::text, NULL::text
 		      FROM pg_catalog.pg_policy p
 		      JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -138,9 +155,11 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// Enums, dominios y compuestos. Se excluyen los tipos de fila que
 		// Postgres crea solo para cada tabla —`relkind` de la clase asociada—
 		// porque no son objetos propios.
-		kind: schema.ObjType,
-		que:  "los tipos",
-		sql: `SELECT n.nspname, t.typname, NULL::text, NULL::text
+		que: "los tipos",
+		sql: `SELECT n.nspname, t.typname, NULL::text, NULL::text,
+		             CASE t.typtype WHEN 'e' THEN 'enum'
+		                            WHEN 'd' THEN 'domain'
+		                            ELSE 'composite' END
 		      FROM pg_catalog.pg_type t
 		      JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 		      WHERE n.nspname = ANY($1)
@@ -157,7 +176,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// `identity` viene con la columna, que sí se renderiza.
 		kind: schema.ObjSequence,
 		que:  "las secuencias",
-		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text
+		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text, NULL::text
 		      FROM pg_catalog.pg_class c
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		      WHERE c.relkind = 'S' AND n.nspname = ANY($1)

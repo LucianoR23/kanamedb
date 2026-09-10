@@ -10,7 +10,7 @@ import (
 )
 
 // ErrSinDefinicion es que Kaname no sabe reconstruir ese tipo de objeto.
-var ErrSinDefinicion = errors.New("sin definición")
+var ErrSinDefinicion = errors.New("Kaname todavía no sabe leer esta clase de objeto")
 
 // Definition devuelve la definición de un objeto como un CREATE completo.
 //
@@ -36,7 +36,7 @@ func Definition(ctx context.Context, db *sql.DB, o schema.Object) (schema.Object
 	case schema.ObjTrigger:
 		tipo = "trigger"
 	default:
-		return def, fmt.Errorf("%w: SQLite no tiene %s", ErrSinDefinicion, o.Kind)
+		return def, fmt.Errorf("SQLite no tiene %s: %w", o.Kind, ErrSinDefinicion)
 	}
 
 	var texto sql.NullString

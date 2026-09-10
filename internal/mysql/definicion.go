@@ -11,7 +11,7 @@ import (
 )
 
 // ErrSinDefinicion es que Kaname no sabe reconstruir ese tipo de objeto.
-var ErrSinDefinicion = errors.New("sin definición")
+var ErrSinDefinicion = errors.New("Kaname todavía no sabe leer esta clase de objeto")
 
 // Definition devuelve la definición de un objeto como un CREATE completo.
 //
@@ -44,7 +44,7 @@ func Definition(ctx context.Context, db *sql.DB, o schema.Object) (schema.Object
 	case schema.ObjEvent:
 		que = "EVENT"
 	default:
-		return def, fmt.Errorf("%w: este motor no tiene %s", ErrSinDefinicion, o.Kind)
+		return def, fmt.Errorf("este motor no tiene %s: %w", o.Kind, ErrSinDefinicion)
 	}
 
 	nombre := QualifiedName(o.Schema, o.Name)
