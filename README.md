@@ -195,12 +195,22 @@ stack se lleva todo y hay que volver a correrlo.
 
 **Lo que solo se prueba a mano.** Los selectores de archivo son del sistema
 operativo, no de la página: no se pueden manejar por herramientas y ningún test
-los cubre. Son dos, y conviene pasarlos una vez por release: «Abrir archivo
-SQLite…» desde S01 y S02, y el «guardar como» de **Exportar…** —que está en la
-barra de resultados del editor y en la de una tabla—: elegir destino, guardar, y
-comprobar que el archivo tiene la extensión del formato elegido. Todo lo demás
-de la exportación (formatos, opciones, vista previa, copiar, y que una tabla
-salga entera y no solo lo cargado en la grilla) sí se prueba desde la
+los cubre. Son **tres**, y conviene pasarlos una vez por release:
+
+1. **«Abrir archivo SQLite…»**, desde S01 y S02.
+2. **El «guardar como» de Exportar…**, que está en la barra de resultados del
+   editor y en la de una tabla: elegir destino, guardar, y comprobar que el
+   archivo tiene la extensión del formato elegido —incluido el `.gz` cuando se
+   tilda comprimir—.
+3. **El selector de carpeta de Exportar…**, que aparece con el alcance «todas
+   las tablas» en cualquier formato que no sea INSERTs: elegir la carpeta y
+   comprobar que quedó un archivo por tabla, con el nombre de cada una.
+
+El de **Importar…** no está en la lista porque la ruta del archivo también se
+puede escribir, así que ese camino se prueba desde la aplicación.
+
+Todo lo demás de la exportación (formatos, opciones, vista previa, copiar, y que
+una tabla salga entera y no solo lo cargado en la grilla) sí se prueba desde la
 aplicación y desde los tests.
 
 ```sh

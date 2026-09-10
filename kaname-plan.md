@@ -345,6 +345,8 @@ lo que entra y sale de la grilla.
   con tres tablas adentro no lo lee nadie. El zip se descartó: no se puede
   mirar sin abrirlo y no ahorra nada que el disco no ahorre solo. «Schema only»
   del diseño va con el volcado, que es donde vive la cobertura declarada.
+  **El selector de carpeta queda para probar a mano**, como el «guardar como»
+  y el de SQLite: los tres están listados en el README.
 - ✅ **El visor: la fila entera como JSON, el modo Items y los botones del
   pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
   menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
