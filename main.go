@@ -40,6 +40,7 @@ func main() {
 	// Las exportaciones se registran en el mismo lugar que las consultas, para
 	// que «Cancelar» corte cualquiera de las dos con el mismo identificador.
 	consultas := service.NewQueries(sesion)
+	exportaciones := service.NewExports(consultas)
 
 	app := application.New(application.Options{
 		Name:        "Kaname",
@@ -51,8 +52,9 @@ func main() {
 			application.NewService(sesion),
 			application.NewService(consultas),
 			application.NewService(service.NewHosts(known)),
-			application.NewService(service.NewExports(consultas)),
+			application.NewService(exportaciones),
 			application.NewService(service.NewImports(consultas)),
+			application.NewService(service.NewDumps(exportaciones, consultas)),
 		},
 
 		Assets: application.AssetOptions{

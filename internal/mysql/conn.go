@@ -177,6 +177,20 @@ func (c *Conn) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) {
 	return columnTypes(c.server.Kind), nil
 }
 
+func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error) {
+	// Un esquema vacío es «la base abierta»: en MySQL las dos cosas son lo
+	// mismo, y sin esto la lista saldría vacía y el archivo se vería como uno
+	// que no deja nada afuera.
+	pedidos := make([]string, 0, len(esquemas))
+	for _, e := range esquemas {
+		pedidos = append(pedidos, c.base(e))
+	}
+	if len(pedidos) == 0 {
+		pedidos = append(pedidos, c.base(""))
+	}
+	return Uncovered(ctx, c.db, pedidos)
+}
+
 func (c *Conn) PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]string, error) {
 	return primaryKeyColumns(ctx, c.db, c.base(esquema), tabla)
 }

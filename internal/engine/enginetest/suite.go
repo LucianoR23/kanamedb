@@ -56,6 +56,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("pagina y cuenta", func(t *testing.T) { pagina(t, f) })
 	t.Run("recorre la tabla entera", func(t *testing.T) { recorrido(t, f) })
 	t.Run("filtra por columna", func(t *testing.T) { filtros(t, f) })
+	t.Run("dice qué no sabe volcar", func(t *testing.T) { cobertura(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
@@ -1110,4 +1111,66 @@ func tieneColumna(d *schema.TableDetail, nombre string) bool {
 		}
 	}
 	return false
+}
+
+// cobertura comprueba que el motor sepa NOMBRAR lo que el volcado de estructura
+// deja afuera.
+//
+// Es el caso que hace honesto al volcado de estructura, y lo que se prueba no
+// es que la lista sea larga sino que **no sea silenciosa**: se crea una vista
+// de verdad y se exige que aparezca. Un `Uncovered` que devuelva siempre vacío
+// —o que se coma un error del catálogo— produce un archivo que se ve idéntico a
+// uno completo, y quien lo restaura se entera meses después.
+//
+// Las TABLAS no pueden aparecer: el volcado sí las escribe, y listarlas como
+// «queda afuera» sería el error contrario, que asusta sin motivo.
+func cobertura(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	ctx := context.Background()
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_cob")
+
+	vista := "kn_cob_vista"
+	nombreVista := califica(c, esq, vista)
+	_ = c.Exec(ctx, "DROP VIEW IF EXISTS "+nombreVista)
+	exec(t, c, fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s", nombreVista, califica(c, esq, tabla)))
+	t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP VIEW IF EXISTS "+nombreVista) })
+
+	fuera, err := c.Uncovered(ctx, esquemasDe(esq))
+	if err != nil {
+		t.Fatalf("Uncovered(): %v", err)
+	}
+
+	var laVista *schema.Object
+	for i := range fuera {
+		if fuera[i].Name == vista {
+			laVista = &fuera[i]
+		}
+		if fuera[i].Name == tabla || fuera[i].Name == tabla+"_padre" {
+			t.Errorf("la tabla %q figura como que queda afuera del volcado, y el volcado la escribe", fuera[i].Name)
+		}
+	}
+	if laVista == nil {
+		nombres := make([]string, 0, len(fuera))
+		for _, o := range fuera {
+			nombres = append(nombres, string(o.Kind)+":"+o.Name)
+		}
+		t.Fatalf("la vista %q no aparece en lo que queda afuera; salieron: %v", vista, nombres)
+	}
+	if laVista.Kind != schema.ObjView {
+		t.Errorf("la vista salió como %q", laVista.Kind)
+	}
+	if laVista.Name != vista {
+		t.Errorf("la vista salió con nombre %q", laVista.Name)
+	}
+}
+
+// esquemasDe arma la lista que espera Uncovered. El esquema vacío de SQLite no
+// se manda como una cadena vacía: se manda la lista vacía, que es lo que ese
+// motor entiende.
+func esquemasDe(esq string) []string {
+	if esq == "" {
+		return nil
+	}
+	return []string{esq}
 }

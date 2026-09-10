@@ -99,6 +99,10 @@ func (c *Conn) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) {
 	return columnTypes(), nil
 }
 
+func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error) {
+	return Uncovered(ctx, c.db, esquemas)
+}
+
 func (c *Conn) PrimaryKeyColumns(ctx context.Context, _, tabla string) ([]string, error) {
 	return primaryKeyColumns(ctx, c.db, tabla)
 }

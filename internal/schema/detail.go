@@ -273,3 +273,51 @@ type TypeOption struct {
 
 	Comment string `json:"comment,omitempty"`
 }
+
+// ObjectKind es qué clase de objeto es.
+//
+// Existe para el volcado: es el vocabulario con el que cada motor dice qué hay
+// en el esquema que Kaname no sabe renderizar. No es la lista de todo lo que
+// existe en una base — es la lista de lo que hay que poder NOMBRAR cuando se
+// queda afuera.
+type ObjectKind string
+
+const (
+	ObjView      ObjectKind = "view"
+	ObjMatView   ObjectKind = "materializedView"
+	ObjFunction  ObjectKind = "function"
+	ObjProcedure ObjectKind = "procedure"
+	ObjTrigger   ObjectKind = "trigger"
+	ObjPolicy    ObjectKind = "policy"
+	ObjType      ObjectKind = "type"
+	ObjSequence  ObjectKind = "sequence"
+	ObjExtension ObjectKind = "extension"
+	ObjEvent     ObjectKind = "event"
+)
+
+// Object es un objeto del catálogo, nombrado.
+//
+// Se llama con nombre y apellido a propósito: «quedan 3 funciones afuera» no
+// deja decidir nada, y «quedan demo.tocar, demo.calcular y demo.auditar» sí.
+type Object struct {
+	Kind   ObjectKind `json:"kind"`
+	Schema string     `json:"schema"`
+	Name   string     `json:"name"`
+
+	// Table es la tabla a la que cuelga, cuando el objeto no vive solo: un
+	// trigger o una política de RLS. Vacío en los demás.
+	Table string `json:"table,omitempty"`
+}
+
+// Completo es cómo se nombra en un aviso: `esquema.nombre`, y con la tabla
+// entre paréntesis cuando el objeto cuelga de una.
+func (o Object) Completo() string {
+	nombre := o.Name
+	if o.Schema != "" {
+		nombre = o.Schema + "." + o.Name
+	}
+	if o.Table != "" {
+		nombre += " (" + o.Table + ")"
+	}
+	return nombre
+}

@@ -84,6 +84,10 @@ func (c *Conn) PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]
 	return PrimaryKeyColumns(ctx, c.pool, esquema, tabla)
 }
 
+func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error) {
+	return Uncovered(ctx, c.pool, esquemas)
+}
+
 func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
 	return Run(ctx, c.pool, sql, RunOptions{RowLimit: opts.RowLimit})
 }

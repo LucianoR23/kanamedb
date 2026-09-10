@@ -161,6 +161,16 @@ type Conn interface {
 	// PrimaryKeyColumns es por dónde ordenar para que el paginado sea estable.
 	PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]string, error)
 
+	// Uncovered lista lo que hay en estos esquemas y el volcado de estructura
+	// NO sabe escribir: vistas, funciones, triggers, políticas, tipos.
+	//
+	// Es la condición para que el volcado de estructura exista. El problema de
+	// un export de esquema no es la dificultad —el DDL de una tabla ya se
+	// renderiza— sino el silencio: uno que se olvida de una política de RLS se
+	// ve idéntico a uno correcto. Cada motor sabe qué puede haber en él, así
+	// que la lista sale de acá y no de una constante en el servicio.
+	Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error)
+
 	// Quoting es cómo este motor cita nombres y valores. Ver Quoting.
 	Quoting() Quoting
 
