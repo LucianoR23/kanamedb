@@ -64,15 +64,17 @@ func (s *Session) ReviewRow(ctx context.Context, changeID string) (RowReview, er
 	// Los otros cambios de datos incluidos en el apply. Una comprobación que
 	// mirara solo la base diría «no existe el padre» cuando el padre es la
 	// fila de arriba en la misma tanda, y «el borrado va a fallar» cuando las
-	// hijas se borran dos filas antes. Ordered conserva el orden de edición
-	// entre los cambios de datos, así que lo que está antes en la lista corre
-	// antes.
+	// hijas se borran dos filas antes. Los cambios de datos van todos en la
+	// misma fase, así que su orden de ejecución es el de edición: se recorre
+	// List, que tiene también a los excluidos, y no Ordered. Con Ordered, un
+	// cambio que está excluido no aparece, el corte nunca llega y «antes»
+	// terminaba siendo la tanda entera, incluido lo que correría después.
 	var otros []change.Change
-	for _, cand := range sesion.cambios.Ordered() {
+	for _, cand := range sesion.cambios.List() {
 		if cand.ID == c.ID {
 			break
 		}
-		if cand.Kind() == change.KindData {
+		if !cand.Excluded && cand.Kind() == change.KindData {
 			otros = append(otros, cand)
 		}
 	}

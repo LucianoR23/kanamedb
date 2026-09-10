@@ -29,7 +29,8 @@ import type { Edicion, Valor } from "../lib/edicion";
 import { cx } from "../lib/cx";
 import { plural } from "../lib/motor";
 import { CellViewer } from "./CellViewer";
-import { DataReview, esCambioDeDatos } from "./DataReview";
+import { DataReview } from "./DataReview";
+import { esCambioDeDatos } from "../lib/cambios";
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { TableStructure, bytes } from "./TableStructure";
 import { useStage } from "../lib/useStage";
@@ -114,6 +115,10 @@ export function TableDataScreen({
   const [revision, setRevision] = useState<ChangeView[] | null>(null);
   // El elemento de la grilla, para enfocarlo después de «Agregar fila».
   const gridRef = useRef<HTMLDivElement | null>(null);
+  // Sube de a uno cada vez que hay que llevar la vista al final. Es un pedido y
+  // no un booleano porque dos «Agregar fila» seguidos tienen que hacer dos
+  // desplazamientos, y un booleano en true no vuelve a disparar el efecto.
+  const [irAlFinal, setIrAlFinal] = useState(0);
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
   // datos.
@@ -362,7 +367,19 @@ export function TableDataScreen({
     // volvería a apretar el botón y agregaría otra fila.
     setSeleccion({ row: filas.length + edicion.nuevas.length, col: 0 });
     gridRef.current?.focus({ preventScroll: true });
+    setIrAlFinal((n) => n + 1);
   }
+
+  // La fila nueva va al final de lo cargado, que con una página de 500 filas
+  // está fuera de la vista: se creaba una fila que no se veía, y el Enter
+  // abría el editor en algo que no estaba en pantalla. Se va al fondo y no a
+  // un índice porque las filas nuevas son siempre las últimas. El efecto corre
+  // después del commit, cuando el alto virtual ya cuenta la fila agregada.
+  useEffect(() => {
+    if (irAlFinal === 0) return;
+    const el = gridRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [irAlFinal]);
 
   function preparar() {
     if (!hayEdiciones(edicion)) return;

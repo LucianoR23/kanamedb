@@ -265,6 +265,35 @@ func TestLaRevisionCuentaLoQueLaMismaTandaHaceAntes(t *testing.T) {
 				t.Errorf("el padre que inserta la tanda no cuenta:%s", describir(r))
 			}
 
+			// Un hijo EXCLUIDO cuyo padre se inserta DESPUÉS en la lista: lo que
+			// corre después no cuenta, y que el hijo esté excluido no cambia eso.
+			// Antes se recorría Ordered, que no tiene a los excluidos: el corte no
+			// llegaba nunca y «antes» era la tanda entera.
+			huerfano, err := sesion.Stage(ctx, change.Change{
+				Type: change.InsertRow, Schema: esq, Table: "kn_rev_hija", Source: "grid",
+				Values: []change.Cell{{Column: "id", Value: texto("60")}, {Column: "padre_id", Value: texto("6")},
+					{Column: "titulo", Value: texto("y")}},
+			}, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sesion.IncludeChange(huerfano.Change.ID, false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := sesion.Stage(ctx, change.Change{
+				Type: change.InsertRow, Schema: esq, Table: "kn_rev_padre", Source: "grid",
+				Values: []change.Cell{{Column: "id", Value: texto("6")}, {Column: "nombre", Value: texto("tarde")}},
+			}, ""); err != nil {
+				t.Fatal(err)
+			}
+			r, err = sesion.ReviewRow(ctx, huerfano.Change.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !hay(r, "bad", "No existe kn_rev_padre") || hay(r, "ok", "lo pone esta misma tanda") {
+				t.Errorf("un padre que se inserta después contó como anterior:%s", describir(r))
+			}
+
 			// Borrar la hija estricta y después el padre 1: el RESTRICT ya no frena.
 			if _, err := sesion.Stage(ctx, change.Change{
 				Type: change.DeleteRow, Schema: esq, Table: "kn_rev_estricta", Source: "grid",

@@ -1,0 +1,233 @@
+/* S19 Export. Misma caja que la revisión de filas: columna de formato y
+   alcance a la izquierda, ajustes y vista previa a la derecha, scroll por
+   dentro. */
+.marco {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  height: min(72vh, 640px);
+  margin: -4px -2px 0;
+  border-top: 1px solid var(--border);
+}
+.grow { flex: 1; }
+.dim {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.seccionTitulo {
+  padding: 11px 12px 7px;
+  white-space: nowrap;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.seccionSegunda { padding-top: 14px; }
+
+/* ---- lateral -------------------------------------------------------------- */
+
+.lateral {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.formato {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.formato:hover { background: var(--bg-hover); }
+.formatoActivo { background: var(--bg-sel); box-shadow: inset 2px 0 0 var(--accent); }
+.formatoTag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  color: var(--text-3);
+  font: 700 8px var(--font-mono);
+}
+.formatoActivo .formatoTag { background: var(--accent-quiet); color: var(--accent); }
+.formatoTexto { display: flex; flex-direction: column; min-width: 0; }
+.formatoLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 12px var(--font-ui);
+  color: var(--text-2);
+}
+.formatoActivo .formatoLabel { color: var(--text-1); }
+.formatoNota {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.alcance {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--bg-hover);
+}
+.alcanceRadio {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  background: var(--accent-quiet);
+}
+.alcanceRadio > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.alcanceLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11.5px var(--font-ui);
+  color: var(--text-1);
+}
+.lateralNota {
+  margin: 0;
+  padding: 11px 12px;
+  border-top: 1px solid var(--border-subtle);
+  font: 400 10.5px/1.55 var(--font-ui);
+  color: var(--text-3);
+}
+
+/* ---- principal ------------------------------------------------------------ */
+
+.principal {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.ajustes {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.etiqueta {
+  font: 400 12px var(--font-ui);
+  color: var(--text-2);
+}
+.etiquetaArriba { align-self: start; padding-top: 2px; }
+.apagado { color: var(--text-dim); }
+
+.rutaFila { display: flex; gap: 7px; min-width: 0; }
+.ruta {
+  flex: 1;
+  min-width: 0;
+  height: var(--h-control-sm);
+  line-height: var(--h-control-sm);
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+}
+.rutaVacia { direction: ltr; color: var(--text-dim); font-style: italic; }
+
+.pills { display: flex; gap: 5px; }
+.pill {
+  height: var(--h-control-sm);
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pill:disabled { cursor: default; opacity: 0.45; }
+.pillActiva { background: var(--accent-quiet); border-color: var(--accent); color: var(--text-1); }
+
+.opciones { display: flex; flex-direction: column; gap: 6px; }
+.opcion { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opcionNota {
+  margin-left: 8px;
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.vistaCabecera {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.vistaCabecera .seccionTitulo { padding: 0; }
+.vistaCuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+  background: var(--bg-inset);
+}
+.cargando { display: flex; justify-content: center; padding: 24px; }
+.pre {
+  margin: 0;
+  font: 400 12px/1.85 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.masFilas { color: var(--text-dim); }
+.vistaFallo {
+  margin: 0;
+  font: 400 12px/1.6 var(--font-ui);
+  color: var(--text-3);
+}
+
+/* ---- pie ------------------------------------------------------------------ */
+
+.pieOk {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--success);
+}
+.pieError {
+  font: 400 11px var(--font-ui);
+  color: var(--danger);
+}

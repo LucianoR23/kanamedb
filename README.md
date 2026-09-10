@@ -185,6 +185,14 @@ al aplicarse, y poder ver que el error se explica y que la transacción revierte
 Se puede correr las veces que haga falta. La base vive en tmpfs, así que bajar el
 stack se lleva todo y hay que volver a correrlo.
 
+**Lo que solo se prueba a mano.** Los selectores de archivo son del sistema
+operativo, no de la página: no se pueden manejar por herramientas y ningún test
+los cubre. Son dos, y conviene pasarlos una vez por release: «Abrir archivo
+SQLite…» desde S01 y S02, y el «guardar como» de **Exportar…** en la barra de
+resultados del editor —elegir destino, guardar, y comprobar que el archivo tiene
+la extensión del formato elegido—. Todo lo demás de la exportación (formatos,
+opciones, vista previa, copiar) sí se prueba desde la aplicación.
+
 ```sh
 gofmt -l .                         # formato de Go
 go vet ./...                       # análisis estático

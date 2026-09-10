@@ -314,15 +314,21 @@ lo que entra y sale de la grilla.
   trabajo; lo caro es el asistente —mapear columnas, tipos, NULL contra cadena
   vacía, encoding, y qué hacer con las filas que no entran—, que es justamente
   por qué es una pantalla y no un botón.
-- ⏳ **S19 Export dialog** — completa, **una tabla y varias**. Varias no es otra
-  función: es la misma en un bucle más un selector. Lo que hay que decidir es el
-  formato del conjunto (un directorio de CSVs, un `.sql` con INSERTs, un zip), y
-  eso se decide con el diseño delante, no acá.
-- ⏳ **Exportar el resultado del editor SQL** — CSV, JSON y Markdown. No estaba en
-  el plan y es lo más barato de todo el grupo: el resultado ya está en memoria,
-  así que es formateo puro, sin consulta ni streaming. Reusa el renderizador de
-  S19 y se hace primero, porque es lo que valida el formato antes de meterlo en
-  el camino difícil.
+- ✅ **Exportar el resultado del editor SQL** — CSV, JSON, JSON Lines y
+  Markdown, desde «Exportar…» en la barra de resultados, con el diálogo de
+  S19 —formato, delimitador, opciones, vista previa, guardar y copiar— y un
+  «Copiar» al lado que pega en una planilla. No estaba en el plan y fue lo
+  primero del grupo porque valida el formato antes del camino difícil: los
+  escritores de `internal/export` ya van de a una fila, que es lo que S19
+  necesita. Probado por CDP en los cuatro motores el 2026-09-10; **el selector
+  nativo de «guardar como» queda para probar a mano**, como el de SQLite.
+- ⏳ **S19 Export dialog** — **una tabla y varias**, sobre el diálogo que ya
+  existe: agrega los alcances (filas seleccionadas, filtro, tabla entera,
+  todas las tablas de un esquema) y los formatos «SQL inserts» y «Schema
+  only», que necesitan una tabla y no un resultado. Varias no es otra
+  función: es la misma en un bucle más un selector. Lo que hay que decidir es
+  el formato del conjunto (un directorio de CSVs, un `.sql` con INSERTs, un
+  zip), y eso se decide con el diseño delante, no acá.
 - ⏳ **El visor: la fila entera como JSON, el modo Items y los botones del
   pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
   menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
@@ -899,12 +905,138 @@ mirar solo el motor, y la pantalla dice «todo o nada» en ese caso en vez de
 «MySQL no revierte cambios de esquema» — que era verdad y no venía al caso. Con
 un DDL adentro se siguen negando, con test.
 
+**Los escritores de exportación van de a una fila.** `internal/export` expone
+`Begin(columnas)`, `Row(valores)`, `End()`, y nada que reciba todas las filas
+juntas. El resultado del editor las tiene en memoria y podría pasarlas de una
+vez, pero S19 no: lee una tabla del motor a medida que la escribe, y una tabla
+de dos millones de filas no pasa por un `[][]string`. Escribir hoy el formato
+con la interfaz que mañana necesita el camino difícil es lo que hace que el
+resultado del editor sirva de validación del formato, que era el motivo de
+hacerlo primero. `End` es obligatorio: cierra el array de JSON, vacía el búfer
+y termina el gzip; sin él el archivo queda cortado aunque no haya habido error.
+
+**Cuatro formatos ahora; SQL y DDL, con S19.** CSV, JSON, JSON Lines y
+Markdown. El diseño de S19 ofrece «JSON lines» y no un array; se agregan los
+dos porque son el mismo objeto por fila con distinto marco y sirven a gente
+distinta: el array es lo que se pega en un script o en un ticket y lo que
+devuelve cualquier cliente de base; las líneas son lo que leen `jq`, DuckDB y
+pandas de a pedazos sin cargar el archivo entero. «SQL inserts» y «Schema only»
+del diseño necesitan una tabla y su DDL, no un resultado: van con S19.
+
+**El CSV sigue las convenciones de `COPY … CSV`, y no usa `encoding/csv`.**
+La cadena vacía va como `""` y NULL va como `\N` —o como nada, con la opción—,
+así que las dos se distinguen en el archivo igual que en la grilla, y S18 las
+va a leer de vuelta sin ambigüedad. Un valor que coincide con la marca de NULL
+se cita (`"\N"`) para que no se lea como nulo; NULL nunca se cita, por lo
+mismo. `encoding/csv` no sabe citar todo ni distinguir NULL de vacío, y las
+dos cosas son opciones del diálogo. Además del diseño, una opción más: la
+**marca de orden de bytes**, porque Excel en Windows abre un CSV sin marca con
+la página de códigos del sistema y «señal» se vuelve «seÃ±al»; en castellano
+eso no es un caso borde. Fin de línea `\n`, como `COPY`.
+
+**JSON escribe tipos solo cuando el texto del servidor es inequívoco.** Una
+columna numérica cuyo texto cumple la gramática de número de JSON va sin
+comillas; `NaN` e `Infinity` no la cumplen y van como cadena. Una booleana va
+como `true`/`false` si el texto es `t`/`f`, `true`/`false` o `1`/`0`. Una
+columna `json`/`jsonb` va tal cual si `json.Valid` lo acepta. Todo lo demás es
+cadena, incluidos los casos raros de los anteriores: nunca se emite algo que
+no se pueda volver a leer. El diseño mostraba `"total":"128.40"` entre
+comillas; se sigue en cambio lo que hace el propio servidor —`row_to_json` y
+`JSON_OBJECT` emiten `numeric` y `DECIMAL` como número— para que la fila
+exportada sea la misma que el visor va a mostrar como JSON cuando exista «ver
+la fila entera». Los arrays de Postgres van como cadena (`{1,2}`) hasta que el
+parser de literales de la unidad del visor exista; ahí pasan a ser arrays.
+MySQL no tiene booleanos: `true` es `TINYINT` y sale `1`, que es también lo
+que `JSON_OBJECT` hace. En MariaDB `JSON` es un alias de `LONGTEXT`, así que
+un JSON guardado ahí sale como cadena, no embebido: es correcto según la regla
+y se comprobó a mano. Y en SQLite una expresión sin tipo declarado —`select
+1`— es `ClassOther` y sale como cadena; desde una tabla con `INTEGER`
+declarado sale como número.
+
+**Markdown: encabezado siempre, `NULL` legible, y lo que rompe la tabla se
+escapa.** Una tabla sin encabezado no es una tabla, así que la opción de
+omitirlo no aplica. NULL se escribe `NULL` y no `\N`, porque es un formato
+para leer; con la opción, nada. La barra vertical va como `\|` y un salto de
+línea como `<br>`, porque una fila vive en una línea. Las columnas numéricas
+se alinean a la derecha con `--:`, como en la grilla. No hay tope de filas: el
+diseño insinuaba cortar en cien, pero un corte silencioso en un export es
+peor que un archivo largo, y la persona eligió el alcance.
+
+**El archivo se escribe entero en un temporal y se renombra al final.**
+`Exports.Save` crea el temporal en el mismo directorio, escribe, sincroniza y
+recién entonces hace el rename; un fallo a mitad de camino —disco lleno,
+permiso, un formato que no existe— no deja con el nombre elegido un archivo
+cortado que se vería igual que uno entero, y no pisa el que ya había. Con
+test que inyecta el fallo y mira que el archivo viejo siga entero. Las filas
+del resultado viajan de vuelta por el puente para formatearse en Go: ya están
+acotadas por el límite de filas de la conexión, y la vista previa manda solo
+las cuatro primeras. Formatearlas en TypeScript habría duplicado los
+escritores; escribir el archivo desde el navegador no se puede.
+
+**«Copiar» en la barra de resultados es TSV con NULL vacío.** Es lo que una
+planilla pega en celdas; `\N` ahí es ruido. Lo arma Go con el mismo escritor.
+El portapapeles de Windows devuelve `\r\n` al leerlo de vuelta: es el sistema,
+no el escritor, y Excel lo lee igual.
+
+**El selector nativo de «guardar como» queda para probar a mano.** No se
+maneja por CDP, igual que «Abrir archivo SQLite…». Se probó por CDP todo lo
+demás en los cuatro motores —vista previa de cada formato, delimitadores,
+opciones, copiar y leer el portapapeles, y cancelar el selector sin que
+aparezca un error—, y el `Save` tiene sus tests. Intentar completar el
+selector mandando teclas al sistema fue un error: las teclas fueron a la
+ventana que el usuario estaba usando. Regla, anotada en memoria: **nunca
+`SendKeys`, `AppActivate` ni nada que toque el foco del sistema**; lo que pase
+por un diálogo nativo lo prueba el usuario.
+
 **Probado a mano en los cuatro motores el 2026-09-10.** Además de la fecha de
 MySQL (arriba), salieron dos cosas: el texto de la transacción asustaba con un
 límite que no aplicaba (arriba); y
 un editor de celda que se cerraba y se volvía a abrir en el mismo tick
 reutilizaba la instancia ya cerrada y lo que se escribía después no se
 confirmaba —el editor ahora lleva una `key` que cambia con cada apertura—.
+
+**Del `/code-review high` de la exportación, seis hallazgos, los seis
+arreglados. Ninguno alto ni medio**, y dos no eran de esta unidad sino de las
+anteriores, que es exactamente para lo que sirve revisar el rango entero:
+
+1. **El diagrama pintaba como alterada una tabla a la que solo se le editó una
+   fila.** `erdStaged` decidía por descarte —«lo que no reconozco toca una
+   columna»— y los tres tipos de datos caían en ese `default`. El ERD dibuja
+   la forma de las tablas; una fila editada no la cambia, y marcarla decía que
+   había un ALTER esperando donde no lo había. Ahora `pendientesDe` saltea los
+   cambios de datos. La causa de fondo era que «qué tipos son de datos» estaba
+   escrito **tres veces** —en el diagrama por descarte, y como lista en la
+   revisión de filas y en Cambios pendientes—: se mudó a `lib/cambios.ts`, así
+   el cuarto lugar que lo necesite no vuelve a inventarlo.
+2. **La fila nueva se creaba fuera de la vista.** Con una página de 500 filas,
+   «Agregar fila» la agregaba al final, enfocaba la grilla con `preventScroll`
+   y no la mostraba: se veía solo el chip de abajo, y el Enter abría el editor
+   sobre algo que no estaba en pantalla. Se va al fondo del scroller —las
+   filas nuevas son siempre las últimas— en un efecto, que corre después del
+   commit, cuando el alto virtual ya cuenta la fila.
+3. **«Copiar» fallaba en silencio.** Sin `try/catch`, un rechazo de
+   `Render` o del portapapeles quedaba sin manejar y el botón no hacía nada
+   visible, que es la peor forma de fallar de un botón. Ahora dice «No se pudo
+   copiar».
+4. **La vista previa se quedaba con el spinner para siempre** si el formateo
+   fallaba: el error iba al pie y el panel seguía «cargando». La vista previa
+   tiene ahora su propio estado —pidiendo, lista, falló—, separado del de
+   guardar, porque un fallo al formatear y uno al escribir el archivo no son
+   lo mismo.
+5. **Apretar «Elegir…» apenas se abre el diálogo escribía el archivo sin
+   extensión.** La extensión la dice Go y tarda un viaje por el puente; hasta
+   que llega, «Elegir…» y «Exportar» están deshabilitados en vez de proponer
+   `consulta` a secas con un filtro `*`.
+6. **La revisión de una fila excluida contaba mal lo que la tanda hace
+   antes.** `ReviewRow` recorría `Ordered()`, que omite los excluidos, para
+   juntar los cambios anteriores y cortaba al llegar al que se revisa: si el
+   revisado estaba **excluido**, el corte no llegaba nunca y «antes» terminaba
+   siendo la tanda entera, incluido lo que correría después. Se veía como un
+   «lo pone esta misma tanda» sobre un padre insertado más tarde. Ahora
+   recorre `List()` —que tiene a los excluidos y, como los cambios de datos
+   van todos en la misma fase, conserva su orden de ejecución— y saltea los
+   excluidos al juntar. Con test en los cuatro motores, y la inyección del
+   `Ordered()` viejo lo pone en rojo.
 
 ### Iteración 6 — 2026-09-09
 

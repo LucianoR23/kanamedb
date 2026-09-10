@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import * as ExportsSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/exports";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
+import { Format } from "../../bindings/github.com/LucianoR23/kanamedb/internal/export";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
@@ -8,8 +10,10 @@ import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
 import { CellViewer } from "./CellViewer";
+import { ExportDialog } from "./ExportDialog";
 import { Splitter } from "../components/Splitter";
 import { cx } from "../lib/cx";
+import { opcionesPorDefecto } from "../lib/exportar";
 import { nombreDeMotor, plural } from "../lib/motor";
 import styles from "./SqlEditorScreen.module.css";
 
@@ -63,6 +67,10 @@ export function SqlEditorScreen({
   const [transcurrido, setTranscurrido] = useState(0);
   // Cuál de los resultados del lote se está mirando.
   const [cual, setCual] = useState(0);
+  const [exportando, setExportando] = useState(false);
+  // null mientras no se copió; "ok" o "error" un rato después de intentarlo.
+  const [copia, setCopia] = useState<null | "ok" | "error">(null);
+  const copiadoTimer = useRef<number | null>(null);
 
   // El identificador de ejecución es por pestaña: cancelar acá no puede cortar
   // la consulta de otra pestaña.
@@ -116,6 +124,35 @@ export function SqlEditorScreen({
   function cancelar() {
     void QueriesSvc.Cancel(runID);
   }
+
+  // Copia el resultado separado por tabulaciones, que es lo que una planilla
+  // pega en celdas. NULL va vacío: `\N` en una planilla es ruido. Lo arma Go
+  // con el mismo escritor que la exportación.
+  async function copiarResultado() {
+    if (!result?.returnsRows) return;
+    // Con try/catch: si el formateo o el portapapeles fallan, el botón lo dice.
+    // Sin él la promesa se rechazaba sola y apretar «Copiar» no hacía nada
+    // visible, que es la peor forma de fallar de un botón.
+    try {
+      const texto = await ExportsSvc.Render({
+        format: Format.CSV,
+        options: { ...opcionesPorDefecto(), delimiter: "\t", nullAsEmpty: true },
+        columns: result.columns ?? [],
+        rows: result.rows ?? [],
+      });
+      await navigator.clipboard.writeText(texto);
+      setCopia("ok");
+    } catch {
+      setCopia("error");
+    }
+    if (copiadoTimer.current !== null) window.clearTimeout(copiadoTimer.current);
+    copiadoTimer.current = window.setTimeout(() => setCopia(null), 1800);
+  }
+  useEffect(() => {
+    return () => {
+      if (copiadoTimer.current !== null) window.clearTimeout(copiadoTimer.current);
+    };
+  }, []);
 
   const lote = estado.fase === "listo" ? estado.batch : null;
   const resultados = lote?.results ?? [];
@@ -222,6 +259,20 @@ export function SqlEditorScreen({
           <span className={cx(styles.meta, estado.fase === "error" && styles.metaError)}>
             {metaDe(estado)}
           </span>
+          {result?.returnsRows ? (
+            <>
+              <button
+                type="button"
+                className={cx(styles.link, copia === "error" && styles.metaError)}
+                onClick={() => void copiarResultado()}
+              >
+                {copia === "ok" ? "Copiado" : copia === "error" ? "No se pudo copiar" : "Copiar"}
+              </button>
+              <button type="button" className={styles.link} onClick={() => setExportando(true)}>
+                Exportar…
+              </button>
+            </>
+          ) : null}
         </div>
 
         {resultados.length > 1 ? (
@@ -313,6 +364,17 @@ export function SqlEditorScreen({
           source="resultado"
           onIndexChange={(i) => setVisor({ row: visor.row, col: i })}
           onClose={() => setVisor(null)}
+        />
+      ) : null}
+      {exportando && result?.returnsRows ? (
+        <ExportDialog
+          open
+          columns={columnas}
+          rows={result.rows ?? []}
+          nombre="consulta"
+          alcance="Este resultado"
+          truncated={result.truncated}
+          onClose={() => setExportando(false)}
         />
       ) : null}
     </div>

@@ -7,22 +7,24 @@ import type {
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { Button, CopyButton, Dialog, PillTabs, Spinner } from "../components/ui";
+import { etiquetaDeDatos } from "../lib/cambios";
 import { cx } from "../lib/cx";
 import { plural } from "../lib/motor";
 import styles from "./DataReview.module.css";
 
 type Vista = "unificada" | "lado";
 
-/** Los tres tipos de cambio de datos, con su etiqueta. */
-const OP: Record<string, { etiqueta: "INSERT" | "UPDATE" | "DELETE"; clase: string }> = {
-  insertRow: { etiqueta: "INSERT", clase: styles.opInsert ?? "" },
-  updateRow: { etiqueta: "UPDATE", clase: styles.opUpdate ?? "" },
-  deleteRow: { etiqueta: "DELETE", clase: styles.opDelete ?? "" },
+/** La clase de cada operación. Qué tipos son de datos lo dice lib/cambios. */
+const CLASE: Record<string, string> = {
+  insertRow: styles.opInsert ?? "",
+  updateRow: styles.opUpdate ?? "",
+  deleteRow: styles.opDelete ?? "",
 };
 
-export function esCambioDeDatos(c: Change): boolean {
-  return c.type in OP;
-}
+const OP = (tipo: string) => ({
+  etiqueta: etiquetaDeDatos(tipo),
+  clase: CLASE[tipo] ?? "",
+});
 
 /**
  * S08 Data review: una fila por vez, con lo que había en la base y lo que va a
@@ -95,7 +97,7 @@ export function DataReview({
   const revision = revisiones.get(actual.change.id);
   const cargando = revision === undefined;
   const c = actual.change;
-  const op = OP[c.type] ?? OP.updateRow!;
+  const op = OP(c.type);
   const filas = filasDe(c, revision instanceof Error ? undefined : revision?.columns ?? undefined);
   const cambiadas = filas.filter((f) => f.cambia).length;
 
@@ -141,7 +143,7 @@ export function DataReview({
           </div>
           <div className={styles.listaCuerpo} role="listbox" aria-label="Filas con cambios">
             {cambios.map((v, k) => {
-              const o = OP[v.change.type] ?? OP.updateRow!;
+              const o = OP(v.change.type);
               return (
                 <button
                   type="button"

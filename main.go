@@ -48,6 +48,7 @@ func main() {
 			application.NewService(sesion),
 			application.NewService(service.NewQueries(sesion)),
 			application.NewService(service.NewHosts(known)),
+			application.NewService(service.NewExports()),
 		},
 
 		Assets: application.AssetOptions{

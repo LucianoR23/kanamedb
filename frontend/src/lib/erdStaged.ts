@@ -1,4 +1,5 @@
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
+import { esCambioDeDatos } from "./cambios";
 import type { ErdColumna } from "./erd";
 import { idDeTabla } from "./erd";
 
@@ -63,6 +64,11 @@ export const claveColumna = (tabla: string, columna: string) => `${tabla}|${colu
  *
  * Solo mira los cambios INCLUIDOS: uno destildado sigue en la lista pero no va a
  * correr, y pintarlo en el diagrama diría que va a pasar algo que no va a pasar.
+ *
+ * Y solo los de ESQUEMA. El diagrama dibuja la forma de las tablas: una fila
+ * editada no la cambia, y marcar la tabla por eso diría que hay un ALTER
+ * esperando donde no lo hay. El caso llegaba solo hasta acá porque el `default`
+ * de abajo marca por descarte.
  */
 export function pendientesDe(cambios: ChangeView[], esquema: string): Pendientes {
   const p = vacio();
@@ -70,6 +76,7 @@ export function pendientesDe(cambios: ChangeView[], esquema: string): Pendientes
   for (const v of cambios) {
     const c = v.change;
     if (c.excluded) continue;
+    if (esCambioDeDatos(c)) continue;
     if (c.schema !== esquema) continue;
     p.total++;
 

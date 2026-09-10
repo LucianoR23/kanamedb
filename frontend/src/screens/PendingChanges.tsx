@@ -14,7 +14,8 @@ import {
   Spinner,
 } from "../components/ui";
 import { SqlPreview } from "./SqlPreview";
-import { DataReview, esCambioDeDatos } from "./DataReview";
+import { DataReview } from "./DataReview";
+import { esCambioDeDatos, tipoEsDeDatos } from "../lib/cambios";
 import { cx } from "../lib/cx";
 import { nombreDeMotor } from "../lib/motor";
 import styles from "./PendingChanges.module.css";
@@ -130,8 +131,8 @@ export function PendingChanges({
 
   const todos = vista.changes ?? [];
   const visibles = todos.filter((v) => {
-    if (filtro === "schema") return !esDeDatos(v.change.type);
-    if (filtro === "data") return esDeDatos(v.change.type);
+    if (filtro === "schema") return !tipoEsDeDatos(v.change.type);
+    if (filtro === "data") return tipoEsDeDatos(v.change.type);
     if (filtro === "risk") return v.statement.destructive || v.statement.lock === "all";
     return true;
   });
@@ -412,13 +413,6 @@ function Numero({
   );
 }
 
-/** Los tres tipos de cambio de datos. Lo demás es esquema. */
-const DE_DATOS = new Set<string>(["insertRow", "updateRow", "deleteRow"]);
-
-function esDeDatos(t: string): boolean {
-  return DE_DATOS.has(t);
-}
-
 /** CREATE / ALTER / DROP / INSERT / UPDATE / DELETE, deducido del tipo de operación. */
 function opDe(v: ChangeView): "CREATE" | "ALTER" | "DROP" | "INSERT" | "UPDATE" | "DELETE" {
   const t = v.change.type;
@@ -466,7 +460,7 @@ function fuente(s: string): string {
 /** Una línea para el orden de ejecución: qué operación sobre qué objeto. */
 function resumen(v: ChangeView): string {
   const c = v.change;
-  if (esDeDatos(c.type)) {
+  if (tipoEsDeDatos(c.type)) {
     // Una fila se nombra por su clave: «actualizar fila · personas (id 7)».
     // Una fila nueva no tiene clave todavía.
     const clave = (c.key ?? []).map((k) => `${k.column} ${k.value ?? "NULL"}`).join(", ");
