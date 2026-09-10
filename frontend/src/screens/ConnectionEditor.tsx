@@ -116,6 +116,8 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Un fallo del selector de archivos del sistema. Cancelar NO cae acá.
+  const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
   const [pasteNotices, setPasteNotices] = useState<string[]>([]);
 
   // Qué campos tocó la persona, y si ya intentó guardar o probar.
@@ -222,9 +224,20 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
     setTest(null);
   }
 
-  /** elegirArchivo abre el selector del sistema para una base de SQLite. */
+  /** elegirArchivo abre el selector del sistema para una base de SQLite.
+   *
+   *  Cancelar no deja rastro: `elegirArchivoSQLite` devuelve vacío. Lo que se
+   *  atrapa acá es un fallo de verdad del selector, y se muestra al lado del
+   *  campo —que es donde está el botón— y no en un cartel suelto. */
   async function elegirArchivo() {
-    const ruta = await elegirArchivoSQLite();
+    setErrorArchivo(null);
+    let ruta = "";
+    try {
+      ruta = await elegirArchivoSQLite();
+    } catch (err) {
+      setErrorArchivo(err instanceof Error ? err.message : String(err));
+      return;
+    }
     if (ruta) {
       set("database", ruta);
     }
@@ -406,7 +419,7 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                      el sistema de archivos. Host, puerto, usuario, contraseña y
                      SSL no existen — y dejarlos en pantalla deshabilitados sería
                      peor que sacarlos: haría pensar que falta configurarlos. */
-                  <Field label="Archivo" error={problems.get("database")}>
+                  <Field label="Archivo" error={errorArchivo ?? problems.get("database")}>
                     <div className={styles.fileRow}>
                       <Input
                         value={conn.database}
