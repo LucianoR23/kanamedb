@@ -263,7 +263,7 @@ func (d *Dumps) planear(ctx context.Context, sesion *openSession, r DumpRequest)
 	// datos no promete tener las vistas.
 	var fuera []schema.Object
 	if r.Structure {
-		fuera, err = sesion.db.Uncovered(ctx, esquemas)
+		fuera, err = sesion.db.Objects(ctx, esquemas)
 		if err != nil {
 			// No se traga: quedarse callado acá produce exactamente el archivo
 			// silencioso que la cobertura existe para evitar.

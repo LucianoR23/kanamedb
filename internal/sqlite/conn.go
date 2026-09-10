@@ -99,8 +99,8 @@ func (c *Conn) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) {
 	return columnTypes(), nil
 }
 
-func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error) {
-	return Uncovered(ctx, c.db, esquemas)
+func (c *Conn) Objects(ctx context.Context, esquemas []string) ([]schema.Object, error) {
+	return Objects(ctx, c.db, esquemas)
 }
 
 func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
@@ -379,4 +379,8 @@ func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []ch
 		return 0, err
 	}
 	return n, nil
+}
+
+func (c *Conn) ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error) {
+	return Definition(ctx, c.db, o)
 }

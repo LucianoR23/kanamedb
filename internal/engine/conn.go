@@ -187,15 +187,35 @@ type Conn interface {
 	// perderla en silencio.
 	AutoIncrement(col schema.DetailColumn) (tipo string, puede bool)
 
-	// Uncovered lista lo que hay en estos esquemas y el volcado de estructura
-	// NO sabe escribir: vistas, funciones, triggers, políticas, tipos.
+	// Objects lista los objetos de estos esquemas que NO son tablas: vistas,
+	// vistas materializadas, funciones, procedimientos, triggers, políticas,
+	// tipos y secuencias.
 	//
-	// Es la condición para que el volcado de estructura exista. El problema de
-	// un export de esquema no es la dificultad —el DDL de una tabla ya se
-	// renderiza— sino el silencio: uno que se olvida de una política de RLS se
-	// ve idéntico a uno correcto. Cada motor sabe qué puede haber en él, así
-	// que la lista sale de acá y no de una constante en el servicio.
-	Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error)
+	// Es una sola lista para dos usos, y eso es a propósito. Nació como
+	// `Uncovered` para la cobertura del volcado —decir con nombre y apellido
+	// qué queda afuera del archivo, porque un export que se olvida de una
+	// política de RLS se ve idéntico a uno correcto— y es exactamente la misma
+	// consulta que necesita el árbol para mostrar esos objetos. Dos métodos
+	// habrían sido las mismas consultas al catálogo escritas dos veces en cada
+	// motor, y la segunda copia se atrasa sin que nadie lo note.
+	//
+	// Lo que el volcado sabe escribir se decide en `dump`, del lado que lo
+	// sabe, y no acá: cuando el editor de objetos haga que una vista se pueda
+	// volcar, la cobertura se achica cambiando UN filtro.
+	//
+	// Cada motor sabe qué puede haber en él, así que la lista sale de acá y no
+	// de una constante en el servicio. Lo que el catálogo tiene y no está
+	// contemplado aparece con su propio tipo en vez de desaparecer.
+	Objects(ctx context.Context, esquemas []string) ([]schema.Object, error)
+
+	// ObjectDefinition devuelve la definición de UN objeto de los que lista
+	// Objects, como un CREATE completo.
+	//
+	// Se pide de a uno y a demanda: la definición de una vista puede ser de
+	// kilobytes, y traerlas todas con el árbol serían cientos de textos que
+	// nadie va a mirar. Es lo contrario del criterio de las columnas, que sí
+	// viajan con el snapshot porque el autocompletado las necesita todas juntas.
+	ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error)
 
 	// Quoting es cómo este motor cita nombres y valores. Ver Quoting.
 	Quoting() Quoting

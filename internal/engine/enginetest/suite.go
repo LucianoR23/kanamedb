@@ -57,6 +57,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("recorre la tabla entera", func(t *testing.T) { recorrido(t, f) })
 	t.Run("filtra por columna", func(t *testing.T) { filtros(t, f) })
 	t.Run("dice qué no sabe volcar", func(t *testing.T) { cobertura(t, f) })
+	t.Run("la definición de un objeto se puede volver a correr", func(t *testing.T) { definicion(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
@@ -1118,7 +1119,7 @@ func tieneColumna(d *schema.TableDetail, nombre string) bool {
 //
 // Es el caso que hace honesto al volcado de estructura, y lo que se prueba no
 // es que la lista sea larga sino que **no sea silenciosa**: se crea una vista
-// de verdad y se exige que aparezca. Un `Uncovered` que devuelva siempre vacío
+// de verdad y se exige que aparezca. Un `Objects` que devuelva siempre vacío
 // —o que se coma un error del catálogo— produce un archivo que se ve idéntico a
 // uno completo, y quien lo restaura se entera meses después.
 //
@@ -1136,9 +1137,9 @@ func cobertura(t *testing.T, f Fixture) {
 	exec(t, c, fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s", nombreVista, califica(c, esq, tabla)))
 	t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP VIEW IF EXISTS "+nombreVista) })
 
-	fuera, err := c.Uncovered(ctx, esquemasDe(esq))
+	fuera, err := c.Objects(ctx, esquemasDe(esq))
 	if err != nil {
-		t.Fatalf("Uncovered(): %v", err)
+		t.Fatalf("Objects(): %v", err)
 	}
 
 	var laVista *schema.Object
@@ -1165,7 +1166,7 @@ func cobertura(t *testing.T, f Fixture) {
 	}
 }
 
-// esquemasDe arma la lista que espera Uncovered. El esquema vacío de SQLite no
+// esquemasDe arma la lista que espera Objects. El esquema vacío de SQLite no
 // se manda como una cadena vacía: se manda la lista vacía, que es lo que ese
 // motor entiende.
 func esquemasDe(esq string) []string {
@@ -1173,4 +1174,86 @@ func esquemasDe(esq string) []string {
 		return nil
 	}
 	return []string{esq}
+}
+
+// definicion comprueba que la definición que devuelve el motor SE PUEDA VOLVER
+// A CORRER.
+//
+// Es la única forma de probar esto que sirve. Que el texto «contenga CREATE» no
+// prueba nada: los cuatro motores devuelven el objeto en formas distintas
+// —`pg_get_viewdef` da solo el SELECT, `SHOW CREATE VIEW` trae el DEFINER y el
+// ALGORITHM, `sqlite_master.sql` da el texto original— y el editor promete que
+// lo que se ve es lo que se ejecuta. Así que se borra la vista y se la recrea
+// con lo que salió: si la definición está a medias, la vista no vuelve.
+func definicion(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	ctx := context.Background()
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_def")
+
+	// Tres filas y una vista que deja pasar UNA. Los números importan: con la
+	// tabla vacía, `count(*)` daba 0 para cualquier vista sobre ella, así que
+	// una definición que perdiera el WHERE —o que seleccionara otra cosa—
+	// pasaba igual y el mensaje de error prometía algo que el test no miraba.
+	nomTabla := califica(c, esq, tabla)
+	for _, id := range []int{1, 2, 3} {
+		exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (%d, 'x')", nomTabla, id))
+	}
+
+	vista := "kn_def_vista"
+	nombreVista := califica(c, esq, vista)
+	_ = c.Exec(ctx, "DROP VIEW IF EXISTS "+nombreVista)
+	exec(t, c, fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s WHERE id = 2", nombreVista, nomTabla))
+	t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP VIEW IF EXISTS "+nombreVista) })
+
+	var obj *schema.Object
+	objetos, err := c.Objects(ctx, esquemasDe(esq))
+	if err != nil {
+		t.Fatalf("Objects(): %v", err)
+	}
+	for i := range objetos {
+		if objetos[i].Name == vista && objetos[i].Kind == schema.ObjView {
+			obj = &objetos[i]
+		}
+	}
+	if obj == nil {
+		t.Fatalf("la vista %q no apareció en Objects()", vista)
+	}
+
+	def, err := c.ObjectDefinition(ctx, *obj)
+	if err != nil {
+		t.Fatalf("ObjectDefinition(): %v", err)
+	}
+	if strings.TrimSpace(def.SQL) == "" {
+		t.Fatal("la definición vino vacía: en el editor eso se ve igual que un objeto sin cuerpo, y guardarla lo borraría")
+	}
+	if def.Object.Name != vista {
+		t.Errorf("la definición dice ser de %q", def.Object.Name)
+	}
+
+	// La prueba de verdad: borrar y recrear con lo que devolvió.
+	exec(t, c, "DROP VIEW "+nombreVista)
+	if err := c.Exec(ctx, def.SQL); err != nil {
+		t.Fatalf("la definición devuelta no se puede volver a correr: %v\n%s", err, def.SQL)
+	}
+
+	// Y la vista tiene que EXISTIR después. Esta comprobación no es un extra
+	// del anterior: es la única que caza el fallo más probable de todos.
+	//
+	// `pg_get_viewdef` devuelve solo el SELECT, así que una definición sin su
+	// `CREATE VIEW … AS` adelante es un SELECT perfectamente válido: el Exec de
+	// arriba lo corre sin error, no crea nada, y sin este count(*) el test
+	// pasaría con la vista borrada. Ejecutar sin error y hacer lo que se pidió
+	// no son lo mismo.
+	if got := unaCelda(t, c, "SELECT count(*) FROM "+nombreVista); got != "1" {
+		t.Errorf("la vista recreada no devuelve lo mismo: count(*) = %q, se esperaba 1 de 3 filas", got)
+	}
+
+	// Un objeto que el motor no tiene se dice, no se devuelve vacío.
+	_, err = c.ObjectDefinition(ctx, schema.Object{
+		Kind: schema.ObjectKind("nada-de-esto-existe"), Schema: esq, Name: "x",
+	})
+	if err == nil {
+		t.Error("un tipo de objeto desconocido devolvió una definición en vez de un error")
+	}
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
-// Uncovered lista lo que hay en el archivo y el volcado de estructura NO sabe
+// Objects lista lo que hay en el archivo y el volcado de estructura NO sabe
 // escribir. Ver el equivalente de Postgres por el porqué.
 //
 // SQLite tiene un solo catálogo —`sqlite_master`— y muchísimo menos que
@@ -19,7 +19,7 @@ import (
 // El esquema se ignora a propósito: en SQLite es siempre `main`, y filtrar por
 // un nombre que el motor no tiene dejaría la lista vacía —y un archivo con
 // vistas adentro se vería como uno que no las tiene—.
-func Uncovered(ctx context.Context, db *sql.DB, _ []string) ([]schema.Object, error) {
+func Objects(ctx context.Context, db *sql.DB, _ []string) ([]schema.Object, error) {
 	const q = `SELECT type, name, COALESCE(tbl_name, '')
 	           FROM sqlite_master
 	           WHERE type IN ('view', 'trigger')

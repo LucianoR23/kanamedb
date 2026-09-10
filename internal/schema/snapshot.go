@@ -13,24 +13,6 @@ import (
 	"time"
 )
 
-// Kind es el tipo de objeto del esquema.
-//
-// Están declarados todos los que el árbol va a mostrar, aunque la Iteración 1
-// solo complete tablas: el modelo se define entero de una vez para no tener que
-// migrar el contrato del frontend en cada iteración.
-type Kind string
-
-const (
-	KindTable     Kind = "table"
-	KindView      Kind = "view"
-	KindMatView   Kind = "matview"
-	KindFunction  Kind = "function"
-	KindProcedure Kind = "procedure"
-	KindTrigger   Kind = "trigger"
-	KindEnum      Kind = "enum"
-	KindSequence  Kind = "sequence"
-)
-
 // Snapshot es el esquema completo tal como se vio en un momento dado.
 type Snapshot struct {
 	// Database es la base a la que corresponde.

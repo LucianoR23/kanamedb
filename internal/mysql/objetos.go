@@ -9,14 +9,14 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
-// Uncovered lista lo que hay en estas bases y el volcado de estructura NO sabe
+// Objects lista lo que hay en estas bases y el volcado de estructura NO sabe
 // escribir. Ver el equivalente de Postgres por el porqué.
 //
 // En MySQL y MariaDB un «esquema» ES una base, así que lo que en Postgres se
 // consulta contra `pg_namespace` acá va contra `TABLE_SCHEMA` de
 // `information_schema`. Los eventos son propios de estos dos motores y por eso
 // existe `ObjEvent`: sin él, un evento programado desaparecería del aviso.
-func Uncovered(ctx context.Context, db *sql.DB, esquemas []string) ([]schema.Object, error) {
+func Objects(ctx context.Context, db *sql.DB, esquemas []string) ([]schema.Object, error) {
 	if len(esquemas) == 0 {
 		return nil, nil
 	}

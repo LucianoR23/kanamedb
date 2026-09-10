@@ -10,7 +10,7 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
-// Uncovered lista lo que hay en estos esquemas y el volcado de estructura NO
+// Objects lista lo que hay en estos esquemas y el volcado de estructura NO
 // sabe escribir.
 //
 // Es la mitad que hace honesto al volcado de estructura. Kaname renderiza DDL
@@ -22,7 +22,7 @@ import (
 // La lista se arma de lo que el catálogo TIENE, no de lo que se nos ocurrió
 // que podía haber: si mañana aparece algo que no está contemplado, va a
 // aparecer acá como su propio tipo en vez de desaparecer. Ver `dump.Cobertura`.
-func Uncovered(ctx context.Context, pool *pgxpool.Pool, esquemas []string) ([]schema.Object, error) {
+func Objects(ctx context.Context, pool *pgxpool.Pool, esquemas []string) ([]schema.Object, error) {
 	if len(esquemas) == 0 {
 		return nil, nil
 	}
@@ -38,13 +38,16 @@ func Uncovered(ctx context.Context, pool *pgxpool.Pool, esquemas []string) ([]sc
 		}
 		for filas.Next() {
 			o := schema.Object{Kind: q.kind}
-			var tabla *string
-			if err := filas.Scan(&o.Schema, &o.Name, &tabla); err != nil {
+			var tabla, args *string
+			if err := filas.Scan(&o.Schema, &o.Name, &tabla, &args); err != nil {
 				filas.Close()
 				return nil, fmt.Errorf("leer %s del catálogo: %w", q.que, err)
 			}
 			if tabla != nil {
 				o.Table = *tabla
+			}
+			if args != nil {
+				o.Args = *args
 			}
 			out = append(out, o)
 		}
@@ -57,9 +60,9 @@ func Uncovered(ctx context.Context, pool *pgxpool.Pool, esquemas []string) ([]sc
 	return out, nil
 }
 
-// consultaDeCobertura es una clase de objeto y cómo encontrarla. Las tres
-// columnas son siempre las mismas —esquema, nombre, tabla o NULL— para que el
-// lector sea uno solo.
+// consultaDeCobertura es una clase de objeto y cómo encontrarla. Las cuatro
+// columnas son siempre las mismas —esquema, nombre, tabla o NULL, argumentos o
+// NULL— para que el lector sea uno solo.
 type consultaDeCobertura struct {
 	kind schema.ObjectKind
 	que  string
@@ -70,7 +73,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjView,
 		que:  "las vistas",
-		sql: `SELECT n.nspname, c.relname, NULL::text
+		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text
 		      FROM pg_catalog.pg_class c
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		      WHERE c.relkind = 'v' AND n.nspname = ANY($1)`,
@@ -78,7 +81,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjMatView,
 		que:  "las vistas materializadas",
-		sql: `SELECT n.nspname, c.relname, NULL::text
+		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text
 		      FROM pg_catalog.pg_class c
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		      WHERE c.relkind = 'm' AND n.nspname = ANY($1)`,
@@ -89,7 +92,8 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// que alguien vaya a extrañar por su cuenta.
 		kind: schema.ObjFunction,
 		que:  "las funciones",
-		sql: `SELECT n.nspname, p.proname, NULL::text
+		sql: `SELECT n.nspname, p.proname, NULL::text,
+		             pg_catalog.pg_get_function_identity_arguments(p.oid)
 		      FROM pg_catalog.pg_proc p
 		      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 		      WHERE p.prokind = 'f' AND n.nspname = ANY($1)
@@ -100,7 +104,8 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjProcedure,
 		que:  "los procedimientos",
-		sql: `SELECT n.nspname, p.proname, NULL::text
+		sql: `SELECT n.nspname, p.proname, NULL::text,
+		             pg_catalog.pg_get_function_identity_arguments(p.oid)
 		      FROM pg_catalog.pg_proc p
 		      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 		      WHERE p.prokind = 'p' AND n.nspname = ANY($1)
@@ -114,7 +119,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// se renderiza.
 		kind: schema.ObjTrigger,
 		que:  "los triggers",
-		sql: `SELECT n.nspname, t.tgname, c.relname
+		sql: `SELECT n.nspname, t.tgname, c.relname, NULL::text
 		      FROM pg_catalog.pg_trigger t
 		      JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -123,7 +128,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 	{
 		kind: schema.ObjPolicy,
 		que:  "las políticas de RLS",
-		sql: `SELECT n.nspname, p.polname, c.relname
+		sql: `SELECT n.nspname, p.polname, c.relname, NULL::text
 		      FROM pg_catalog.pg_policy p
 		      JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -135,7 +140,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// porque no son objetos propios.
 		kind: schema.ObjType,
 		que:  "los tipos",
-		sql: `SELECT n.nspname, t.typname, NULL::text
+		sql: `SELECT n.nspname, t.typname, NULL::text, NULL::text
 		      FROM pg_catalog.pg_type t
 		      JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 		      WHERE n.nspname = ANY($1)
@@ -152,7 +157,7 @@ var consultasDeCobertura = []consultaDeCobertura{
 		// `identity` viene con la columna, que sí se renderiza.
 		kind: schema.ObjSequence,
 		que:  "las secuencias",
-		sql: `SELECT n.nspname, c.relname, NULL::text
+		sql: `SELECT n.nspname, c.relname, NULL::text, NULL::text
 		      FROM pg_catalog.pg_class c
 		      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		      WHERE c.relkind = 'S' AND n.nspname = ANY($1)

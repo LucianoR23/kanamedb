@@ -177,7 +177,7 @@ func (c *Conn) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) {
 	return columnTypes(c.server.Kind), nil
 }
 
-func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Object, error) {
+func (c *Conn) Objects(ctx context.Context, esquemas []string) ([]schema.Object, error) {
 	// Un esquema vacío es «la base abierta»: en MySQL las dos cosas son lo
 	// mismo, y sin esto la lista saldría vacía y el archivo se vería como uno
 	// que no deja nada afuera.
@@ -188,7 +188,7 @@ func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Objec
 	if len(pedidos) == 0 {
 		pedidos = append(pedidos, c.base(""))
 	}
-	return Uncovered(ctx, c.db, pedidos)
+	return Objects(ctx, c.db, pedidos)
 }
 
 func (c *Conn) PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]string, error) {
@@ -229,4 +229,18 @@ func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []ch
 
 func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
 	return AutoIncrement(col)
+}
+
+func (c *Conn) ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error) {
+	return Definition(ctx, c.db, c.conEsquema(o))
+}
+
+// conEsquema completa el esquema del objeto con la base en curso.
+//
+// `Objects` ya lo hace con `c.base("")` y esto es la otra mitad: sin él, un
+// objeto que llegue sin esquema —porque la conexión ya está parada en su base—
+// armaba un `SHOW CREATE VIEW .`v“, con el punto suelto adelante.
+func (c *Conn) conEsquema(o schema.Object) schema.Object {
+	o.Schema = c.base(o.Schema)
+	return o
 }

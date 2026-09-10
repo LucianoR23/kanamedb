@@ -316,17 +316,69 @@ type Object struct {
 	// Table es la tabla a la que cuelga, cuando el objeto no vive solo: un
 	// trigger o una política de RLS. Vacío en los demás.
 	Table string `json:"table,omitempty"`
+
+	// Args son los argumentos que identifican al objeto cuando el nombre no
+	// alcanza.
+	//
+	// Es la forma de identidad del propio motor —la que hay que escribir en un
+	// `DROP FUNCTION`— y no una lista de tipos pelada: lleva los nombres de los
+	// parámetros y los modos cuando los hay, así que una función se ve como
+	// `m demo.mood, VARIADIC extra integer[]` y no como `demo.mood, integer[]`.
+	// Se deja así porque es lo que el motor considera la identidad, y porque
+	// recortarla a los tipos sería reescribirla a mano para que después no
+	// coincida con lo que el catálogo devuelve.
+	//
+	// Existe por las funciones sobrecargadas de Postgres. `demo.calcular(int)`
+	// y `demo.calcular(text)` son DOS objetos distintos, y con el nombre solo
+	// salían como dos entradas idénticas en la cobertura del volcado —«quedan
+	// afuera demo.calcular y demo.calcular»— y serían dos nodos indistinguibles
+	// en el árbol. Peor: no habría forma de pedir la definición de una sin
+	// ambigüedad, que es justo lo que el editor necesita.
+	//
+	// Vacío en todo lo demás y en los motores que no tienen sobrecarga.
+	Args string `json:"args,omitempty"`
 }
 
-// Completo es cómo se nombra en un aviso: `esquema.nombre`, y con la tabla
-// entre paréntesis cuando el objeto cuelga de una.
+// Completo es cómo se nombra en un aviso: `esquema.nombre`, con los argumentos
+// si los tiene y con la tabla entre paréntesis cuando el objeto cuelga de una.
 func (o Object) Completo() string {
 	nombre := o.Name
 	if o.Schema != "" {
 		nombre = o.Schema + "." + o.Name
 	}
+	if o.Args != "" {
+		nombre += "(" + o.Args + ")"
+	}
 	if o.Table != "" {
 		nombre += " (" + o.Table + ")"
 	}
 	return nombre
+}
+
+// ObjectDefinition es la definición de un objeto, lista para mostrar en un
+// editor y para volver a ejecutar.
+type ObjectDefinition struct {
+	Object Object `json:"object"`
+
+	// SQL es un CREATE COMPLETO, y eso es una decisión y no lo que dan los
+	// motores.
+	//
+	// Cada uno devuelve una forma distinta: `pg_get_viewdef` da solo el SELECT,
+	// `pg_get_functiondef` da el CREATE entero, `SHOW CREATE VIEW` de MySQL da
+	// el CREATE con su ALGORITHM y su DEFINER, y `sqlite_master.sql` da el
+	// texto tal como se escribió. Se normalizan todas a un CREATE completo
+	// porque es lo único que hace verdadera la promesa del editor: **lo que se
+	// ve es lo que se ejecuta**. Mostrar un cuerpo y ejecutar otra cosa
+	// alrededor deja al usuario revisando un texto que no es el que corre, y la
+	// revisión es la garantía de fondo de todo el apply.
+	SQL string `json:"sql"`
+
+	// Values son los valores de un enum en su orden de declaración, que en
+	// Postgres es el orden en que ordenan y comparan.
+	//
+	// Van aparte del SQL porque el editor de enums no es un editor de texto:
+	// agregar un valor es `ALTER TYPE … ADD VALUE`, que no destruye nada,
+	// mientras que sacar uno obliga a recrear el tipo y a reescribir cada
+	// columna que lo use. Esa diferencia no se ve en un CREATE.
+	Values []string `json:"values,omitempty"`
 }

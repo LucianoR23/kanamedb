@@ -542,11 +542,22 @@ la necesita.
 
 Vistas, funciones, procedures, triggers y enums como editor de definición.
 
-- **S16 Object editor** — completa, con lista de dependientes y aviso de
+- ✅ **El contrato de objetos** — `Conn.Objects` y `Conn.ObjectDefinition` en los
+  cuatro motores, probados con el ciclo borrar → volver a correr. Es la base de
+  las tres pantallas de abajo.
+- ⏳ **S16 Object editor** — completa, con lista de dependientes y aviso de
   DROP + CREATE.
-- **S17 Enum / type editor** — completa.
-- **S05** — nodos de vistas, materialized views, funciones, procedures, triggers,
-  enums y sequences en el árbol.
+- ⏳ **S17 Enum / type editor** — completa.
+- ⏳ **S05** — nodos de vistas, materialized views, funciones, procedures,
+  triggers, enums y sequences en el árbol.
+
+> **Con qué arranca.** La cobertura del volcado de la iteración 7 ya recorre el
+> catálogo de los cuatro motores buscando vistas, funciones, triggers,
+> políticas, tipos y secuencias — para poder decir qué queda afuera del archivo.
+> Es exactamente la lista que el árbol necesita, así que esa consulta es **una
+> sola** y ahora se llama `Conn.Objects`. Lo que el volcado sabe escribir se
+> decide en `dump`, del lado que lo sabe: cuando S16 haga que una vista se pueda
+> volcar, la cobertura se achica cambiando un filtro y no ocho consultas.
 
 ### Iteración 9 — Pulido (continuo)
 
@@ -812,6 +823,128 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 8 — 2026-09-10
+
+**Una sola lista de objetos, no dos.** La cobertura del volcado ya recorría el
+catálogo de los cuatro motores buscando vistas, matviews, funciones,
+procedimientos, triggers, políticas, tipos y secuencias, para poder decir con
+nombre y apellido qué quedaba afuera del archivo. El árbol de S05 necesita
+exactamente esa lista. Escribir un segundo método habría sido las mismas ocho
+consultas al catálogo escritas dos veces por motor, y la segunda copia se
+atrasa sin que nadie lo note. Así que `Conn.Uncovered` pasó a llamarse
+`Conn.Objects` y **qué de eso sabe escribir el volcado se decide en `dump`**,
+del lado que lo sabe. Es lo que hace barata la promesa de la sección del
+volcado: cuando S16 haga que una vista se pueda volcar, la cobertura se achica
+cambiando un filtro.
+
+**Se borró `schema.Kind`.** La iteración 1 lo declaró entero —tablas, vistas,
+matviews, funciones, procedures, triggers, enums, secuencias— «para no tener que
+migrar el contrato del frontend en cada iteración». Ocho iteraciones después no
+lo usaba **nadie**, ni una sola línea, y mientras tanto la cobertura del volcado
+creó `schema.ObjectKind`, que sí está vivo en los tres motores y en el puente.
+Eran dos vocabularios para lo mismo, y encima discrepaban: `matview` contra
+`materializedView`, `enum` contra `type`. Justo antes de que el árbol empezara a
+usar uno de los dos. Queda `ObjectKind`, el que tiene código detrás.
+
+La lección no es «no declares de más». Es que **un modelo declarado por
+adelantado y nunca ejecutado no está listo: está sin probar**, y a los ocho
+meses compite con el que se escribió mirando el problema de verdad.
+
+**Un objeto no se identifica con esquema y nombre.** Postgres permite
+`demo.calcular(integer)` y `demo.calcular(text)`: dos objetos distintos con el
+mismo nombre. Sin la firma salían como dos entradas idénticas en la cobertura
+del volcado —«quedan afuera demo.calcular y demo.calcular»—, serían dos nodos
+indistinguibles en el árbol, y no habría forma de pedir la definición de una sin
+ambigüedad, que es justo lo que el editor necesita. `schema.Object` lleva ahora
+`Args` con la firma de identidad, y la consulta de definición filtra por ella.
+Es un bug que ya existía en el volcado y que apareció al mirar el mismo dato
+para otra cosa.
+
+**La definición se normaliza a un CREATE completo, y eso es una decisión.** Los
+cuatro motores devuelven formas distintas: `pg_get_viewdef` da solo el SELECT,
+`pg_get_functiondef` da el CREATE entero, `SHOW CREATE VIEW` trae el `DEFINER` y
+el `ALGORITHM`, y `sqlite_master.sql` guarda el texto exacto con el que se
+escribió el objeto. Todas se normalizan a un CREATE completo porque es lo único
+que hace verdadera la promesa del editor: **lo que se ve es lo que se ejecuta**.
+Mostrar un cuerpo y ejecutar otra cosa alrededor deja a la persona revisando un
+texto que no es el que corre, y la revisión es la garantía de fondo de todo el
+apply.
+
+Dos consecuencias que se eligieron a conciencia. El `DEFINER=usuario@host` de
+MySQL **se deja**: sacarlo daría un texto más portable y sería mentir, porque
+una vista con DEFINER se comporta distinto de una sin él, y que ese usuario no
+exista en otro servidor conviene verlo antes de mover el objeto. Y el texto de
+SQLite vuelve **tal como se escribió**, sin comillas ni `IF NOT EXISTS`
+agregados: uniformarlo sería cambiar el objeto de la persona por otro
+equivalente.
+
+Lo que Kaname todavía no sabe reconstruir —dominios, tipos compuestos, políticas
+de RLS— devuelve un error que dice qué es, y no una cadena vacía. En un editor,
+una definición vacía se ve igual que un objeto sin cuerpo, y guardarla lo
+borraría.
+
+**El test es el ciclo completo, y una inyección mostró por qué la segunda mitad
+no es un extra.** `la definición de un objeto se puede volver a correr` crea una
+vista, pide su definición, **borra la vista** y la recrea con lo que salió. Que
+el texto «contenga CREATE» no probaría nada. Al inyectar el fallo más probable
+—devolver el cuerpo de `pg_get_viewdef` sin su `CREATE VIEW … AS` adelante— el
+`Exec` **no falla**: un SELECT pelado es una sentencia perfectamente válida, no
+crea nada y devuelve sin error. Lo que lo caza es el `count(*)` de después.
+Ejecutar sin error y hacer lo que se pidió no son lo mismo. La otra inyección
+—elegir la columna de `SHOW CREATE` por posición en vez de por nombre— pone en
+rojo a MySQL y MariaDB, y es la que justifica buscarla por nombre: `SHOW CREATE
+VIEW` devuelve cuatro columnas, `FUNCTION` seis y `TRIGGER` siete, y MariaDB no
+promete las mismas que MySQL.
+
+**El review `high` encontró que «un CREATE completo» no lo era.**
+`pg_get_viewdef` devuelve el SELECT y nada más: las opciones de la vista viven
+en `reloptions`, aparte, y quedaban afuera. Comprobado contra PostgreSQL 18: una
+vista creada `WITH (security_invoker = true, check_option = cascaded)` volvía
+como un SELECT pelado. Las consecuencias son las dos peores de su clase, porque
+las dos se ven idénticas a que todo esté bien:
+
+- **`security_invoker` desaparecía**, así que la vista pasaba a correr con los
+  permisos de su DUEÑO en vez de los de quien consulta. Alguien abre una vista
+  endurecida en el editor, la guarda sin tocar nada, y queda una vista
+  permeable con el mismo nombre y el mismo cuerpo.
+- **`check_option` desaparecía**, así que la vista dejaba de rechazar las
+  escrituras que se saldrían de ella: se aceptan, y la fila desaparece de la
+  vista donde se escribió.
+
+Se escriben tal cual vienen del catálogo, en el mismo `WITH (…)` que acepta el
+CREATE. Postgres guarda `check_option=cascaded` como una reloption más, así que
+traducirla a `WITH CASCADED CHECK OPTION` sería un caso especial que hay que
+mantener, y esta forma cubre también las que aparezcan mañana. El test no mira
+el texto: borra la vista, la recrea y le pregunta al CATÁLOGO, porque mirar el
+texto probaría que escribimos las palabras, no que el motor las entendió.
+
+**Y encontró que el caso compartido no podía cazar eso.** La tabla de la suite
+no tenía filas, así que `count(*)` daba 0 para cualquier vista sobre ella: una
+definición que perdiera el WHERE pasaba igual, y el mensaje de error prometía
+—«no devuelve lo mismo»— algo que el test no miraba. Ahora hay tres filas y la
+vista deja pasar una; con el WHERE perdido el caso dice `count(*) = "3"`.
+
+**La firma de una función depende del `search_path` de la conexión que la
+leyó.** `pg_get_function_identity_arguments` escribe `m demo.humor` con el path
+por defecto y `m humor` después de un `SET search_path TO demo`. Como `Objects`
+y `ObjectDefinition` son dos viajes a un POOL, pueden caer en conexiones
+distintas —y basta un `SET search_path` corrido en el editor SQL, que se pega a
+una sola conexión, para que los dos textos difieran—. La igualdad no encontraba
+nada y el usuario veía «ya no está en la base» sobre una función que está. Con
+una sola candidata la firma no hacía falta para empezar, así que se usa esa; con
+varias no se adivina, se dice cuántas hay. De paso: la firma **incluye los
+nombres de los parámetros y los modos**, no solo los tipos —la documentación del
+campo decía lo contrario— y se deja así porque es la forma de identidad que usa
+el propio motor en un `DROP FUNCTION`.
+
+**Encontrado de paso, sin arreglar todavía:** una consulta contra una tabla que
+no existe dice **«El servidor rechazó la conexión con la consulta»**. El camino
+de las consultas (`query.go`) clasifica con `Classify`, que contesta «¿por qué no
+llegué al servidor?», cuando el servidor contestó perfectamente y dijo que no. Es
+el mismo bug que `stmterrors.go` documenta haber arreglado para el apply,
+todavía vivo en el camino que más se usa: cada tipeo en el editor SQL. Va en su
+propio commit, y en los cuatro motores.
 
 ### Iteración 7 — 2026-09-10
 

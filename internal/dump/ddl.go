@@ -31,7 +31,7 @@ type Renderizador interface {
 //
 // Tiene una consecuencia que conviene ver de frente: **lo que el changeset no
 // sabe expresar, esto no lo escribe**. Por eso `Cobertura` no es opcional. La
-// lista de acá y la de `Uncovered` son las dos mitades de la misma frase.
+// lista de acá y la de `Objects` son las dos mitades de la misma frase.
 //
 // El orden es el que hace que el archivo se pueda correr de arriba abajo:
 // primero la tabla con sus columnas, después lo que se le cuelga. Las claves
