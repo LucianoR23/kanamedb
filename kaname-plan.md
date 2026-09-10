@@ -330,7 +330,8 @@ lo que entra y sale de la grilla.
   primero del grupo porque valida el formato antes del camino difícil: los
   escritores de `internal/export` ya van de a una fila, que es lo que S19
   necesita. Probado por CDP en los cuatro motores el 2026-09-10; **el selector
-  nativo de «guardar como» queda para probar a mano**, como el de SQLite.
+  nativo de «guardar como» lo probó a mano el usuario el 2026-09-10**: deja
+  `kn_cli.csv`, y `kn_cli.csv.gz` con el gzip tildado.
 - ✅ **S19 Export dialog — una tabla, en streaming.** «Exportar…» en la barra
   de la tabla abre el mismo diálogo con el alcance «la tabla entera»: la leen
   el motor y Go a medida que escriben el archivo, así que el tamaño de la
@@ -345,8 +346,8 @@ lo que entra y sale de la grilla.
   con tres tablas adentro no lo lee nadie. El zip se descartó: no se puede
   mirar sin abrirlo y no ahorra nada que el disco no ahorre solo. «Schema only»
   del diseño va con el volcado, que es donde vive la cobertura declarada.
-  **El selector de carpeta queda para probar a mano**, como el «guardar como»
-  y el de SQLite: los tres están listados en el README.
+  El selector de carpeta lo **probó a mano el usuario el 2026-09-10**: queda un
+  archivo por tabla, con el nombre de cada una.
 - ✅ **El visor: la fila entera como JSON, el modo Items y los botones del
   pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
   menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
@@ -1009,6 +1010,21 @@ selector mandando teclas al sistema fue un error: las teclas fueron a la
 ventana que el usuario estaba usando. Regla, anotada en memoria: **nunca
 `SendKeys`, `AppActivate` ni nada que toque el foco del sistema**; lo que pase
 por un diálogo nativo lo prueba el usuario.
+
+**Probados a mano por el usuario el 2026-09-10**: el «guardar como» deja
+`kn_cli.csv` y, con gzip tildado, `kn_cli.csv.gz`; el selector de carpeta del
+alcance «todas las tablas» también.
+
+Salió una cosa de ahí, y es de Wails y no nuestra: cancelar el selector escribe
+`ERR Invalid dialog call: Dialog.SaveFile failed: error getting selection:
+cancelled by user` en la consola de `wails3 dev`. La pantalla hace lo correcto
+—cancelar no muestra ningún error, que es lo que arregló `d3b7b20`— porque
+`lib/dialogos.ts` reconoce ese texto del lado del navegador. El `ERR` lo escribe
+Wails de su lado ANTES, al clasificar la llamada como `InvalidDialogCallError`
+(`pkg/errs/errors.go`), y no hay opción para apagarlo sin parchear Wails. No se
+toca: es ruido de la consola de desarrollo, el build que se distribuye en
+Windows no tiene consola atada, y no hay nada sensible en esa línea. Queda
+anotado para que a nadie le parezca un bug nuestro la próxima vez que lo vea.
 
 **Probado a mano en los cuatro motores el 2026-09-10.** Además de la fecha de
 MySQL (arriba), salieron dos cosas: el texto de la transacción asustaba con un
