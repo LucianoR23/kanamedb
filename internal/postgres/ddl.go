@@ -3,9 +3,11 @@ package postgres
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/dml"
 )
 
 // tipoValido acota qué puede ser un nombre de tipo.
@@ -85,6 +87,11 @@ func identificadoresDe(c change.Change) map[string]string {
 			poner("nombre de la columna", n)
 		}
 	}
+	for _, lista := range [][]change.Cell{c.Values, c.Key} {
+		for _, celda := range lista {
+			poner("nombre de la columna", celda.Column)
+		}
+	}
 	return out
 }
 
@@ -102,6 +109,9 @@ func RenderDDL(c change.Change) (change.Statement, error) {
 		if err := validarIdent(que, nombre); err != nil {
 			return change.Statement{}, err
 		}
+	}
+	if c.Kind() == change.KindData {
+		return dml.Render(c, dialectoDML)
 	}
 	tabla := QualifiedName(c.Schema, c.Table)
 	st := change.Statement{ChangeID: c.ID, Destructive: c.Destructive()}
@@ -412,7 +422,26 @@ func literal(s string) string {
 	if s == "" {
 		return "NULL"
 	}
+	return quoteString(s)
+}
+
+// quoteString cita un texto como literal. Con standard_conforming_strings —el
+// default desde 9.1— la barra invertida no escapa nada, así que duplicar la
+// comilla es todo.
+//
+// Para los cambios de datos esto solo produce la SQL que se LEE; lo que se
+// ejecuta lleva los valores como parámetros. Ver dml.
+func quoteString(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// dialectoDML es lo que dml necesita saber de Postgres.
+var dialectoDML = dml.Dialect{
+	Table:        QualifiedName,
+	QuoteIdent:   QuoteIdent,
+	QuoteLiteral: quoteString,
+	Placeholder:  func(n int) string { return "$" + strconv.Itoa(n) },
+	EmptyInsert:  "DEFAULT VALUES",
 }
 
 func listaDeIdent(nombres []string) string {

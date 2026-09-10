@@ -23,6 +23,7 @@
 package change
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -86,7 +87,30 @@ const (
 
 	AddIndex  Type = "addIndex"
 	DropIndex Type = "dropIndex"
+
+	// Los tres cambios de DATOS que produce la grilla. Cada uno es UNA fila:
+	// editar tres celdas de la misma fila es un updateRow con tres Values y no
+	// tres cambios, porque es una sola sentencia y se revisa como tal.
+	InsertRow Type = "insertRow"
+	UpdateRow Type = "updateRow"
+	DeleteRow Type = "deleteRow"
 )
+
+// Cell es el valor de una columna en un cambio de datos.
+//
+// El valor es texto o NULL, igual que en query.Result y por la misma razón: el
+// texto lo produce el servidor y el servidor lo vuelve a leer. Un `*string`
+// nulo es NULL; un puntero a "" es la cadena vacía. Se comprobó contra los
+// cuatro motores que un parámetro de texto entra en cualquier tipo de columna
+// —numeric, boolean, timestamptz, jsonb, bytea, int[]— y que lo que el servidor
+// devuelve como texto vuelve a entrar tal cual.
+//
+// Los valores NUNCA se concatenan en la SQL que se ejecuta: viajan como
+// parámetros. Ver Statement.Bound.
+type Cell struct {
+	Column string  `json:"column"`
+	Value  *string `json:"value"`
+}
 
 // Column describe una columna en un CREATE TABLE o en un ADD COLUMN.
 //
@@ -180,6 +204,28 @@ type Change struct {
 	// borra cosas que no están en la pantalla.
 	Cascade bool `json:"cascade,omitempty"`
 
+	// Values son los valores nuevos de un cambio de datos: en insertRow, las
+	// columnas que se cargaron —las demás toman su default—; en updateRow, solo
+	// las que cambiaron.
+	Values []Cell `json:"values,omitempty"`
+
+	// Key identifica la fila en updateRow y deleteRow: las columnas de la clave
+	// primaria con el valor que tenían al leerla.
+	//
+	// Solo la clave primaria, y no «todas las columnas viejas»: una tabla sin
+	// clave no se edita desde la grilla. Y la sentencia tiene que tocar
+	// exactamente UNA fila; si toca cero es que la fila ya no está, y si toca
+	// más de una la clave no era clave. Las dos cosas se comprueban al
+	// ejecutar, y las dos revierten. Ver Statement.Bound.
+	Key []Cell `json:"key,omitempty"`
+
+	// Previous es lo que había antes, para que la revisión pueda mostrar
+	// «apodo: juan → juanci» en vez de solo la sentencia. En updateRow son los
+	// valores viejos de las columnas de Values; en deleteRow, la fila entera.
+	//
+	// No entra en ninguna sentencia. Es para leer.
+	Previous []Cell `json:"previous,omitempty"`
+
 	// Excluded deja la operación en el changeset pero fuera de este apply.
 	Excluded bool `json:"excluded,omitempty"`
 }
@@ -205,6 +251,12 @@ func (c Change) Op() Op {
 		return OpCreate
 	case DropTable, DropColumn, DropConstraint, DropIndex:
 		return OpDrop
+	case InsertRow:
+		return OpInsert
+	case UpdateRow:
+		return OpUpdate
+	case DeleteRow:
+		return OpDelete
 	default:
 		return OpAlter
 	}
@@ -228,6 +280,10 @@ func (c Change) Destructive() bool {
 	case SetColumnType:
 		// Un cambio de tipo puede truncar: numeric(10,2) a integer descarta los
 		// decimales de todas las filas, sin aviso del motor.
+		return true
+	case DeleteRow:
+		// Una fila borrada no vuelve. Un updateRow no entra acá: el valor viejo
+		// está en Previous y se puede volver a escribir.
 		return true
 	default:
 		return false
@@ -334,10 +390,57 @@ func (c Change) Validate() error {
 		if len(c.Names) == 0 {
 			return falta("las columnas")
 		}
+	case InsertRow:
+		// Sin Values es válido: la fila entera toma sus defaults.
+		if err := celdas(c.Values, "los valores"); err != nil {
+			return fmt.Errorf("%s sobre %s: %w", c.Type, c.Target(), err)
+		}
+	case UpdateRow:
+		if len(c.Values) == 0 {
+			return falta("los valores nuevos")
+		}
+		if err := celdas(c.Values, "los valores"); err != nil {
+			return fmt.Errorf("%s sobre %s: %w", c.Type, c.Target(), err)
+		}
+		if err := clave(c.Key); err != nil {
+			return fmt.Errorf("%s sobre %s: %w", c.Type, c.Target(), err)
+		}
+	case DeleteRow:
+		if err := clave(c.Key); err != nil {
+			return fmt.Errorf("%s sobre %s: %w", c.Type, c.Target(), err)
+		}
 	default:
 		return fmt.Errorf("operación desconocida: %q", c.Type)
 	}
 	return nil
+}
+
+// celdas comprueba que cada columna tenga nombre y que ninguna se repita.
+//
+// La repetición se rechaza acá y no se deja al motor: `SET a = 1, a = 2` es un
+// error en Postgres pero MySQL lo acepta y se queda con el último, y una
+// sentencia que hace cosas distintas según el motor no es una sentencia que
+// queramos escribir.
+func celdas(cs []Cell, que string) error {
+	vistas := make(map[string]bool, len(cs))
+	for _, c := range cs {
+		if c.Column == "" {
+			return fmt.Errorf("una columna de %s no tiene nombre", que)
+		}
+		if vistas[c.Column] {
+			return fmt.Errorf("la columna %q aparece dos veces en %s", c.Column, que)
+		}
+		vistas[c.Column] = true
+	}
+	return nil
+}
+
+// clave exige que la fila esté identificada.
+func clave(k []Cell) error {
+	if len(k) == 0 {
+		return errors.New("falta la clave que identifica la fila")
+	}
+	return celdas(k, "la clave")
 }
 
 // Set es el changeset de una sesión: qué se editó y todavía no se aplicó.

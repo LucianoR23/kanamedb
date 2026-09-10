@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
@@ -43,6 +44,9 @@ func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statemen
 		if err := validarIdent(que, nombre); err != nil {
 			return change.Statement{}, err
 		}
+	}
+	if c.Kind() == change.KindData {
+		return dml.Render(c, dialectoDML(cita))
 	}
 	tabla := QualifiedName(c.Schema, c.Table)
 	st := change.Statement{ChangeID: c.ID, Destructive: c.Destructive()}
@@ -389,6 +393,11 @@ func identificadoresDe(c change.Change) map[string]string {
 	for _, n := range c.RefNames {
 		poner("el nombre de la columna referenciada "+n, n)
 	}
+	for _, lista := range [][]change.Cell{c.Values, c.Key} {
+		for _, celda := range lista {
+			poner("el nombre de la columna "+celda.Column, celda.Column)
+		}
+	}
 	return out
 }
 
@@ -401,4 +410,19 @@ func validarIdent(que, v string) error {
 		return fmt.Errorf("%s tiene caracteres de control", que)
 	}
 	return nil
+}
+
+// dialectoDML es lo que dml necesita saber de MySQL y MariaDB. El citado de
+// literales depende del SERVIDOR —NO_BACKSLASH_ESCAPES— y por eso se recibe.
+//
+// `() VALUES ()` es la única forma que MySQL acepta para insertar una fila con
+// todos sus defaults: `DEFAULT VALUES` no existe acá.
+func dialectoDML(cita func(string) string) dml.Dialect {
+	return dml.Dialect{
+		Table:        QualifiedName,
+		QuoteIdent:   QuoteIdent,
+		QuoteLiteral: cita,
+		Placeholder:  func(int) string { return "?" },
+		EmptyInsert:  "() VALUES ()",
+	}
 }

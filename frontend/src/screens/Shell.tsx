@@ -376,7 +376,12 @@ export function Shell({
                   ) : t.id === ID_CAMBIOS ? (
                     <PendingChanges
                       active={t.id === activeTab}
-                      onApplied={() => void load(true)}
+                      onApplied={(schemaChanged) => {
+                        // Un apply de puras filas no toca el árbol: se recargan
+                        // las pestañas y el catálogo no se vuelve a inspeccionar.
+                        if (schemaChanged) void load(true);
+                        else setRecarga((n) => n + 1);
+                      }}
                       onCount={setPendientes}
                       onOpenTable={openTable}
                     />

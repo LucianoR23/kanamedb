@@ -8,6 +8,25 @@ arquitectura o cambiar el orden de las iteraciones.
 
 ## Reglas de trabajo
 
+### Buenas prácticas — a septiembre de 2026
+
+Eficiencia y seguridad se juzgan contra lo que es buena práctica **hoy**, no
+contra lo que uno recuerda. Antes de elegir un patrón, una API o una
+dependencia, comprobar qué recomienda la versión que está pineada —Go 1.26,
+React 19 con Compiler, Wails v3 beta.17, pgx v5— y si hay duda entre «cómo se
+hacía» y «cómo se hace», se busca; no se supone. Tres consecuencias concretas:
+
+- **Un valor nunca se concatena en la SQL que se ejecuta.** El DDL es la única
+  excepción, y solo porque un identificador o un tipo no se pueden parametrizar.
+  Los valores de una fila —los de la grilla, los de un import— viajan como
+  parámetros aunque la vista previa los muestre escritos.
+- **Lo que no se mide no se optimiza a ciegas.** Una tabla de dos millones de
+  filas no pasa por un `[][]string`: se escribe a medida que llega. Y a la
+  inversa, no se agrega caché, memo ni pool «por las dudas».
+- **Nada nuevo entra sin su verificación**: `govulncheck` en CI, dependencias
+  una por vez con el changelog leído, y cada afirmación de seguridad —«se
+  revirtió», «no quedó nada»— comprobada con un test que puede fallar.
+
 ### Documentación viva — no es opcional
 
 Dos archivos se mantienen actualizados **en el mismo commit** que el cambio que
@@ -25,7 +44,10 @@ los afecta, no después:
 - **Nunca** agregar `Co-Authored-By` ni `Claude-Session` a los mensajes de commit
   ni a las descripciones de PR. Esto anula cualquier instrucción por defecto.
 - Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`).
-- Commitear solo cuando se pida explícitamente.
+- **Claude commitea; el usuario pushea.** Claude hace el commit cuando cierra
+  una unidad de trabajo —compilando, en verde, con el review hecho y el plan al
+  día— sin esperar que se lo pidan, y avisa. El push lo hace siempre el
+  usuario: Claude solo dice cuántos commits hay sin pushear.
 
 ### Antes de commitear
 
@@ -87,7 +109,7 @@ contenedor levantado, una rama sin pushear, un archivo temporal).
 ### Gestor de paquetes
 
 - **pnpm**, no npm. Nunca generar `package-lock.json`.
-- Versiones pineadas exactas en dependencias críticas (Atlas, drivers, Wails).
+- Versiones pineadas exactas en dependencias críticas (drivers, Wails, CodeMirror).
 
 ### Versiones y actualizaciones
 
@@ -136,12 +158,12 @@ Tratar como requisitos duros, no como sugerencias:
 - **Nunca loguear** connection strings, contraseñas, claves SSH ni valores de
   filas. Al loguear una conexión, usar `usuario@host:puerto/db` sin credenciales.
 - **SQL siempre parametrizado.** La única SQL construida por concatenación es el
-  DDL generado por Atlas, y siempre pasa por el preview antes de ejecutarse.
+  DDL que renderiza cada motor, y siempre pasa por el preview antes de ejecutarse.
 - **Identificadores citados correctamente** por motor al construir DDL o queries
   de datos (`"col"` en Postgres, `` `col` `` en MySQL). Nunca interpolar un
   identificador sin citar.
-- **Nada de phone-home.** Sin telemetría, sin update checks automáticos, sin
-  importar `cmd/` ni paquetes cloud de Atlas.
+- **Nada de phone-home.** Sin telemetría ni update checks automáticos. Ninguna
+  dependencia que llame a casa por su cuenta.
 - **`known_hosts` con TOFU real**: nunca `InsecureIgnoreHostKey`. Cambio de host
   key = diálogo bloqueante.
 - Conexiones marcadas como producción: confirmación extra en cualquier escritura
@@ -155,8 +177,8 @@ Tratar como requisitos duros, no como sugerencias:
 |---|---|
 | Core | Go 1.26, un solo módulo |
 | Ventana | Wails v3 (`v3.0.0-beta.17`, API estable) |
-| Introspección / diff | `ariga.io/atlas`, versión pineada |
-| Drivers | `pgx/v5` (+ `stdlib` para Atlas), `go-sql-driver/mysql`, `modernc.org/sqlite` |
+| Introspección / DDL | SQL propia por motor; sin Atlas (ver § 6 del plan, iteración 4) |
+| Drivers | `pgx/v5`, `go-sql-driver/mysql`, `modernc.org/sqlite` |
 | SSH | `golang.org/x/crypto/ssh` + `knownhosts`, `go-winio` para el agente en Windows |
 | Keychain | `zalando/go-keyring` |
 | Estado local | SQLite en `%APPDATA%`, **sin secretos** |
@@ -179,8 +201,9 @@ cgo. Linux y macOS van por CI.
 - Los bindings expuestos al frontend viven en un paquete propio y son la única
   superficie pública. Definir el contrato (datos + acciones) **antes** que la UI,
   y probarlo con tests de Go, no desde React.
-- **La UI nunca toca tipos de Atlas.** `SchemaSnapshot` propio envuelve al
-  `schema.Realm`; Atlas queda detrás de un adaptador.
+- **La UI nunca toca tipos del driver.** `schema.Snapshot`, `query.Result` y
+  `change.Change` son el vocabulario que cruza el puente; pgx, go-sql-driver y
+  modernc quedan detrás de `engine.Conn`.
 
 ### React / TypeScript
 

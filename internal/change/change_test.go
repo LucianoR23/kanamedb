@@ -1,6 +1,7 @@
 package change
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -200,4 +201,60 @@ func igual(a, b []Type) bool {
 		}
 	}
 	return true
+}
+
+// Los cambios de datos van DESPUÉS del esquema nuevo y ANTES del que se borra:
+// una fila que usa una columna recién agregada se inserta cuando la columna ya
+// está, y una que referencia una tabla que se va a borrar, antes de que se vaya.
+func TestLosCambiosDeDatosVanEntreElEsquemaNuevoYElQueSeBorra(t *testing.T) {
+	s := &Set{}
+	v := "1"
+	agregar(t, s, Change{Type: DropColumn, Schema: "p", Table: "t", Column: &Column{Name: "vieja"}})
+	agregar(t, s, Change{Type: DeleteRow, Schema: "p", Table: "t", Key: []Cell{{Column: "id", Value: &v}}})
+	agregar(t, s, Change{Type: UpdateRow, Schema: "p", Table: "t",
+		Values: []Cell{{Column: "a", Value: &v}}, Key: []Cell{{Column: "id", Value: &v}}})
+	agregar(t, s, Change{Type: InsertRow, Schema: "p", Table: "t", Values: []Cell{{Column: "a", Value: nil}}})
+	agregar(t, s, Change{Type: AddColumn, Schema: "p", Table: "t",
+		Column: &Column{Name: "a", DataType: "text", Nullable: true}})
+
+	quiero := []Type{AddColumn, DeleteRow, UpdateRow, InsertRow, DropColumn}
+	if got := tipos(s.Ordered()); !igual(got, quiero) {
+		t.Errorf("Ordered() = %v\n  se esperaba %v", got, quiero)
+	}
+
+	r := s.Summarize()
+	if r.Data != 3 || r.Schema != 2 || r.Destructive != 2 {
+		t.Errorf("Summarize() = %+v; se esperaban 3 de datos, 2 de esquema y 2 destructivos "+
+			"(borrar la columna y borrar la fila)", r)
+	}
+	for _, c := range s.List() {
+		switch c.Type {
+		case InsertRow:
+			if c.Kind() != KindData || c.Op() != OpInsert || c.Destructive() {
+				t.Errorf("insertRow: Kind=%s Op=%s Destructive=%v", c.Kind(), c.Op(), c.Destructive())
+			}
+		case UpdateRow:
+			if c.Kind() != KindData || c.Op() != OpUpdate || c.Destructive() {
+				t.Errorf("updateRow: Kind=%s Op=%s Destructive=%v", c.Kind(), c.Op(), c.Destructive())
+			}
+		case DeleteRow:
+			if c.Kind() != KindData || c.Op() != OpDelete || !c.Destructive() {
+				t.Errorf("deleteRow: Kind=%s Op=%s Destructive=%v", c.Kind(), c.Op(), c.Destructive())
+			}
+		}
+	}
+}
+
+// Bound no cruza el puente. Los valores ya viajan en Change, y lo que se
+// ejecuta no es cosa del frontend.
+func TestBoundNoCruzaElPuente(t *testing.T) {
+	v := "x"
+	st := Statement{SQL: "UPDATE t SET a = 'x'", Bound: &Bound{SQL: "UPDATE t SET a = $1", Args: []any{&v}, Rows: 1}}
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(b)), "bound") || strings.Contains(string(b), "$1") {
+		t.Errorf("Bound se serializó: %s", b)
+	}
 }

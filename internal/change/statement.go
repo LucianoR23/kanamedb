@@ -67,4 +67,39 @@ type Statement struct {
 	// qué esta sentencia va a tardar, qué bloquea, o qué garantía se pierde.
 	// Vacía cuando no hay nada que avisar.
 	Note string `json:"note,omitempty"`
+
+	// Bound es la MISMA sentencia con los valores como parámetros, y es lo que
+	// se ejecuta cuando la operación es de datos. Nil en un DDL.
+	//
+	// SQL lleva los valores escritos como literales, porque es lo que se lee,
+	// se copia y se guarda como .sql: una vista previa con «$1» no se puede
+	// revisar. Pero un valor escrito por alguien en una celda no puede
+	// convertirse en SQL, y la única forma de garantizarlo es que nunca esté
+	// adentro del texto que corre. Ver CLAUDE.md, «SQL siempre parametrizado».
+	//
+	// No cruza el puente: los valores ya están en Change, y el frontend no
+	// ejecuta nada. El servicio vuelve a renderizar al aplicar, así que siempre
+	// está donde hace falta.
+	Bound *Bound `json:"-"`
+}
+
+// Bound es una sentencia lista para el driver: marcadores en el texto y los
+// valores aparte.
+type Bound struct {
+	SQL string
+	// Args van en el orden de los marcadores. Cada uno es un *string: nil es
+	// NULL, y el texto lo interpreta el servidor según el tipo de la columna.
+	Args []any
+
+	// Op es qué hace la sentencia, para que un conteo que no cierra se
+	// explique con las palabras justas: un INSERT que alcanzó cero filas no
+	// es «la fila ya no está», es que un trigger o una regla la descartó.
+	Op Op
+
+	// Rows es cuántas filas TIENE que tocar la sentencia, y se comprueba
+	// después de ejecutarla. Es la protección de fondo de la grilla: un UPDATE
+	// por clave primaria que toca cero filas es una fila que otro borró, y uno
+	// que toca dos es una clave que no era clave. Los dos casos revierten en
+	// vez de seguir. Cero significa que no se comprueba.
+	Rows int64
 }

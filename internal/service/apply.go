@@ -173,9 +173,26 @@ func (s *Session) ApplyStatus() ApplyProgress {
 // Devolver la sentencia en el acto no es un lujo: es lo que permite que quien
 // edita vea la SQL apenas hace el cambio, en vez de descubrirla al final.
 func (s *Session) Stage(ctx context.Context, c change.Change, confirm string) (ChangeView, error) {
-	sesion, err := s.abierta()
+	vs, err := s.StageMany(ctx, []change.Change{c}, confirm)
 	if err != nil {
 		return ChangeView{}, err
+	}
+	return vs[0], nil
+}
+
+// StageMany agrega varios cambios de una vez, todos o ninguno.
+//
+// Es lo que manda la grilla: una sesión de edición son diez filas tocadas y
+// tres borradas, y prepararlas de a una obligaría a contestar diez veces la
+// confirmación de producción o a dejar la mitad adentro si la sexta no se
+// sabe escribir. Acá se comprueba todo primero y se guarda después.
+func (s *Session) StageMany(ctx context.Context, cs []change.Change, confirm string) ([]ChangeView, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return nil, err
+	}
+	if len(cs) == 0 {
+		return nil, errors.New("no hay ningún cambio que preparar")
 	}
 	// Contra producción, un cambio destructivo no entra al changeset «sin
 	// querer». La confirmación va acá y no en cada pantalla que puede prepararlo:
@@ -186,25 +203,42 @@ func (s *Session) Stage(ctx context.Context, c change.Change, confirm string) (C
 	// distintas: «¿de verdad querés borrar esta columna?» se contesta mirando la
 	// columna, y «¿de verdad querés correr estas ocho sentencias?» mirando la
 	// lista. Contestar la segunda no contesta la primera.
-	if c.Destructive() && sesion.conn.Environment.NeedsWriteConfirmation() &&
+	if sesion.conn.Environment.NeedsWriteConfirmation() &&
 		strings.TrimSpace(confirm) != nombreDeLaBase(sesion) {
-		return ChangeView{}, fmt.Errorf(
-			"%w: %s sobre %s es destructivo y la conexión es de producción; para prepararlo hay "+
-				"que escribir %q",
-			ErrNeedsConfirmation, c.Type, c.Target(), nombreDeLaBase(sesion))
+		for _, c := range cs {
+			if c.Destructive() {
+				return nil, fmt.Errorf(
+					"%w: %s sobre %s es destructivo y la conexión es de producción; para "+
+						"prepararlo hay que escribir %q",
+					ErrNeedsConfirmation, c.Type, c.Target(), nombreDeLaBase(sesion))
+			}
+		}
 	}
-	// Se renderiza ANTES de guardar. Un cambio que no se sabe escribir no entra
-	// al changeset: dejarlo entrar sería prometer un apply que va a fallar.
-	if _, err := sesion.db.RenderDDL(ctx, c); err != nil {
-		return ChangeView{}, err
+	// Se renderiza ANTES de guardar, y todos antes de guardar el primero. Un
+	// cambio que no se sabe escribir no entra al changeset: dejarlo entrar
+	// sería prometer un apply que va a fallar.
+	for _, c := range cs {
+		if _, err := sesion.db.RenderDDL(ctx, c); err != nil {
+			return nil, err
+		}
 	}
-	id, err := sesion.cambios.Add(c)
-	if err != nil {
-		return ChangeView{}, err
+	out := make([]ChangeView, 0, len(cs))
+	for _, c := range cs {
+		id, err := sesion.cambios.Add(c)
+		if err != nil {
+			// No puede pasar: Add valida lo mismo que RenderDDL acaba de
+			// validar. Si pasa, lo que ya entró se saca, para que «todo o
+			// nada» siga siendo verdad.
+			for _, v := range out {
+				sesion.cambios.Remove(v.Change.ID)
+			}
+			return nil, err
+		}
+		c.ID = id
+		st, _ := sesion.db.RenderDDL(ctx, c)
+		out = append(out, ChangeView{Change: c, Statement: st})
 	}
-	c.ID = id
-	st, _ := sesion.db.RenderDDL(ctx, c)
-	return ChangeView{Change: c, Statement: st}, nil
+	return out, nil
 }
 
 // Unstage saca un cambio del changeset.
@@ -459,6 +493,29 @@ func avisos(sesion *openSession, orden []ChangeView) []string {
 				"filas, tirar la vieja y renombrar—. Tarda en proporción al tamaño de la "+
 				"tabla y necesita lugar en disco para las dos copias mientras corre.",
 			reconstruyen, plural(reconstruyen, "operación", "operaciones")))
+
+		// Y lo que la reconstrucción le hace a los cambios de DATOS que van en
+		// la misma transacción: corre con las claves foráneas apagadas —es la
+		// única forma de reconstruir sin disparar los ON DELETE CASCADE de las
+		// hijas, ver engine.TxOptions— así que un borrado de esta tanda no
+		// arrastra ni pone en NULL a sus hijas. No es silencioso: el
+		// foreign_key_check del cierre encuentra las huérfanas y rechaza el
+		// apply entero. Pero un borrado que solo funcionaría gracias a la
+		// cascada va a fallar acá y andar aplicado solo, y hay que decirlo.
+		hayDatos := false
+		for _, v := range orden {
+			if v.Change.Kind() == change.KindData {
+				hayDatos = true
+				break
+			}
+		}
+		if hayDatos {
+			out = append(out, "Mientras corre la reconstrucción las claves foráneas están "+
+				"apagadas, así que un borrado de esta tanda no arrastra sus filas hijas "+
+				"(ON DELETE CASCADE / SET NULL). Si las deja huérfanas, el apply entero se "+
+				"rechaza al cerrar y no queda nada. Para borrar con cascada, aplicá primero "+
+				"el esquema y después los datos.")
+		}
 	}
 
 	// El statement_timeout de la conexión mata la sentencia a mitad de camino.
@@ -561,6 +618,12 @@ type ApplyResult struct {
 	// única, y es la diferencia entre «falló la tercera» y «no quedó nada».
 	RolledBack bool `json:"rolledBack"`
 
+	// SchemaChanged dice que algún cambio de ESQUEMA quedó aplicado, así que
+	// el árbol y el diagrama hay que releerlos. Un apply de puros datos lo
+	// deja en false: la grilla se recarga, el catálogo no se vuelve a
+	// inspeccionar.
+	SchemaChanged bool `json:"schemaChanged"`
+
 	// Failure explica el fallo en el vocabulario del usuario.
 	Failure *engine.Failure `json:"failure,omitempty"`
 }
@@ -610,8 +673,12 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	// aplicadas de verdad, y dejarlas en la lista es peor que un detalle
 	// cosmético: al reintentar se vuelven a correr, y una columna que ya existe
 	// hace fallar el apply entero por algo que ya estaba hecho.
-	if n := s.olvidarAplicados(sesion, res); n > 0 {
-		// El esquema cambió, así que el snapshot que tiene el árbol quedó viejo.
+	_, esquema := s.olvidarAplicados(sesion, res)
+	res.SchemaChanged = esquema
+	if esquema {
+		// El esquema cambió, así que el snapshot que tiene el árbol quedó
+		// viejo. Solo entonces: editar una celda no cambia el árbol, y volver a
+		// leer el catálogo entero por eso sería justo lo que CLAUDE.md prohíbe.
 		s.mu.Lock()
 		if s.current == sesion {
 			s.current.snapshot = nil
@@ -746,17 +813,23 @@ func (s *Session) DryRun(ctx context.Context, confirm string) (ApplyResult, erro
 //
 // RolledBack es la palabra clave: con transacción única, una sentencia puede
 // haber corrido bien y aun así no existir más. Ahí no se saca nada.
-func (s *Session) olvidarAplicados(sesion *openSession, res ApplyResult) int {
+func (s *Session) olvidarAplicados(sesion *openSession, res ApplyResult) (n int, esquema bool) {
 	if res.RolledBack {
-		return 0
+		return 0, false
 	}
-	n := 0
+	tipos := map[string]change.Kind{}
+	for _, c := range sesion.cambios.List() {
+		tipos[c.ID] = c.Kind()
+	}
 	for _, r := range res.Results {
 		if r.Applied && sesion.cambios.Remove(r.ChangeID) {
 			n++
+			if tipos[r.ChangeID] == change.KindSchema {
+				esquema = true
+			}
 		}
 	}
-	return n
+	return n, esquema
 }
 
 // aplicarPorTramos ejecuta las sentencias partiéndolas donde el motor obliga.
@@ -829,7 +902,7 @@ func (s *Session) correrTramo(
 			r, err := s.correr(ctx, sesion, sesion.db, i, sts[i])
 			res.Results = append(res.Results, r)
 			if err != nil {
-				return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+				return clasificar(sesion, err), err
 			}
 		}
 		return nil, nil
@@ -848,7 +921,7 @@ func (s *Session) correrTramo(
 
 	tx, err := sesion.db.Begin(ctx, opts)
 	if err != nil {
-		return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+		return clasificar(sesion, err), err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -864,7 +937,7 @@ func (s *Session) correrTramo(
 			if ensayo {
 				revertirEnsayo(ctx, tx, res)
 			}
-			return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+			return clasificar(sesion, err), err
 		}
 	}
 	// El cierre también puede fallar, y con razones propias: las claves
@@ -883,7 +956,7 @@ func (s *Session) correrTramo(
 		if ensayo {
 			revertirEnsayo(ctx, tx, res)
 		}
-		return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+		return clasificar(sesion, err), err
 	}
 	if ensayo {
 		// Nada de esto queda: el ensayo termina donde el apply recién
@@ -894,7 +967,7 @@ func (s *Session) correrTramo(
 		// hace, así que no puede apoyarse en un error que nadie lee.
 		if !revertirEnsayo(ctx, tx, res) {
 			err := errors.New("el ensayo corrió pero no se pudo revertir la transacción")
-			return sesion.db.ClassifyStatement(err, sesion.conn.Describe()), err
+			return clasificar(sesion, err), err
 		}
 	}
 	return nil, nil
@@ -932,6 +1005,47 @@ func marcarRevertidas(rs []StatementResult) {
 // camino con y sin transacción compartan el mismo código.
 type ejecutor interface {
 	Exec(ctx context.Context, sql string) error
+	Modify(ctx context.Context, sql string, args []any) (int64, error)
+}
+
+// ErrRowCount es que una sentencia de datos no tocó las filas que tenía que
+// tocar. Se envuelve con el detalle de cuántas fueron.
+var ErrRowCount = errors.New("la sentencia no tocó exactamente la fila que tenía que tocar")
+
+// ejecutar corre UNA sentencia por el camino que le corresponde: un DDL tal
+// cual está escrito, y un cambio de datos con sus valores como parámetros
+// —nunca por la SQL legible, que es para leer—.
+//
+// Para los datos, además, comprueba que la sentencia haya tocado las filas
+// que Bound dice. Es la red que hace que editar una celda sea seguro contra
+// una base que otro también está tocando: si la fila ya no está, se ve acá y
+// revierte, en vez de terminar en «aplicado» sobre nada. Y si una clave que
+// se creía única alcanzó dos filas, la segunda no se pierde en silencio.
+func ejecutar(ctx context.Context, ej ejecutor, st change.Statement) error {
+	if st.Bound == nil {
+		return ej.Exec(ctx, st.SQL)
+	}
+	n, err := ej.Modify(ctx, st.Bound.SQL, st.Bound.Args)
+	if err != nil {
+		return err
+	}
+	if st.Bound.Rows > 0 && n != st.Bound.Rows {
+		switch {
+		case n == 0 && st.Bound.Op == change.OpInsert:
+			// Un INSERT que no inserta existe: un trigger BEFORE que devuelve
+			// NULL, o una regla DO INSTEAD NOTHING. La fila no «se fue»:
+			// nunca entró.
+			return fmt.Errorf("%w: el INSERT no insertó ninguna fila. Un trigger o una regla "+
+				"de la tabla la descartó sin dar error", ErrRowCount)
+		case n == 0:
+			return fmt.Errorf("%w: no alcanzó ninguna fila. La fila ya no está en la base "+
+				"—otra sesión la borró o le cambió la clave desde que se leyó—", ErrRowCount)
+		default:
+			return fmt.Errorf("%w: alcanzó %d filas y tenía que alcanzar %d. La clave con la "+
+				"que se identificó la fila no es única en la base", ErrRowCount, n, st.Bound.Rows)
+		}
+	}
+	return nil
 }
 
 // correr ejecuta una sentencia y devuelve cómo le fue MÁS el error crudo.
@@ -948,7 +1062,7 @@ func (s *Session) correr(
 	s.avanzarApply(i, st)
 
 	inicio := time.Now()
-	err := ej.Exec(ctx, st.SQL)
+	err := ejecutar(ctx, ej, st)
 	r := StatementResult{
 		ChangeID:  st.ChangeID,
 		SQL:       st.SQL,
@@ -960,7 +1074,7 @@ func (s *Session) correr(
 		// El código sale del clasificador del motor y no de un tipo de pgx:
 		// cada uno tiene el suyo —SQLSTATE en Postgres y MySQL, código
 		// extendido en SQLite— y los tres viajan por el mismo campo.
-		if f := sesion.db.ClassifyStatement(err, sesion.conn.Describe()); f != nil {
+		if f := clasificar(sesion, err); f != nil {
 			r.SQLState = f.SQLState
 		}
 	}
@@ -974,4 +1088,25 @@ func plural(n int, uno, varios string) string {
 		return uno
 	}
 	return varios
+}
+
+// clasificar interpreta el error de una sentencia.
+//
+// Los errores que pone el propio servicio se interpretan acá, ANTES de pasar
+// por el clasificador del motor: ese solo entiende errores del driver, y a
+// cualquier otro lo manda al cajón de «no se pudo conectar». Ya pasó una vez
+// —ver § 6 del plan, iteración 5— y es exactamente lo que le pasaría a
+// ErrRowCount.
+func clasificar(sesion *openSession, err error) *engine.Failure {
+	if errors.Is(err, ErrRowCount) {
+		// El hint no dice «nada quedó aplicado»: eso lo sabe ApplyResult
+		// —RolledBack y el tramo que falló— y no este error. Con varios
+		// tramos, lo anterior a este sí quedó.
+		return &engine.Failure{
+			Kind:    engine.FailureData,
+			Message: err.Error(),
+			Hint:    "Volvé a leer la tabla y hacé la edición de nuevo sobre lo que hay ahora.",
+		}
+	}
+	return sesion.db.ClassifyStatement(err, sesion.conn.Describe())
 }

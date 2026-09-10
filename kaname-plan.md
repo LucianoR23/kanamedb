@@ -277,34 +277,40 @@ lo que entra y sale de la grilla.
 >    que figure aplicado, y con la definición vieja una edición de un tramo
 >    revertido se perdía sin existir en la base.
 >
-> Y una que **falta** y que la grilla necesita: hoy el changeset no tiene
-> operaciones de datos. `change.Kind()` ya distingue `KindData` de `KindSchema`
-> y `TramosDe` ya las agrupa, pero los `Type` de insertar, actualizar y borrar
-> filas todavía no existen. Es lo primero de esta iteración.
+> Y una que **faltaba** y que la grilla necesita: el changeset no tenía
+> operaciones de datos. Fue lo primero de la iteración; ver abajo y § 6.
 
-- **S07** — modo edición: celdas modificadas, filas nuevas, filas marcadas para
+- ✅ **Contrato de Go para los cambios de datos** — `insertRow`, `updateRow` y
+  `deleteRow` en el changeset, uno por fila; renderizado único en
+  `internal/dml` para los cuatro motores, en dos formas —la legible con los
+  valores escritos y la que corre con los valores como parámetros—;
+  `Modify` en la costura con conteo de filas, y el apply exige que cada cambio
+  toque exactamente una fila o revierte el tramo; `StageMany` para preparar
+  una tanda con una sola confirmación. Todo con tests contra los cuatro
+  motores, incluida la fila que otro borró y la clave que alcanza dos filas.
+- ⏳ **S07** — modo edición: celdas modificadas, filas nuevas, filas marcadas para
   borrar, tablas sin PK en solo lectura con explicación.
-- **S08 Data change review** — completa, incluida la variante de producción.
-- **S18 CSV import wizard** — completa. `COPY … FROM STDIN` de pgx hace el
+- ⏳ **S08 Data change review** — completa, incluida la variante de producción.
+- ⏳ **S18 CSV import wizard** — completa. `COPY … FROM STDIN` de pgx hace el
   trabajo; lo caro es el asistente —mapear columnas, tipos, NULL contra cadena
   vacía, encoding, y qué hacer con las filas que no entran—, que es justamente
   por qué es una pantalla y no un botón.
-- **S19 Export dialog** — completa, **una tabla y varias**. Varias no es otra
+- ⏳ **S19 Export dialog** — completa, **una tabla y varias**. Varias no es otra
   función: es la misma en un bucle más un selector. Lo que hay que decidir es el
   formato del conjunto (un directorio de CSVs, un `.sql` con INSERTs, un zip), y
   eso se decide con el diseño delante, no acá.
-- **Exportar el resultado del editor SQL** — CSV, JSON y Markdown. No estaba en
+- ⏳ **Exportar el resultado del editor SQL** — CSV, JSON y Markdown. No estaba en
   el plan y es lo más barato de todo el grupo: el resultado ya está en memoria,
   así que es formateo puro, sin consulta ni streaming. Reusa el renderizador de
   S19 y se hace primero, porque es lo que valida el formato antes de meterlo en
   el camino difícil.
-- **Ver la fila entera como JSON** — hoy S09 formatea JSON de UNA celda. La fila
+- ⏳ **Ver la fila entera como JSON** — hoy S09 formatea JSON de UNA celda. La fila
   completa es un ítem del menú contextual y se resuelve del lado del servidor
   con `row_to_json`.
-- **Filtros por columna en la grilla** — un constructor de `WHERE` sobre la
+- ⏳ **Filtros por columna en la grilla** — un constructor de `WHERE` sobre la
   tabla que se está mirando, que hoy obliga a irse al editor SQL. Va acá porque
   comparte pantalla y modelo con la edición de celdas.
-- **Volcado del esquema, de los datos, o los dos.** Ver abajo: es la mitad de
+- ⏳ **Volcado del esquema, de los datos, o los dos.** Ver abajo: es la mitad de
   lo que la gente llama «backup», y la mitad que sí podemos hacer bien.
 
 **Sobre el volumen.** Exportar no puede juntar la tabla en memoria: una tabla de
@@ -631,6 +637,123 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 7 — 2026-09-10
+
+**Los valores de una fila nunca están en la SQL que se ejecuta.** Es la regla
+de CLAUDE.md —«SQL siempre parametrizado»— aplicada al único lugar donde
+tentaba no hacerlo: la vista previa. Un `UPDATE` que muestra `$1` no se puede
+revisar, y la revisión es la garantía de fondo de todo el apply. La salida es
+que cada cambio de datos sale en **dos formas del mismo renderizado**:
+`Statement.SQL`, con los valores escritos como literales, para leer, copiar y
+guardar como `.sql`; y `Statement.Bound`, con marcadores y los valores aparte,
+que es lo único que corre. Las dos se escriben en el mismo recorrido —cada
+pedazo de texto va a las dos, cada valor va como literal a una y como marcador
+a la otra— para que no puedan diferir, y `Bound` lleva `json:"-"`: no cruza el
+puente porque el frontend no ejecuta nada y los valores ya viajan en el cambio.
+
+Se evaluó ejecutar la forma legible, como hace el DDL. Se descartó por dos
+motivos que un test no ve: con `standard_conforming_strings` apagado —raro, pero
+se puede poner por sesión— un `a\nb` escrito como literal se guarda con un salto
+de línea, y con un charset multibyte viejo una barra invertida al final de un
+valor puede comerse la comilla. Con parámetros, nada de eso existe. Y un test
+sí ve la otra mitad: `TestLoQueCorreEsLaFormaConParametrosYNoLaLegible` mira el
+CAMINO y no el resultado, porque desde afuera las dos formas dejan la misma
+fila y los tests contra los motores seguirían verdes si esto cambiara.
+
+**Comprobado contra los motores, no supuesto:** pgx v5 manda un `*string` en
+formato texto para cualquier tipo de parámetro —`numeric`, `boolean`,
+`timestamptz`, `jsonb`, `bytea` como `\x…`, `int[]` como `{1,2,3}`— y el
+servidor lo interpreta según la columna; `nil` es NULL. Por eso todos los
+valores de la grilla son texto: es lo que devuelve el servidor y lo que vuelve
+a leer, sin que Go interprete nada en el medio. MySQL y SQLite hacen lo mismo
+por afinidad.
+
+**Un cambio de datos tiene que tocar exactamente una fila, y se comprueba.**
+`engine.Conn` y `engine.Tx` ganan `Modify(ctx, sql, args) (filas, error)`
+separado de `Exec`: son dos contratos, no uno con argumentos opcionales. Con el
+conteo, el apply exige lo que `Bound.Rows` dice —1 para insertar, actualizar y
+borrar por clave— y cualquier otro número es un fallo de datos que revierte el
+tramo: **cero** es que otra sesión borró la fila o le cambió la clave desde que
+se leyó, y **dos o más** es que la clave con la que se identificó la fila no era
+clave. Sin esto, editar una celda de una fila ajena diría «aplicado» sobre
+nada, y un `UPDATE` sobre una tabla sin clave única pisaría la segunda fila en
+silencio. Los dos casos tienen test contra los cuatro motores, y en los cuatro
+la edición buena que iba en el mismo tramo también vuelve atrás.
+
+**MySQL y MariaDB cuentan filas cambiadas, no alcanzadas.** Un `UPDATE` que deja
+el mismo valor que ya estaba reporta **cero** filas afectadas —comprobado en
+MySQL 9.7 y MariaDB 12.3—, que con la regla de arriba se leería como «la fila
+ya no está». `cfg.ClientFoundRows = true` en `mysql.Open` hace que cuenten las
+alcanzadas, como Postgres y SQLite. Efecto colateral, aceptado y anotado: el
+editor de SQL informa para un `UPDATE` las filas coincidentes y no las
+cambiadas, como Postgres y no como el cliente de MySQL.
+
+**Un cambio de datos es UNA fila.** `insertRow`, `updateRow` y `deleteRow`, con
+`Values` (las columnas cargadas o cambiadas), `Key` (la clave primaria con el
+valor que tenía al leerla) y `Previous` (lo que había, solo para que la
+revisión pueda mostrar «apodo: juan → juanci»; no entra en ninguna sentencia).
+Editar tres celdas de la misma fila es un cambio con tres `Values`, no tres
+cambios: es una sentencia y se revisa como tal. Solo la clave primaria
+identifica la fila —una tabla sin clave no se edita desde la grilla, como
+dice el plan— y una clave nula va como `IS NULL`, que solo puede pasar en
+SQLite por su compatibilidad histórica con `PRIMARY KEY` no `INTEGER`.
+
+**Solo borrar una fila es destructivo.** Contra producción pide la misma
+confirmación al preparar que borrar una columna. Editarla no: el valor viejo
+está en `Previous` y se puede volver a escribir. Y para que diez filas
+borradas no sean diez confirmaciones, `Session.StageMany` prepara una tanda
+entera, todo o nada, con una sola palabra.
+
+**El renderizado del DML es uno para los cuatro motores.** `internal/dml`
+escribe las tres sentencias con un `Dialect` de cinco cosas —cómo se califica
+la tabla, cómo se cita un identificador, cómo se cita un literal, cómo se
+escribe el marcador y cómo se inserta una fila sin valores—. El DDL se escribe
+en cada motor porque cada motor tiene su gramática; un `UPDATE` por clave es
+el mismo en los cuatro, y escribirlo cuatro veces serían cuatro lugares donde
+equivocar la comprobación de filas. MySQL no acepta `DEFAULT VALUES`: la fila
+vacía es `() VALUES ()`. Y el literal legible de MySQL sigue el modo del
+servidor —`NO_BACKSLASH_ESCAPES`—, igual que el DDL; la forma que corre no
+depende de eso porque el valor va como parámetro.
+
+**Los errores del propio servicio se clasifican antes que los del motor.** El
+clasificador de cada motor solo entiende errores del driver y manda cualquier
+otro al cajón de «no se pudo conectar» —el mismo bug de la iteración 5—. Se
+comprobó inyectando: sin `clasificar`, la fila que otro borró se reportaba
+como «No se pudo conectar con kaname@127.0.0.1:55432/kaname_test».
+
+**Del `/code-review high` de esta unidad salieron cuatro cosas, las cuatro
+legítimas:**
+
+1. El hint de «la fila ya no está» decía «Nada quedó aplicado», y con varios
+   tramos —MySQL con un DDL adelante— es mentira: el DDL ya commiteó. El hint
+   ya no afirma nada sobre el resto; eso lo dice `ApplyResult` con `RolledBack`
+   y el tramo que falló.
+2. Un `INSERT` también puede alcanzar cero filas sin error —un trigger `BEFORE`
+   que devuelve NULL, una regla `DO INSTEAD NOTHING`— y el mensaje culpaba a
+   «otra sesión». `Bound.Op` distingue: el INSERT que no insertó se explica
+   como tal.
+3. **Un apply de puras filas tiraba el snapshot del esquema** y el frontend
+   volvía a inspeccionar el catálogo entero por una celda editada: justo lo que
+   CLAUDE.md prohíbe. `ApplyResult.SchemaChanged` dice si algún cambio de
+   esquema quedó aplicado; solo entonces se invalida el snapshot y el shell
+   relee el árbol. Si no, se recargan las pestañas y nada más.
+4. **En SQLite, una reconstrucción de tabla apaga las claves foráneas de la
+   transacción entera**, y los cambios de datos van en la misma. Un borrado de
+   padre que depende de `ON DELETE CASCADE` no arrastra nada, deja huérfanas,
+   y el `foreign_key_check` del cierre rechaza el apply completo — aunque el
+   mismo borrado, solo, ande. Se evaluó partir el tramo (datos con claves
+   encendidas, reconstrucción aparte) y se descartó por ahora: rompe el «todo
+   o nada» de SQLite justo en la combinación que lo tiene, y el ensayo ya no
+   podría correr la misma transacción que el apply. Como falla seguro y no
+   deja nada a medias, la respuesta es un aviso en la revisión que dice qué
+   pasa y qué hacer —aplicar primero el esquema y después los datos—, con un
+   test que reproduce el caso y comprueba que no queda nada a medias.
+
+**Pendiente, anotado:** el ensayo de S15 exige DDL transaccional y por eso no
+ensaya contra MySQL ni MariaDB. Un changeset de **puros datos** sí podría
+ensayarse ahí —es un solo tramo transaccional—; hoy se niega igual. Se afloja
+cuando la grilla lo necesite, con su test.
 
 ### Iteración 6 — 2026-09-09
 

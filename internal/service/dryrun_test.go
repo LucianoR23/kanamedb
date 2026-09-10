@@ -405,10 +405,11 @@ func TestEnsayarEnProduccionPideLaMismaConfirmacionQueAplicar(t *testing.T) {
 // —«no quedó nada»— es la única que el botón hace.
 type txQueNoRevierte struct{ err error }
 
-func (t txQueNoRevierte) Exec(context.Context, string) error { return nil }
-func (t txQueNoRevierte) Commit(context.Context) error       { return nil }
-func (t txQueNoRevierte) Verify(context.Context) error       { return nil }
-func (t txQueNoRevierte) Rollback(context.Context) error     { return t.err }
+func (t txQueNoRevierte) Exec(context.Context, string) error                   { return nil }
+func (t txQueNoRevierte) Modify(context.Context, string, []any) (int64, error) { return 0, nil }
+func (t txQueNoRevierte) Commit(context.Context) error                         { return nil }
+func (t txQueNoRevierte) Verify(context.Context) error                         { return nil }
+func (t txQueNoRevierte) Rollback(context.Context) error                       { return t.err }
 
 // TestUnEnsayoQueNoPudoRevertirNoDiceQueRevirtio.
 //

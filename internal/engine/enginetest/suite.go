@@ -55,6 +55,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("consultas", func(t *testing.T) { consultas(t, f) })
 	t.Run("pagina y cuenta", func(t *testing.T) { pagina(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
+	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
 	t.Run("ciclo aplicar y releer", func(t *testing.T) { cicloDDL(t, f) })
 	t.Run("las filas sobreviven al cambio de esquema", func(t *testing.T) { filasSobreviven(t, f) })
@@ -594,6 +595,110 @@ func aplicar(ctx context.Context, c engine.Conn, st change.Statement) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// cambiosDeDatos es lo que la grilla editable necesita de cada motor: que
+// insertar, actualizar y borrar una fila se rendericen, que la forma con
+// parámetros y la forma con literales dejen LA MISMA fila, y que el conteo de
+// filas alcanzadas sirva para exigir «exactamente una».
+func cambiosDeDatos(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_datos")
+	ctx := context.Background()
+	nom := califica(c, esq, tabla)
+	v := func(s string) *string { return &s }
+
+	// El valor lleva lo que suele romper un citado: comilla simple, barra
+	// invertida y un salto de línea. Es el mismo texto por los dos caminos.
+	raro := "O'Brien " + `C:\datos` + "\nsegunda línea"
+
+	render := func(ch change.Change) change.Statement {
+		t.Helper()
+		st, err := c.RenderDDL(ctx, ch)
+		if err != nil {
+			t.Fatalf("RenderDDL(%s): %v", ch.Type, err)
+		}
+		if st.Bound == nil {
+			t.Fatalf("RenderDDL(%s) no trajo Bound: un cambio de datos se ejecuta con parámetros", ch.Type)
+		}
+		return st
+	}
+	leer := func(id string) string {
+		t.Helper()
+		return unaCelda(t, c, fmt.Sprintf("SELECT nombre FROM %s WHERE id = %s", nom, id))
+	}
+
+	// Insertar: la forma con parámetros para la fila 1 y la forma legible
+	// —literales— para la fila 2. Tienen que quedar iguales.
+	insertar := func(id string) change.Statement {
+		return render(change.Change{Type: change.InsertRow, Schema: esq, Table: tabla,
+			Values: []change.Cell{{Column: "id", Value: v(id)}, {Column: "nombre", Value: v(raro)},
+				{Column: "padre_id", Value: nil}}})
+	}
+	if n, err := c.Modify(ctx, insertar("1").Bound.SQL, insertar("1").Bound.Args); err != nil || n != 1 {
+		t.Fatalf("insertar con parámetros: n=%d err=%v", n, err)
+	}
+	exec(t, c, insertar("2").SQL)
+	if a, b := leer("1"), leer("2"); a != raro || b != raro {
+		t.Errorf("las dos formas tienen que dejar el mismo valor:\n  parámetros: %q\n  literales:  %q\n  original:   %q", a, b, raro)
+	}
+
+	// Actualizar por clave, dentro de una transacción, que es como lo hace el
+	// apply. El conteo tiene que ser 1 aunque el valor sea el mismo que ya
+	// estaba: cuenta las filas alcanzadas, no las cambiadas.
+	upd := render(change.Change{Type: change.UpdateRow, Schema: esq, Table: tabla,
+		Values: []change.Cell{{Column: "nombre", Value: v(raro)}},
+		Key:    []change.Cell{{Column: "id", Value: v("1")}}})
+	tx, err := c.Begin(ctx, engine.TxOptions{})
+	if err != nil {
+		t.Fatalf("Begin(): %v", err)
+	}
+	n, err := tx.Modify(ctx, upd.Bound.SQL, upd.Bound.Args)
+	if err != nil {
+		t.Fatalf("UPDATE con parámetros: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("un UPDATE que deja el mismo valor alcanzó %d filas; tiene que contar 1, "+
+			"si no la grilla cree que la fila ya no está", n)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit(): %v", err)
+	}
+
+	// Una clave que no existe alcanza cero filas, sin error: es lo que el
+	// apply convierte en «la fila ya no está».
+	fantasma := render(change.Change{Type: change.UpdateRow, Schema: esq, Table: tabla,
+		Values: []change.Cell{{Column: "nombre", Value: v("x")}},
+		Key:    []change.Cell{{Column: "id", Value: v("999")}}})
+	if n, err := c.Modify(ctx, fantasma.Bound.SQL, fantasma.Bound.Args); err != nil || n != 0 {
+		t.Errorf("UPDATE de una fila inexistente: n=%d err=%v; se esperaba 0 sin error", n, err)
+	}
+
+	// Borrar: parámetros para una, literales para la otra.
+	borrar := func(id string) change.Statement {
+		return render(change.Change{Type: change.DeleteRow, Schema: esq, Table: tabla,
+			Key: []change.Cell{{Column: "id", Value: v(id)}}})
+	}
+	if n, err := c.Modify(ctx, borrar("1").Bound.SQL, borrar("1").Bound.Args); err != nil || n != 1 {
+		t.Fatalf("borrar con parámetros: n=%d err=%v", n, err)
+	}
+	exec(t, c, borrar("2").SQL)
+	if q := unaCelda(t, c, "SELECT COUNT(*) FROM "+nom); q != "0" {
+		t.Errorf("después de borrar las dos quedan %s filas", q)
+	}
+
+	// Una fila sin valores toma sus defaults. Acá todas las columnas admiten
+	// NULL salvo la clave, que en los cuatro motores necesita valor, así que
+	// se le da uno y el resto va por defecto.
+	vacia := render(change.Change{Type: change.InsertRow, Schema: esq, Table: tabla,
+		Values: []change.Cell{{Column: "id", Value: v("3")}}})
+	if n, err := c.Modify(ctx, vacia.Bound.SQL, vacia.Bound.Args); err != nil || n != 1 {
+		t.Fatalf("insertar solo la clave: n=%d err=%v", n, err)
+	}
+	if got := unaCelda(t, c, fmt.Sprintf("SELECT nombre IS NULL FROM %s WHERE id = 3", nom)); got != "true" && got != "1" && got != "t" {
+		t.Errorf("la columna sin valor tendría que quedar NULL, y dice %q", got)
+	}
 }
 
 /* ------------------------------------------------------------ ayudantes */

@@ -52,6 +52,21 @@ func (c *Conn) Exec(ctx context.Context, sql string) error {
 	return err
 }
 
+// Modify manda los valores como parámetros. SQLite les aplica la afinidad de
+// la columna igual que a un literal: un "7" en una columna INTEGER se guarda
+// como entero.
+func (c *Conn) Modify(ctx context.Context, sql string, args []any) (int64, error) {
+	return filasDe(c.db.ExecContext(ctx, sql, args...))
+}
+
+// filasDe saca el conteo del resultado de database/sql.
+func filasDe(r sql.Result, err error) (int64, error) {
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
+}
+
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
 }
@@ -189,6 +204,10 @@ type txLite struct {
 func (t *txLite) Exec(ctx context.Context, sql string) error {
 	_, err := t.tx.ExecContext(ctx, sql)
 	return err
+}
+
+func (t *txLite) Modify(ctx context.Context, sql string, args []any) (int64, error) {
+	return filasDe(t.tx.ExecContext(ctx, sql, args...))
 }
 
 // Commit cierra la transacción, comprobando antes lo que se apagó para poder

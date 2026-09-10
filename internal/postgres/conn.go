@@ -125,6 +125,20 @@ func (c *Conn) Exec(ctx context.Context, sql string) error {
 	return err
 }
 
+// Modify manda los valores como parámetros de texto.
+//
+// pgx envía un *string en formato texto sea cual sea el tipo del parámetro, y
+// el servidor lo interpreta según la columna. Comprobado con numeric, boolean,
+// timestamptz, jsonb, bytea e int[]: es la misma conversión que hace con un
+// literal, sin que el literal exista.
+func (c *Conn) Modify(ctx context.Context, sql string, args []any) (int64, error) {
+	tag, err := c.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Begin ignora las opciones: Postgres hace ALTER de verdad, así que nunca
 // reconstruye una tabla y no tiene nada que apagar antes del BEGIN.
 func (c *Conn) Begin(ctx context.Context, _ engine.TxOptions) (engine.Tx, error) {
@@ -140,6 +154,13 @@ type txPG struct{ tx pgx.Tx }
 func (t *txPG) Exec(ctx context.Context, sql string) error {
 	_, err := t.tx.Exec(ctx, sql)
 	return err
+}
+func (t *txPG) Modify(ctx context.Context, sql string, args []any) (int64, error) {
+	tag, err := t.tx.Exec(ctx, sql, args...)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 func (t *txPG) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *txPG) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }

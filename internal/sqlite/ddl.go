@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
@@ -42,6 +43,9 @@ func renderDDL(ctx context.Context, db *sql.DB, c change.Change) (change.Stateme
 		if err := validarIdent(que, nombre); err != nil {
 			return change.Statement{}, err
 		}
+	}
+	if c.Kind() == change.KindData {
+		return dml.Render(c, dialectoDML)
 	}
 	tabla := QuoteIdent(c.Table)
 	st := change.Statement{ChangeID: c.ID, Destructive: c.Destructive()}
@@ -265,6 +269,11 @@ func identificadoresDe(c change.Change) map[string]string {
 	for _, n := range c.RefNames {
 		poner("el nombre de la columna referenciada "+n, n)
 	}
+	for _, lista := range [][]change.Cell{c.Values, c.Key} {
+		for _, celda := range lista {
+			poner("el nombre de la columna "+celda.Column, celda.Column)
+		}
+	}
 	return out
 }
 
@@ -277,4 +286,13 @@ func validarIdent(que, v string) error {
 		return fmt.Errorf("%s tiene caracteres de control", que)
 	}
 	return nil
+}
+
+// dialectoDML es lo que dml necesita saber de SQLite.
+var dialectoDML = dml.Dialect{
+	Table:        QualifiedName,
+	QuoteIdent:   QuoteIdent,
+	QuoteLiteral: QuoteString,
+	Placeholder:  func(int) string { return "?" },
+	EmptyInsert:  "DEFAULT VALUES",
 }

@@ -47,6 +47,15 @@ func Open(
 	// Sin esto el driver deja la conexión colgada si el servidor se muere en
 	// medio de una consulta larga, que es justo lo que pasa aplicando un ALTER.
 	cfg.CheckConnLiveness = true
+	// Que «filas afectadas» cuente las filas que la sentencia ALCANZÓ y no las
+	// que cambiaron de valor. Sin esto, un UPDATE que deja el mismo valor
+	// cuenta cero —comprobado en MySQL 9.7 y MariaDB 12.3—, y la grilla, que
+	// exige exactamente una fila por clave, leería «la fila ya no está» sobre
+	// una fila que está. Es lo que hacen Postgres y SQLite sin que se les pida.
+	//
+	// El editor de SQL lo hereda: para un UPDATE informa las coincidentes,
+	// como Postgres, y no las cambiadas como el cliente de MySQL.
+	cfg.ClientFoundRows = true
 
 	var red string
 	if opts.DialFunc != nil {

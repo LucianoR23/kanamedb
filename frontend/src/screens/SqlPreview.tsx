@@ -54,10 +54,12 @@ export function SqlPreview({
   vista: ChangesetView;
   singleTransaction: boolean;
   onClose: () => void;
-  onApplied: () => void;
+  /** Terminó con todo aplicado. `schemaChanged` dice si hay que releer el
+   *  árbol: un apply de puras filas recarga la grilla y nada más. */
+  onApplied: (schemaChanged: boolean) => void;
   /** Falló, pero alguna sentencia quedó aplicada. Sin transacción es lo normal
    *  y hay que releer igual: el esquema cambió aunque el apply no terminara. */
-  onFalloParcial: () => void;
+  onFalloParcial: (schemaChanged: boolean) => void;
 }) {
   const [confirmacion, setConfirmacion] = useState("");
   const [corriendo, setCorriendo] = useState(false);
@@ -137,9 +139,9 @@ export function SqlPreview({
       });
       setResultado(res);
       if (res.ok) {
-        onApplied();
+        onApplied(res.schemaChanged);
       } else if (!res.rolledBack && (res.results ?? []).some((r) => r.applied)) {
-        onFalloParcial();
+        onFalloParcial(res.schemaChanged);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

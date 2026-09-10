@@ -112,6 +112,10 @@ type Conn interface {
 	// Es lo único que sabe citar identificadores, y por eso la SQL nunca se
 	// arma en el frontend. Ver CLAUDE.md.
 	//
+	// Se llama DDL por lo que era, pero también escribe los cambios de DATOS
+	// —insertar, actualizar y borrar una fila—, que salen con Statement.Bound
+	// puesto: la forma con parámetros, que es la que se ejecuta. Ver dml.
+	//
 	// Recibe un contexto porque en SQLite no es una función pura: casi
 	// cualquier cambio de columna se hace reconstruyendo la tabla, y para
 	// escribir la definición nueva hay que leer la que hay. Los otros tres
@@ -121,8 +125,12 @@ type Conn interface {
 	// ejecutando. Cada motor tiene su vocabulario de códigos.
 	ClassifyStatement(err error, desc string) *Failure
 
-	// Exec corre una sentencia sin transacción.
+	// Exec corre una sentencia de ESQUEMA sin transacción, tal cual está
+	// escrita.
 	Exec(ctx context.Context, sql string) error
+	// Modify corre una sentencia de DATOS sin transacción, con sus valores
+	// como parámetros, y devuelve cuántas filas tocó. Ver Tx.Modify.
+	Modify(ctx context.Context, sql string, args []any) (int64, error)
 	// Begin abre una transacción. Los motores sin DDL transaccional la
 	// soportan igual: lo que no soportan es meter DDL adentro, y de eso se
 	// encarga TramosDe.
@@ -162,7 +170,23 @@ type TxOptions struct {
 
 // Tx es una transacción abierta.
 type Tx interface {
+	// Exec corre una sentencia de esquema tal cual está escrita.
 	Exec(ctx context.Context, sql string) error
+
+	// Modify corre una sentencia de datos con sus valores como parámetros y
+	// devuelve cuántas filas tocó.
+	//
+	// Son dos métodos y no uno con argumentos opcionales porque son dos
+	// contratos: el DDL no tiene valores que parametrizar ni filas que contar,
+	// y el DML no puede correr sin las dos cosas. El conteo es lo que permite
+	// exigir que un UPDATE por clave toque exactamente una fila.
+	//
+	// Cuenta las filas que la sentencia ALCANZÓ, no las que cambiaron de
+	// valor. En Postgres y SQLite es lo único que hay; en MySQL y MariaDB hay
+	// que pedirlo —clientFoundRows— y sin eso un UPDATE que deja el mismo
+	// valor cuenta cero, que acá se leería como «la fila ya no está».
+	Modify(ctx context.Context, sql string, args []any) (int64, error)
+
 	Commit(ctx context.Context) error
 	// Rollback después de un Commit exitoso no es un error: es un no-op, para
 	// que quien la abrió pueda hacer `defer tx.Rollback()` sin pensar.

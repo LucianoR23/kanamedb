@@ -70,6 +70,22 @@ func (c *Conn) Exec(ctx context.Context, sql string) error {
 	return err
 }
 
+// Modify manda los valores como parámetros de una sentencia preparada del
+// lado del servidor —go-sql-driver no interpola salvo que se le pida— y
+// devuelve las filas ALCANZADAS, que es lo que clientFoundRows cambia. Ver
+// engine.Tx.Modify y Open.
+func (c *Conn) Modify(ctx context.Context, sql string, args []any) (int64, error) {
+	return filasDe(c.db.ExecContext(ctx, sql, args...))
+}
+
+// filasDe saca el conteo del resultado de database/sql.
+func filasDe(r sql.Result, err error) (int64, error) {
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
+}
+
 // Begin ignora las opciones: MySQL y MariaDB hacen ALTER de verdad y no
 // reconstruyen la tabla, así que no tienen nada que apagar antes del BEGIN.
 func (c *Conn) Begin(ctx context.Context, _ engine.TxOptions) (engine.Tx, error) {
@@ -88,6 +104,10 @@ type txMy struct {
 func (t *txMy) Exec(ctx context.Context, sql string) error {
 	_, err := t.tx.ExecContext(ctx, sql)
 	return err
+}
+
+func (t *txMy) Modify(ctx context.Context, sql string, args []any) (int64, error) {
+	return filasDe(t.tx.ExecContext(ctx, sql, args...))
 }
 
 func (t *txMy) Commit(ctx context.Context) error {
