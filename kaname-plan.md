@@ -931,11 +931,24 @@ error de MariaDB se reconoce por su NÚMERO (1109) y no por su texto, porque los
 servidores traducen sus mensajes según `lc_messages` y contra uno en otro idioma
 el camino honesto de «no se puede saber» se degradaba en un error rojo.
 
-**Probado en la pantalla los tres estados**, que es donde se ve si de verdad son
-distinguibles: la vista con dos dependientes los nombra uno por uno con su
-glifo; la vista sola dice «Nada. Reemplazarlo no rompe ningún otro objeto»; y la
-misma vista en MariaDB dice «No se puede saber» con el porqué. Un test no puede
-comprobar que tres cosas se ven distintas.
+**Probadas en la pantalla las CUATRO combinaciones**, que es donde se ve si de
+verdad son distinguibles —un test no puede comprobar que dos cosas se ven
+distintas—:
+
+| En pantalla | Dónde |
+|---|---|
+| Los nombra uno por uno, con su glifo | Postgres, vista de la que cuelgan otras |
+| «Nada. Reemplazarlo no rompe ningún otro objeto», en verde | Postgres, vista sola |
+| «No se puede saber» con el porqué, recuadro punteado | MariaDB, cualquier vista |
+| La lista **y** «Y puede haber más» debajo | MySQL 9.7 con el usuario de los contenedores |
+
+La cuarta pareció al principio que pedía un usuario restringido armado a mano, y
+no: el usuario `kaname` del compose tiene `USAGE ON *.*` y todo solo sobre su
+propia base, que es exactamente la condición. **Cualquier conexión MySQL que no
+sea de un administrador cae ahí**, así que no es un caso raro —es el normal—, y
+eso vuelve al aviso más importante de lo que parecía al escribirlo. Los dos
+bloques salen con fondo distinto: ámbar sólido el de la lista, punteado el de la
+advertencia.
 
 **Los objetos viajan con el snapshot, y por qué.** El árbol podría cargarlos al
 abrir cada grupo, y sería más barato. No se hace porque el buscador de arriba
