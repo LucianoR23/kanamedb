@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
@@ -78,7 +79,7 @@ func (s *Session) ReviewRow(ctx context.Context, changeID string) (RowReview, er
 			otros = append(otros, cand)
 		}
 	}
-	r := revisor{ctx: ctx, s: sesion, c: *c, d: d, antes: otros}
+	r := revisor{ctx: ctx, s: sesion, c: *c, d: d, antes: otros, porDefecto: esquemaPorDefecto(sesion)}
 	return RowReview{Columns: d.Columns, Checks: r.todas()}, nil
 }
 
@@ -89,14 +90,16 @@ type revisor struct {
 	d   *schema.TableDetail
 	// antes son los cambios de datos que corren ANTES que este en el apply.
 	antes []change.Change
-	out   []RowCheck
+	// porDefecto es cómo se llama el esquema que un cambio deja vacío.
+	porDefecto string
+	out        []RowCheck
 }
 
 // pendienteInserta dice si algún cambio anterior de la tanda inserta en la
 // tabla una fila con esos valores, o le pone esos valores a una fila.
 func (r *revisor) pendienteInserta(esquema, tabla string, where []change.Cell) bool {
 	for _, o := range r.antes {
-		if !mismoEsquema(o.Schema, esquema) || o.Table != tabla || (o.Type != change.InsertRow && o.Type != change.UpdateRow) {
+		if !r.mismoEsquema(o.Schema, esquema) || o.Table != tabla || (o.Type != change.InsertRow && o.Type != change.UpdateRow) {
 			continue
 		}
 		if coincide(where, o.Values) {
@@ -112,7 +115,7 @@ func (r *revisor) pendienteInserta(esquema, tabla string, where []change.Cell) b
 func (r *revisor) pendientesBorradas(esquema, tabla string, where []change.Cell) int64 {
 	var n int64
 	for _, o := range r.antes {
-		if !mismoEsquema(o.Schema, esquema) || o.Table != tabla || o.Type != change.DeleteRow {
+		if !r.mismoEsquema(o.Schema, esquema) || o.Table != tabla || o.Type != change.DeleteRow {
 			continue
 		}
 		if coincide(where, o.Previous) {
@@ -394,9 +397,45 @@ func accionOTexto(a schema.ReferenceAction) string {
 	return string(a)
 }
 
-// mismoEsquema compara esquemas tomando el vacío como «el de la conexión»:
-// un cambio de SQLite lleva "" y el catálogo dice "main"; en MySQL el cambio
-// lleva "" y la clave foránea el nombre de la base. Son el mismo lugar.
-func mismoEsquema(a, b string) bool {
-	return a == b || a == "" || b == ""
+// mismoEsquema compara esquemas resolviendo el vacío al de la conexión.
+//
+// Un cambio de la grilla puede llegar con el esquema vacío —quiere decir «el de
+// la conexión»— mientras que el catálogo siempre lo nombra: SQLite dice "main"
+// y MySQL el nombre de la base. Son el mismo lugar y tienen que coincidir.
+//
+// Lo que NO se puede hacer es tomar el vacío como comodín, que es como estaba:
+// MySQL admite claves foráneas ENTRE BASES, así que un cambio pendiente sobre
+// `clientes` de la base abierta habría contado como el padre de una clave que
+// apunta a `otra.clientes`. La comprobación habría dicho «lo pone esta misma
+// tanda» —un ok verde— sobre un padre que no va a existir, y el apply habría
+// fallado por esa misma clave. Un «bad» de más molesta; un «ok» de más miente
+// justo en la pantalla que existe para no mentir.
+func (r *revisor) mismoEsquema(a, b string) bool {
+	return r.resolver(a) == r.resolver(b)
+}
+
+func (r *revisor) resolver(esquema string) string {
+	if esquema != "" {
+		return esquema
+	}
+	return r.porDefecto
+}
+
+// esquemaPorDefecto es el nombre con el que el CATÁLOGO llama al esquema que un
+// cambio de la grilla deja vacío.
+//
+// No es lo mismo que la base actual en todos lados: en SQLite el catálogo dice
+// "main" mientras que CurrentDB es el nombre del archivo. En Postgres los
+// cambios traen el esquema real —"public" y no vacío—, así que el vacío se
+// queda vacío y solo coincide con otro vacío.
+func esquemaPorDefecto(s *openSession) string {
+	switch s.db.Kind() {
+	case engine.MySQL, engine.MariaDB:
+		if s.server != nil {
+			return s.server.CurrentDB
+		}
+	case engine.SQLite:
+		return "main"
+	}
+	return ""
 }

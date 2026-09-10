@@ -85,6 +85,21 @@ type Options struct {
 
 	// Gzip comprime la salida al escribir.
 	Gzip bool `json:"gzip"`
+
+	// NeutralizeFormulas antepone un apóstrofo a los campos que Excel y
+	// LibreOffice ejecutarían como fórmula al abrir el archivo: los que
+	// empiezan con `=`, `+`, `-`, `@`, tabulación o retorno de carro.
+	//
+	// El valor de una celda es dato NO CONFIABLE —lo dice CLAUDE.md— y este es
+	// el único camino que se lo entrega a una planilla, donde `=cmd|…` no es
+	// texto sino una orden. Citar no alcanza: la planilla mira el contenido del
+	// campo, no las comillas.
+	//
+	// Va apagado por defecto porque CAMBIA EL VALOR: un `-5` exportado así se
+	// lee después como `'-5`, y un archivo que se va a volver a importar tiene
+	// que decir lo que decía. Se enciende cuando el destino es una planilla,
+	// que es cuando el riesgo existe.
+	NeutralizeFormulas bool `json:"neutralizeFormulas"`
 }
 
 // Writer escribe filas a medida que llegan.

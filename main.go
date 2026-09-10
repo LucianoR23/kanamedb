@@ -37,6 +37,9 @@ func main() {
 	known := tunnel.NewKnownHosts(info.Paths.KnownHosts)
 	diagramas := layout.New(info.Paths.Layouts)
 	sesion := service.NewSession(connections, keyring, known, diagramas)
+	// Las exportaciones se registran en el mismo lugar que las consultas, para
+	// que «Cancelar» corte cualquiera de las dos con el mismo identificador.
+	consultas := service.NewQueries(sesion)
 
 	app := application.New(application.Options{
 		Name:        "Kaname",
@@ -46,9 +49,9 @@ func main() {
 			application.NewService(appinfo.New()),
 			application.NewService(service.NewConnections(connections, keyring, known)),
 			application.NewService(sesion),
-			application.NewService(service.NewQueries(sesion)),
+			application.NewService(consultas),
 			application.NewService(service.NewHosts(known)),
-			application.NewService(service.NewExports()),
+			application.NewService(service.NewExports(consultas)),
 		},
 
 		Assets: application.AssetOptions{

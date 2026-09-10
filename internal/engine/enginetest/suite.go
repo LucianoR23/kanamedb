@@ -54,6 +54,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("tipos de columna", func(t *testing.T) { tipos(t, f) })
 	t.Run("consultas", func(t *testing.T) { consultas(t, f) })
 	t.Run("pagina y cuenta", func(t *testing.T) { pagina(t, f) })
+	t.Run("recorre la tabla entera", func(t *testing.T) { recorrido(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
@@ -282,6 +283,136 @@ func pagina(t *testing.T, f Fixture) {
 	if len(pks) != 1 || pks[0] != "id" {
 		t.Errorf("PrimaryKeyColumns() = %v, se esperaba [id]", pks)
 	}
+}
+
+// recorrido comprueba Scan, que es lo que usa la exportación: la tabla entera,
+// sin límite, leída a medida que llega.
+//
+// Lo que se mira no es solo «vinieron las filas» sino las tres cosas que un
+// archivo exportado necesita y que un Page no garantiza: que estén TODAS —un
+// límite por defecto que se colara dejaría un archivo corto que se ve igual que
+// uno entero—, que el texto sea EL MISMO que muestra la grilla —si no, la
+// misma fila sale distinta en la pantalla y en el archivo—, y que NULL siga
+// siendo distinto de la cadena vacía.
+func recorrido(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_recorrido")
+	ctx := context.Background()
+
+	// Más filas que cualquier límite por defecto que pudiera colarse.
+	const filas = 1200
+	for i := 1; i <= filas; i++ {
+		exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (%d, 'f%d')",
+			califica(c, esq, tabla), i, i))
+	}
+	// Una fila con NULL y otra con la cadena vacía, que son distintas.
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (%d, NULL)",
+		califica(c, esq, tabla), filas+1))
+	exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (%d, '')",
+		califica(c, esq, tabla), filas+2))
+
+	st, err := c.Scan(ctx, esq, tabla, engine.ScanOptions{OrderBy: []string{"id"}})
+	if err != nil {
+		t.Fatalf("Scan(): %v", err)
+	}
+	defer st.Close()
+
+	if len(st.Columns()) != 3 {
+		t.Fatalf("Scan() dio %d columnas y la tabla tiene 3", len(st.Columns()))
+	}
+	// Las columnas están ANTES de la primera fila: el escritor necesita el
+	// encabezado para empezar, y pedirlo después obligaría a juntar todo.
+	if st.Columns()[0].Name != "id" {
+		t.Errorf("la primera columna es %q y se esperaba \"id\"", st.Columns()[0].Name)
+	}
+
+	var n int
+	var nulo, vacia *string
+	for st.Next() {
+		fila := st.Row()
+		if len(fila) != 3 {
+			t.Fatalf("la fila %d trae %d valores y la tabla tiene 3 columnas", n, len(fila))
+		}
+		n++
+		switch n {
+		case filas + 1:
+			nulo = fila[1]
+		case filas + 2:
+			vacia = fila[1]
+		case 1:
+			if fila[1] == nil || *fila[1] != "f1" {
+				t.Errorf("la primera fila es %s y se esperaba \"f1\"", comoTexto(fila[1]))
+			}
+		}
+	}
+	if err := st.Err(); err != nil {
+		t.Fatalf("Err() después del recorrido: %v", err)
+	}
+	if n != filas+2 {
+		t.Errorf("Scan() dio %d filas y la tabla tiene %d: falta el resto, o hay un límite por defecto colado",
+			n, filas+2)
+	}
+	if nulo != nil {
+		t.Errorf("la fila con NULL vino como %q y NULL tiene que ser nil", *nulo)
+	}
+	if vacia == nil || *vacia != "" {
+		t.Errorf("la fila con la cadena vacía vino como %s y tiene que ser una cadena vacía", comoTexto(vacia))
+	}
+
+	// El texto es el mismo que ve la grilla. Si Scan decodificara los valores
+	// —por ejemplo pidiéndolos en binario y volviendo a darles formato en Go—,
+	// la misma fila saldría distinta en la pantalla y en el archivo.
+	pag, fail := c.Page(ctx, esq, tabla, engine.PageOptions{OrderBy: []string{"id"}, Limit: 1})
+	if fail != nil {
+		t.Fatalf("Page(): %s", fail.Message)
+	}
+	st2, err := c.Scan(ctx, esq, tabla, engine.ScanOptions{OrderBy: []string{"id"}})
+	if err != nil {
+		t.Fatalf("Scan() de nuevo: %v", err)
+	}
+	defer st2.Close()
+	if !st2.Next() {
+		t.Fatalf("el segundo Scan() no dio ninguna fila: %v", st2.Err())
+	}
+	for i, col := range st2.Columns() {
+		if col.Name != pag.Columns[i].Name || col.Class != pag.Columns[i].Class {
+			t.Errorf("la columna %d es %+v en Scan y %+v en Page", i, col, pag.Columns[i])
+		}
+		// Se comparan los *string y no celda(), que colapsa NULL a la cadena
+		// vacía: acá justamente hay que ver que las dos lecturas coincidan
+		// también en cuál de las dos es.
+		a, b := st2.Row()[i], pag.Rows[0][i]
+		if (a == nil) != (b == nil) || (a != nil && *a != *b) {
+			t.Errorf("la columna %q vale %s en Scan y %s en Page: el texto tiene que ser el mismo",
+				col.Name, comoTexto(a), comoTexto(b))
+		}
+	}
+
+	// Cerrar sin haber terminado de leer no puede romper nada: es lo que pasa
+	// cuando se cancela una exportación.
+	st3, err := c.Scan(ctx, esq, tabla, engine.ScanOptions{})
+	if err != nil {
+		t.Fatalf("Scan() para cortar: %v", err)
+	}
+	st3.Next()
+	st3.Close()
+	st3.Close() // idempotente
+
+	// Y la conexión sigue sirviendo después de cortar a la mitad: si el
+	// recorrido dejara la conexión con filas pendientes, la lectura siguiente
+	// leería las de la anterior.
+	if _, fail := c.Count(ctx, esq, tabla); fail != nil {
+		t.Errorf("después de cortar un recorrido, Count() falla: %s", fail.Message)
+	}
+}
+
+// comoTexto muestra un valor de celda distinguiendo NULL de la cadena vacía.
+func comoTexto(v *string) string {
+	if v == nil {
+		return "NULL"
+	}
+	return fmt.Sprintf("%q", *v)
 }
 
 // transacciones comprueba lo que la grilla editable de la Iteración 7 necesita:

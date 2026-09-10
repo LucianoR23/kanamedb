@@ -289,3 +289,71 @@ func TestExtension(t *testing.T) {
 		}
 	}
 }
+
+func TestNeutralizarFormulasDePlanilla(t *testing.T) {
+	cols := []query.Column{{Name: "v", Class: query.ClassText}}
+	rows := [][]*string{
+		{p("=1+1")},
+		{p("=cmd|' /c calc'!A1")},
+		{p("+34 600 00 00 00")},
+		{p("-5")},
+		{p("@SUM(A1)")},
+		{p("\t=1+1")},
+		{p("texto normal")},
+		{p("a=b")},
+		{p("")},
+		{nil},
+	}
+	got, err := Render(CSV, Options{NoHeader: true, NeutralizeFormulas: true}, cols, rows, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\"'=1+1\"\n" +
+		"\"'=cmd|' /c calc'!A1\"\n" +
+		"\"'+34 600 00 00 00\"\n" +
+		"\"'-5\"\n" +
+		"\"'@SUM(A1)\"\n" +
+		"\"'\t=1+1\"\n" +
+		"texto normal\n" +
+		"a=b\n" +
+		"\"\"\n" +
+		`\N` + "\n"
+	if got != want {
+		t.Fatalf("CSV:\n%q\nquería:\n%q", got, want)
+	}
+	// Lo que sale sigue siendo CSV válido y el apóstrofo es parte del VALOR:
+	// es lo que hace que la planilla lo lea como texto.
+	regs, err := csv.NewReader(strings.NewReader(got)).ReadAll()
+	if err != nil {
+		t.Fatalf("no se vuelve a leer: %v", err)
+	}
+	if regs[0][0] != "'=1+1" || regs[6][0] != "texto normal" {
+		t.Fatalf("leído: %q", regs)
+	}
+
+	// Apagado —que es el default— no toca nada: un archivo que se va a volver
+	// a importar tiene que decir lo que decía.
+	sinTocar, err := Render(CSV, Options{NoHeader: true}, cols, rows[:1], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sinTocar != "=1+1\n" {
+		t.Fatalf("con la opción apagada cambió el valor: %q", sinTocar)
+	}
+}
+
+func TestSoloElCSVNeutralizaFormulas(t *testing.T) {
+	// JSON y Markdown no los ejecuta ninguna planilla: agregarles un apóstrofo
+	// sería corromper el valor sin ganar nada.
+	cols := []query.Column{{Name: "v", Class: query.ClassText}}
+	rows := [][]*string{{p("=1+1")}}
+	for _, f := range []Format{JSON, JSONL, Markdown} {
+		got, err := Render(f, Options{NeutralizeFormulas: true}, cols, rows, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, "=1+1") || strings.Contains(got, "'=1+1") {
+			t.Errorf("%s cambió el valor: %q", f, got)
+		}
+	}
+}

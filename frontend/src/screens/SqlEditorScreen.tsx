@@ -369,11 +369,14 @@ export function SqlEditorScreen({
       {exportando && result?.returnsRows ? (
         <ExportDialog
           open
-          columns={columnas}
-          rows={result.rows ?? []}
+          origen={{
+            tipo: "resultado",
+            columns: columnas,
+            rows: result.rows ?? [],
+            truncated: result.truncated,
+          }}
           nombre="consulta"
-          alcance="Este resultado"
-          truncated={result.truncated}
+          runID={runID}
           onClose={() => setExportando(false)}
         />
       ) : null}

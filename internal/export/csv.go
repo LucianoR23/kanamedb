@@ -73,15 +73,45 @@ func (e *escritorCSV) campo(b []byte, v *string) []byte {
 		return append(b, e.o.nulo()...)
 	}
 	s := *v
+	if e.o.NeutralizeFormulas && esFormula(s) {
+		// El apóstrofo va ADENTRO de las comillas: es parte del valor para la
+		// planilla, que lo interpreta como «esto es texto».
+		b = append(b, '"', '\'')
+		b = citado(b, s)
+		return append(b, '"')
+	}
 	if !e.o.QuoteAll && s != "" && s != e.o.nulo() && !strings.ContainsAny(s, e.o.Delimiter+"\"\r\n") {
 		return append(b, s...)
 	}
 	b = append(b, '"')
+	b = citado(b, s)
+	return append(b, '"')
+}
+
+// citado agrega el texto con las comillas dobladas, sin las comillas de afuera.
+func citado(b []byte, s string) []byte {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '"' {
 			b = append(b, '"')
 		}
 		b = append(b, s[i])
 	}
-	return append(b, '"')
+	return b
+}
+
+// esFormula dice si una planilla trataría el campo como fórmula y no como
+// texto. Son los cuatro caracteres que arrancan una expresión, y la tabulación
+// y el retorno, que la planilla saltea antes de mirar el siguiente.
+func esFormula(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\t', '\r':
+			continue
+		case '=', '+', '-', '@':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }

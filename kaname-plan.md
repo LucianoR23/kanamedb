@@ -322,13 +322,19 @@ lo que entra y sale de la grilla.
   escritores de `internal/export` ya van de a una fila, que es lo que S19
   necesita. Probado por CDP en los cuatro motores el 2026-09-10; **el selector
   nativo de «guardar como» queda para probar a mano**, como el de SQLite.
-- ⏳ **S19 Export dialog** — **una tabla y varias**, sobre el diálogo que ya
-  existe: agrega los alcances (filas seleccionadas, filtro, tabla entera,
-  todas las tablas de un esquema) y los formatos «SQL inserts» y «Schema
-  only», que necesitan una tabla y no un resultado. Varias no es otra
+- ✅ **S19 Export dialog — una tabla, en streaming.** «Exportar…» en la barra
+  de la tabla abre el mismo diálogo con el alcance «la tabla entera»: la leen
+  el motor y Go a medida que escriben el archivo, así que el tamaño de la
+  tabla no entra en la cuenta. `engine.Conn.Scan` es la costura, con su caso
+  en la batería que todo motor pasa. Probado a mano en los cuatro motores el
+  2026-09-10.
+- ⏳ **S19 — varias tablas y el formato «SQL inserts».** Varias no es otra
   función: es la misma en un bucle más un selector. Lo que hay que decidir es
   el formato del conjunto (un directorio de CSVs, un `.sql` con INSERTs, un
-  zip), y eso se decide con el diseño delante, no acá.
+  zip). «SQL inserts» necesita el citado por motor, que ya existe en
+  `dml.Dialect`. El alcance «filtro actual» entra cuando existan los filtros
+  por columna, que son otra unidad de esta misma iteración; «Schema only» del
+  diseño va con el volcado, que es donde vive la cobertura declarada.
 - ⏳ **El visor: la fila entera como JSON, el modo Items y los botones del
   pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
   menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
@@ -994,6 +1000,133 @@ límite que no aplicaba (arriba); y
 un editor de celda que se cerraba y se volvía a abrir en el mismo tick
 reutilizaba la instancia ya cerrada y lo que se escribía después no se
 confirmaba —el editor ahora lleva una `key` que cambia con cada apertura—.
+
+**Recorrer no es paginar: `Conn.Scan` es su propia costura.** La grilla usa
+`Page`, que trae una página con `LIMIT/OFFSET`. Exportar no puede usar eso: sin
+un orden total el paginado repite y saltea filas, y con él obliga al servidor a
+releer y descartar todo lo anterior en cada página. Una sola consulta leída a
+medida que llega no tiene ninguno de los dos problemas, así que `Scan` no tiene
+`Limit` ni `Offset` —no es un descuido, es lo que lo distingue— y devuelve un
+`RowStream` con el uso de `database/sql`: `Next` hasta que da false, después
+`Err`, y `Close` siempre.
+
+Dos detalles que se decidieron mirando el código y no suponiendo:
+
+- **El cierre va adentro de `Next`, no solo en `Close`.** `NextRow` devuelve
+  false tanto al terminar como al fallar, y cuál de las dos fue lo dice el
+  cierre. Sin cerrar ahí, un `for Next() {}` seguido de `Err()` vería `nil`
+  aunque el servidor hubiera cortado a la mitad — y un archivo cortado se ve
+  igual que uno entero. Lo mismo con `sql.Rows.Scan`, que devuelve su error de
+  vuelta y **no** lo deja en `rows.Err()`: hay que guardarlo.
+- **`Row` devuelve una rebanada nueva por fila.** Se consideró reusarla, como
+  hace `sql.RawBytes`, pero ahorra una asignación de las N+1 que cada fila paga
+  igual —los valores hay que copiarlos— y a cambio deja una trampa para quien
+  guarde una fila. No vale.
+
+**En Postgres, `Scan` va por el protocolo SIMPLE, igual que `Run`.** Es el
+hallazgo más caro de la unidad y casi se escapa: la primera versión usaba
+`pool.Query`, que va por el protocolo extendido, donde pgx pide muchos tipos en
+formato BINARIO y los decodifica a tipos de Go. Un `timestamptz` habría vuelto
+como `time.Time` y habría que volver a darle formato acá — exactamente lo que
+el resto del proyecto evita, y la misma fila habría salido distinta en la
+grilla y en el archivo. Con el protocolo simple el servidor manda texto y se
+copia tal cual. El caso de la batería lo comprueba comparando `Scan` con
+`Page` columna por columna, y la inyección —formatear un valor en Go— lo pone
+en rojo.
+
+**No se usa `COPY … TO STDOUT`, aunque el plan lo proponía.** COPY entrega
+bytes ya formateados en CSV o en texto: serviría para uno de los cuatro
+formatos y obligaría a traducir cada opción del diálogo —delimitador, marca de
+NULL, citado— a las de COPY, con dos formatos saliendo por caminos distintos y
+la diferencia escondida. La ventaja que el plan le atribuía era contra
+paginar con `LIMIT/OFFSET`, y eso ya no es lo que hacemos. Si algún día se
+mide que el CSV lo justifica, el atajo entra adentro de `postgres.Scan` sin
+que nadie más se entere.
+
+**El diálogo no promete un número de filas que la exportación no controla.**
+Salió de la prueba a mano: la pantalla de la tabla lee el conteo exacto al
+abrirla y no lo vuelve a pedir sola, así que decía «0 filas» de una tabla que
+para entonces ya tenía 1500 —la habíamos cargado desde otra pestaña—. Con ese
+número, el botón habría dicho «Exportar 0 filas» y habría escrito 1500. Ahora,
+con una tabla, el diálogo dice «la tabla entera» y el número exacto lo informa
+Go al terminar, contando lo que realmente escribió. Con un resultado del editor
+sí se sabe de antemano —son las filas que están en la grilla— y se muestra.
+
+**«Copiar al portapapeles» no está cuando el origen es una tabla.** Una tabla
+entera puede ser de gigabytes; ofrecerlo sería prometer algo que no se puede
+cumplir.
+
+**Una exportación se registra donde se registran las consultas.** Es una
+consulta corriendo, así que `Exports` recibe el `Queries` y usa su mismo mapa
+de cancelaciones: «Cancelar» corta una exportación con el mismo `runID` con el
+que corta cualquier otra cosa. La pestaña de datos usa dos identificadores
+—`:data` y `:export`— para que cancelar la exportación no corte la lectura de
+la grilla.
+
+**Un recorrido que falla a la mitad no se puede probar contra un motor real
+cuando uno quiere.** Es el caso que decide si un archivo cortado se distingue
+de uno entero, así que el bucle que pasa las filas al escritor está separado
+(`volcarFlujo`) y se prueba con un `RowStream` falso que entrega dos filas y
+después falla: lo escrito queda con el array de JSON **abierto**, no cerrado
+como si estuviera entero. La primera inyección que escribí no ponía nada en
+rojo —el test cancelaba antes de que el recorrido arrancara— y eso era
+justamente un test que no podía fallar.
+
+**Del `/code-review high` de la tabla en streaming, siete hallazgos, los siete
+arreglados. Cuatro son de unidades anteriores.** Tres merecen quedar escritos
+porque no son descuidos sino razonamientos que estaban mal:
+
+1. **La vista previa y el guardado compartían el `runID`.** El registro de
+   cancelaciones es un mapa por identificador: tocar una casilla durante un
+   guardado largo registraba la vista previa encima y, al terminar ella,
+   borraba la entrada — dejando la exportación corriendo sin nadie que pudiera
+   cortarla. Y «Cancelar» ni siquiera cancelaba: cerraba el diálogo mientras el
+   archivo se seguía escribiendo. Ahora la vista usa `<runID>:vista`, el botón
+   corta de verdad mientras se guarda, y lo que quede a medio escribir se
+   descarta solo porque el archivo definitivo aparece recién al renombrar.
+   Además, mientras se escribe no se puede cambiar formato ni opciones: el
+   pedido ya salió con los de antes.
+2. **`postgres.Scan` pedía una SEGUNDA conexión al pool.** Se queda con una
+   durante todo el volcado y encima llamaba a `resolverTiposDesconocidos` con
+   el pool. Con el pool de dos de una conexión de solo lectura, dos
+   exportaciones a la vez se esperaban una a la otra. El primer arreglo fue
+   peor: resolver los tipos sobre la conexión ya tomada corrompe el protocolo,
+   porque en ese momento está en medio de un result set. Lo correcto es
+   resolverlos ANTES de abrir el recorrido, con la misma consulta y `limit 0`,
+   sobre la misma conexión. Hay test con un pool de UNA conexión y un enum: la
+   versión vieja se cuelga hasta que el contexto la corta.
+3. **El vacío no puede ser un comodín de esquema.** `mismoEsquema` decía
+   `a == "" || b == ""`, que resolvía bien el caso para el que se escribió
+   —SQLite manda "" y el catálogo dice "main"— y de paso hacía coincidir
+   cualquier cosa. MySQL admite claves foráneas ENTRE BASES: un alta pendiente
+   sobre `clientes` de la base abierta contaba como el padre de una clave que
+   apunta a `otra.clientes`, y la revisión mostraba un tilde verde sobre un
+   padre que no iba a existir. Ahora el vacío se RESUELVE al nombre real —la
+   base actual en MySQL, `main` en SQLite— y se compara exacto. Un «bad» de más
+   molesta; un «ok» de más miente justo en la pantalla que existe para no
+   mentir.
+
+Los otros cuatro, más cortos:
+
+4. **«Cargar 500 más» corría la selección de una fila nueva a una fila real.**
+   La selección es un índice absoluto y las filas nuevas viven después de las
+   cargadas: al agregar una página, ese índice pasaba a apuntar a una fila de
+   la base, y «Borrar fila» preparaba un DELETE contra una fila que nadie
+   eligió. Se corren la selección y la celda en edición al agregar.
+5. **La revisión cacheaba los chequeos y no los tiraba nunca.** Cada uno
+   depende de lo que la tanda hace antes, así que descartar el alta de un padre
+   dejaba al hijo con su tilde verde hasta que el apply fallaba por esa clave.
+   El caché se vacía cuando cambia la tanda, contando también los destildados.
+6. **`descartar()` sin `try/catch`**: un Unstage que fallaba no decía nada.
+7. **El CSV no neutralizaba fórmulas de planilla.** Un valor que empieza con
+   `=`, `+`, `-` o `@` lo EJECUTA Excel al abrir el archivo, y citar no lo
+   evita: la planilla mira el contenido del campo. Los valores de una celda son
+   dato no confiable —lo dice CLAUDE.md— y este es el único camino que se los
+   entrega a una planilla. Se agregó la opción, **apagada por defecto**: el
+   apóstrofo que lo neutraliza CAMBIA el valor, y un archivo que se va a volver
+   a importar tiene que decir lo que decía. Se enciende cuando el destino es
+   una planilla, que es cuando el riesgo existe. Solo CSV: a JSON y Markdown no
+   los ejecuta ninguna planilla.
 
 **Del `/code-review high` de la exportación, seis hallazgos, los seis
 arreglados. Ninguno alto ni medio**, y dos no eran de esta unidad sino de las

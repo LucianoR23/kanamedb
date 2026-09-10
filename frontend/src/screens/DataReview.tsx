@@ -59,8 +59,21 @@ export function DataReview({
     return at >= 0 ? at : 0;
   });
   const [vista, setVista] = useState<Vista>("unificada");
+  const [fallo, setFallo] = useState<string | null>(null);
   // Revisiones ya pedidas, por id: volver a una fila no vuelve a consultar.
   const [revisiones, setRevisiones] = useState<Map<string, RowReview | Error>>(new Map());
+
+  // Y se tiran TODAS cuando cambia la tanda. Cada comprobación depende de lo
+  // que los demás cambios hacen antes —«el padre lo pone esta misma tanda»—,
+  // así que descartar una fila puede volver mentira el tilde verde de otra:
+  // se descarta el alta del padre y el hijo seguía diciendo que estaba
+  // cubierto, hasta que el apply fallaba por esa misma clave. La clave incluye
+  // si cada cambio está incluido, porque destildar uno también cambia la
+  // respuesta sin cambiar la lista.
+  const tanda = cambios.map((v) => `${v.change.id}${v.change.excluded ? "!" : ""}`).join(",");
+  useEffect(() => {
+    setRevisiones(new Map());
+  }, [tanda]);
 
   // Si el que llama releyó el changeset y la fila que se miraba ya no está,
   // se corre a la anterior; si no queda ninguna, se cierra.
@@ -114,8 +127,15 @@ export function DataReview({
   }
 
   async function descartar() {
-    await SessionSvc.Unstage(c.id);
-    onDiscarded();
+    // Con try/catch: sin él, un Unstage que falla dejaba el diálogo igual y sin
+    // decir nada, que es la peor forma de fallar de un botón.
+    try {
+      await SessionSvc.Unstage(c.id);
+      setFallo(null);
+      onDiscarded();
+    } catch (err) {
+      setFallo(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return (
@@ -255,6 +275,11 @@ export function DataReview({
             <span className={styles.dim}>
               fila {i + 1} de {cambios.length}
             </span>
+            {fallo ? (
+              <span className={styles.fallo} role="alert">
+                {fallo}
+              </span>
+            ) : null}
             <span className={styles.grow} />
             <Button size="sm" variant="dangerOutline" onClick={() => void descartar()}>
               Descartar esta fila

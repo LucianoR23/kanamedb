@@ -178,6 +178,12 @@ func (c *Conn) Count(ctx context.Context, esquema, tabla string) (int64, *engine
 	return count(ctx, c.db, c.base(esquema), tabla)
 }
 
+func (c *Conn) Scan(
+	ctx context.Context, esquema, tabla string, opts engine.ScanOptions,
+) (engine.RowStream, error) {
+	return scan(ctx, c.db, c.base(esquema), tabla, opts)
+}
+
 func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []change.Cell) (int64, error) {
 	cita := func(s string) string { return quoteString(s, c.sinEscapes) }
 	sql, args := dml.CountWhere(c.base(esquema), tabla, where, dialectoDML(cita))

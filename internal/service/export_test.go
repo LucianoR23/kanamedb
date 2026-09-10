@@ -10,6 +10,9 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
+// NewExports(nil) alcanza para el camino del editor: las filas vienen en el
+// pedido y no se toca la sesión. El de la tabla, que sí la usa, se prueba con
+// una sesión abierta en export_tabla_test.go.
 func resultadoDePrueba() ResultExport {
 	s := func(v string) *string { return &v }
 	return ResultExport{
@@ -25,7 +28,7 @@ func resultadoDePrueba() ResultExport {
 func TestExportSaveEscribeElArchivoEntero(t *testing.T) {
 	dir := t.TempDir()
 	ruta := filepath.Join(dir, "salida.csv")
-	e := NewExports()
+	e := NewExports(nil)
 
 	info, err := e.Save(resultadoDePrueba(), ruta)
 	if err != nil {
@@ -55,7 +58,7 @@ func TestExportSaveReemplazaSinDejarUnArchivoCortado(t *testing.T) {
 	if err := os.WriteFile(ruta, []byte("viejo"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e := NewExports()
+	e := NewExports(nil)
 	r := resultadoDePrueba()
 	r.Format = export.JSON
 
@@ -84,7 +87,7 @@ func TestExportSaveReemplazaSinDejarUnArchivoCortado(t *testing.T) {
 }
 
 func TestExportSaveDiceQuePasoCuandoNoPuede(t *testing.T) {
-	e := NewExports()
+	e := NewExports(nil)
 	if _, err := e.Save(resultadoDePrueba(), ""); err == nil {
 		t.Fatal("aceptó una ruta vacía")
 	}
@@ -96,7 +99,7 @@ func TestExportSaveDiceQuePasoCuandoNoPuede(t *testing.T) {
 }
 
 func TestExportPreviewYRender(t *testing.T) {
-	e := NewExports()
+	e := NewExports(nil)
 	r := resultadoDePrueba()
 	r.Format = export.Markdown
 
@@ -121,7 +124,7 @@ func TestExportPreviewYRender(t *testing.T) {
 }
 
 func TestExportFormats(t *testing.T) {
-	fs := NewExports().Formats()
+	fs := NewExports(nil).Formats()
 	if len(fs) != 4 || fs[0].Key != export.CSV || fs[0].Extension != ".csv" || fs[3].Extension != ".md" {
 		t.Fatalf("formatos: %+v", fs)
 	}

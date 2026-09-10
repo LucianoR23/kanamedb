@@ -5,16 +5,20 @@ Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo
 
 Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
-> **Estado: Iteración 5 — ERD de escritura.** Se conecta a PostgreSQL directo o
-> a través de un bastión SSH —con verificación de la clave del host y sin abrir
-> ningún puerto local—, guarda la libreta de conexiones con los secretos en el
-> keychain del sistema operativo, y trae editor SQL con autocompletado, grilla de
-> resultados con paginado, estructura completa de cada tabla y diagrama ERD.
+> **Estado: Iteración 7 — la grilla editable.** Habla con los cuatro motores
+> —PostgreSQL, MySQL, MariaDB y SQLite— directo o a través de un bastión SSH,
+> con verificación de la clave del host y sin abrir ningún puerto local. Guarda
+> la libreta de conexiones con los secretos en el keychain del sistema
+> operativo, y trae editor SQL con autocompletado, grilla con paginado,
+> estructura completa de cada tabla y diagrama ERD.
 >
-> **Y ya edita el esquema:** las ediciones se juntan en un changeset, se muestran
-> como SQL antes de tocar nada, y se aplican en una transacción con progreso por
-> sentencia. Contra producción hay que escribir el nombre de la base. Editar
-> datos de las filas llega en la Iteración 7.
+> **Edita el esquema y las filas.** Las ediciones se juntan en un changeset, se
+> muestran como SQL antes de tocar nada y se aplican en una transacción con
+> progreso por sentencia; los valores de una fila viajan siempre como
+> parámetros, nunca escritos en la SQL que corre. Contra producción hay que
+> escribir el nombre de la base. Y lo que se lee se puede exportar a CSV, JSON,
+> JSON Lines o Markdown: el resultado del editor, o una tabla entera, que se
+> escribe a medida que se lee y por eso no depende de que entre en memoria.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---
@@ -188,10 +192,12 @@ stack se lleva todo y hay que volver a correrlo.
 **Lo que solo se prueba a mano.** Los selectores de archivo son del sistema
 operativo, no de la página: no se pueden manejar por herramientas y ningún test
 los cubre. Son dos, y conviene pasarlos una vez por release: «Abrir archivo
-SQLite…» desde S01 y S02, y el «guardar como» de **Exportar…** en la barra de
-resultados del editor —elegir destino, guardar, y comprobar que el archivo tiene
-la extensión del formato elegido—. Todo lo demás de la exportación (formatos,
-opciones, vista previa, copiar) sí se prueba desde la aplicación.
+SQLite…» desde S01 y S02, y el «guardar como» de **Exportar…** —que está en la
+barra de resultados del editor y en la de una tabla—: elegir destino, guardar, y
+comprobar que el archivo tiene la extensión del formato elegido. Todo lo demás
+de la exportación (formatos, opciones, vista previa, copiar, y que una tabla
+salga entera y no solo lo cargado en la grilla) sí se prueba desde la
+aplicación y desde los tests.
 
 ```sh
 gofmt -l .                         # formato de Go

@@ -319,3 +319,10 @@
 .checkLabel { font: 400 11.5px/1.45 var(--font-ui); color: var(--text-1); }
 .checkDetalle { font: 400 10.5px/1.45 var(--font-mono); color: var(--text-3); word-break: break-word; }
 .malo { font: 400 11.5px var(--font-ui); color: var(--danger); }
+.fallo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-ui);
+  color: var(--danger);
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -134,6 +135,18 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 	return lote, nil
 }
 
+// consultador es lo mínimo que hace falta para preguntarle algo al catálogo:
+// un pool o UNA conexión ya tomada del pool.
+//
+// La distinción no es cosmética. Un recorrido largo (Scan) se queda con una
+// conexión durante minutos; si además pidiera otra al pool para resolver los
+// tipos, con un pool de dos —que es lo que se abre en una conexión de solo
+// lectura— dos exportaciones a la vez se quedarían esperando una a la otra.
+// Recibiendo la conexión que ya se tomó, no hay una segunda.
+type consultador interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // columnaDe traduce la descripción del campo a lo que necesita la interfaz.
 func columnaDe(f pgconn.FieldDescription, tm *pgtype.Map) query.Column {
 	col := query.Column{Name: f.Name, Class: claseDeOID(f.DataTypeOID)}
@@ -182,7 +195,7 @@ func claseDeOID(oid uint32) query.Class {
 //
 // Una columna de un enum llegaba acá con DataType vacío, y "sin nombre de tipo"
 // en el encabezado de la grilla no le sirve a nadie.
-func resolverTiposDesconocidos(ctx context.Context, pool *pgxpool.Pool, res *query.Result, oids []uint32) error {
+func resolverTiposDesconocidos(ctx context.Context, q consultador, res *query.Result, oids []uint32) error {
 	var faltantes []int64
 	pendientes := map[uint32][]int{}
 	for i, c := range res.Columns {
@@ -199,7 +212,7 @@ func resolverTiposDesconocidos(ctx context.Context, pool *pgxpool.Pool, res *que
 		return nil
 	}
 
-	rows, err := pool.Query(ctx,
+	rows, err := q.Query(ctx,
 		`select oid, typname, typcategory from pg_type where oid = any($1::oid[])`, faltantes)
 	if err != nil {
 		return fmt.Errorf("leer pg_type: %w", err)

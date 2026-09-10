@@ -30,6 +30,7 @@ import { cx } from "../lib/cx";
 import { plural } from "../lib/motor";
 import { CellViewer } from "./CellViewer";
 import { DataReview } from "./DataReview";
+import { ExportDialog } from "./ExportDialog";
 import { esCambioDeDatos } from "../lib/cambios";
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { TableStructure, bytes } from "./TableStructure";
@@ -119,6 +120,7 @@ export function TableDataScreen({
   // no un booleano porque dos «Agregar fila» seguidos tienen que hacer dos
   // desplazamientos, y un booleano en true no vuelve a disparar el efecto.
   const [irAlFinal, setIrAlFinal] = useState(0);
+  const [exportando, setExportando] = useState(false);
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
   // datos.
@@ -157,6 +159,9 @@ export function TableDataScreen({
   });
 
   const runID = useRef(`${tabId}:data`).current;
+  // La exportación se registra aparte de la lectura de la grilla: cancelar una
+  // no puede cortar la otra, y las dos pueden estar corriendo a la vez.
+  const runIDExport = useRef(`${tabId}:export`).current;
 
   const cargar = useCallback(
     async (offset: number, sort: SortState | null) => {
@@ -191,6 +196,19 @@ export function TableDataScreen({
         setEdicion(sinEdicion());
         setEditando(null);
         setReleerPendiente(false);
+      } else if (nuevas.length > 0) {
+        // «Cargar más» agrega al final, así que las filas ya leídas conservan
+        // su posición… pero las filas NUEVAS sin preparar viven después de
+        // ellas, y sus índices se corren.
+        //
+        // Sin correrlos, un índice que apuntaba a una fila nueva pasaba a
+        // apuntar a una fila REAL recién cargada, y «Borrar fila» preparaba un
+        // DELETE contra una fila que nadie eligió. `offset` es cuántas filas
+        // había antes, así que todo índice mayor o igual es una fila nueva.
+        const correr = (r: CellRef | null): CellRef | null =>
+          r && r.row >= offset ? { ...r, row: r.row + nuevas.length } : r;
+        setSeleccion(correr);
+        setEditando(correr);
       }
     },
     [runID, schema, table],
@@ -586,6 +604,9 @@ export function TableDataScreen({
             >
               {seleccionNueva ? "Quitar fila" : seleccionBorrada ? "No borrar" : "Borrar fila"}
             </Button>
+            <Button size="sm" onClick={() => setExportando(true)}>
+              Exportar…
+            </Button>
             {nEdiciones > 0 ? (
               <Button size="sm" variant="primary" onClick={preparar}>
                 Preparar {nEdiciones} {plural(nEdiciones, "cambio", "cambios")}
@@ -733,6 +754,23 @@ export function TableDataScreen({
           source={`${schema}.${table}`}
           onIndexChange={(i) => setVisor({ row: visor.row, col: i })}
           onClose={() => setVisor(null)}
+        />
+      ) : null}
+
+      {exportando ? (
+        <ExportDialog
+          open
+          origen={{
+            tipo: "tabla",
+            schema,
+            table,
+            // Se ordena por la clave primaria si la hay: un archivo que se
+            // vuelve a generar mañana tiene que poder compararse con el de hoy.
+            orderBy: orderedBy,
+          }}
+          nombre={table}
+          runID={runIDExport}
+          onClose={() => setExportando(false)}
         />
       ) : null}
     </div>

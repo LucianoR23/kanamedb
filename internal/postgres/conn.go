@@ -103,6 +103,12 @@ func (c *Conn) Count(ctx context.Context, esquema, tabla string) (int64, *engine
 	return TableCount(ctx, c.pool, esquema, tabla)
 }
 
+func (c *Conn) Scan(
+	ctx context.Context, esquema, tabla string, opts engine.ScanOptions,
+) (engine.RowStream, error) {
+	return Scan(ctx, c.pool, esquema, tabla, opts)
+}
+
 // RenderDDL ignora el contexto: en Postgres es una función pura. El parámetro
 // está en la interfaz por SQLite, que necesita leer la definición actual de la
 // tabla para reconstruirla.

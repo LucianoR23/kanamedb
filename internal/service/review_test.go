@@ -350,3 +350,37 @@ func TestEnSQLiteLaClaveEnteraSeAsignaSolaYLaRevisionLoSabe(t *testing.T) {
 		})
 	}
 }
+
+// TestElEsquemaVacioNoEsUnComodin.
+//
+// El vacío quiere decir «el de la conexión» y se resuelve a su nombre real; NO
+// coincide con cualquier otro. MySQL admite claves foráneas entre bases, así
+// que un cambio pendiente sobre la tabla `clientes` de la base abierta no puede
+// contar como el padre de una clave que apunta a `otra.clientes`: sería un «ok»
+// verde sobre un padre que no va a existir.
+func TestElEsquemaVacioNoEsUnComodin(t *testing.T) {
+	casos := []struct {
+		nombre     string
+		porDefecto string
+		a, b       string
+		quiero     bool
+	}{
+		{"mysql: vacío es la base abierta", "app", "", "app", true},
+		{"mysql: vacío NO es otra base", "app", "", "otra", false},
+		{"mysql: dos bases distintas", "app", "app", "otra", false},
+		{"sqlite: vacío es main", "main", "", "main", true},
+		{"sqlite: vacío no es otro adjunto", "main", "", "adjunta", false},
+		{"postgres: el vacío se queda vacío", "", "", "", true},
+		{"postgres: vacío contra public no coincide", "", "", "public", false},
+		{"iguales siempre coinciden", "app", "public", "public", true},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			r := revisor{porDefecto: c.porDefecto}
+			if got := r.mismoEsquema(c.a, c.b); got != c.quiero {
+				t.Errorf("mismoEsquema(%q, %q) con defecto %q = %v, quería %v",
+					c.a, c.b, c.porDefecto, got, c.quiero)
+			}
+		})
+	}
+}

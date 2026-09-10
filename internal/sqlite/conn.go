@@ -102,6 +102,12 @@ func (c *Conn) Count(ctx context.Context, _, tabla string) (int64, *engine.Failu
 	return count(ctx, c.db, tabla)
 }
 
+func (c *Conn) Scan(
+	ctx context.Context, _, tabla string, opts engine.ScanOptions,
+) (engine.RowStream, error) {
+	return scan(ctx, c.db, tabla, opts)
+}
+
 func (c *Conn) RenderDDL(ctx context.Context, ch change.Change) (change.Statement, error) {
 	return renderDDL(ctx, c.db, ch)
 }

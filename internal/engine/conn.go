@@ -59,6 +59,49 @@ type PageOptions struct {
 	Offset int
 }
 
+// ScanOptions es cómo recorrer una tabla entera.
+//
+// No tiene Limit ni Offset a propósito: recorrer es lo contrario de paginar.
+// Paginar una tabla grande con LIMIT/OFFSET obliga al servidor a releer y
+// descartar las filas anteriores en cada página —y sin un orden total, además,
+// repite y saltea—; una sola consulta que se lee a medida que llega no tiene
+// ninguno de los dos problemas.
+type ScanOptions struct {
+	// OrderBy son las columnas por las que ordenar. Vacío significa sin ORDER
+	// BY, que para un recorrido completo está bien: salen todas igual. Se
+	// ordena cuando el archivo tiene que ser comparable entre dos corridas.
+	OrderBy    []string
+	Descending bool
+}
+
+// RowStream entrega las filas de una lectura larga a medida que llegan.
+//
+// Existe porque una tabla de dos millones de filas no entra en un
+// query.Result: exportar tiene que escribir mientras lee. El uso es el de
+// database/sql —Next hasta que da false, y después Err— y Close es
+// obligatorio: la consulta sigue abierta del lado del servidor hasta que se
+// cierra.
+//
+// Row devuelve una rebanada NUEVA en cada fila, no una reusada: el que la
+// recibe puede guardarla sin copiarla. Se probó al revés —reusar la rebanada,
+// como hace sql.RawBytes— y ahorraba una asignación de las N+1 de cada fila,
+// porque los valores hay que copiarlos igual; no vale la trampa que deja.
+type RowStream interface {
+	// Columns son las columnas del recorrido. Están desde antes de la primera
+	// fila: el escritor de la exportación necesita el encabezado para empezar.
+	Columns() []query.Column
+	// Next avanza a la fila siguiente. False es fin o error; Err lo dice.
+	Next() bool
+	// Row son los valores de la fila actual, como texto del servidor. nil es
+	// NULL, igual que en query.Result.
+	Row() []*string
+	// Err es el error que cortó el recorrido, o nil si terminó entero.
+	Err() error
+	// Close libera la consulta. Idempotente, y se puede llamar sin haber
+	// terminado de leer.
+	Close()
+}
+
 // Conn es una conexión abierta a una base, del motor que sea.
 //
 // Es la superficie completa que `internal/service` necesita, y por eso está
@@ -107,6 +150,9 @@ type Conn interface {
 	Page(ctx context.Context, esquema, tabla string, opts PageOptions) (*query.Result, *Failure)
 	// Count cuenta las filas de una tabla, exacto.
 	Count(ctx context.Context, esquema, tabla string) (int64, *Failure)
+	// Scan recorre una tabla ENTERA sin juntarla en memoria. Es lo que usa la
+	// exportación; la grilla usa Page, que trae una página y para.
+	Scan(ctx context.Context, esquema, tabla string, opts ScanOptions) (RowStream, error)
 	// CountWhere cuenta las filas que coinciden con los valores dados, que
 	// viajan como parámetros. Es lo que la revisión de una fila usa para
 	// decir si su clave identifica una sola, si el padre de su clave foránea
