@@ -39,6 +39,7 @@ export function SqlEditorScreen({
   rowLimit,
   connectionLabel,
   engine,
+  avisaResultadoUnico,
 }: {
   tabId: string;
   /** La pestaña está a la vista. CodeMirror necesita saberlo para volver a
@@ -52,6 +53,10 @@ export function SqlEditorScreen({
   /** El motor de la conexión abierta. Decide con qué reglas se resalta y se
    *  autocompleta, y qué dice la barra de estado. */
   engine: string;
+  /** El motor corre TODAS las sentencias del texto y devuelve UNA sola.
+   *  Es SQLite: `INSERT; INSERT; INSERT` escribe tres filas y muestra un
+   *  resultado, así que hay que decirlo o nadie se entera. */
+  avisaResultadoUnico: boolean;
 }) {
   const [sql, setSql] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "vacio" });
@@ -145,8 +150,14 @@ export function SqlEditorScreen({
         <span className={styles.grow} />
         {readOnly ? <span className={styles.roNote}>conexión de solo lectura</span> : null}
         <span className={styles.autoNote}>
-          se traen hasta {rowLimit.toLocaleString("es", { useGrouping: true })} filas
+          se traen hasta {rowLimit.toLocaleString("es", { useGrouping: true })}{" "}
+          {plural(rowLimit, "fila", "filas")}
         </span>
+        {avisaResultadoUnico ? (
+          <span className={styles.roNote} title={`Con ${nombreDeMotor(engine)} el editor manda el texto entero en una sola llamada, y el motor devuelve el resultado de una sola sentencia.`}>
+            varias sentencias corren todas y se ve una
+          </span>
+        ) : null}
         <button type="button" className={styles.link} disabled title="Llega en la Iteración 9">
           Guardar consulta
         </button>

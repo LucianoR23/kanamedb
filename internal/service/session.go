@@ -81,6 +81,11 @@ type SessionView struct {
 
 	Server *engine.ServerInfo `json:"server,omitempty"`
 
+	// Caps son las capacidades del motor abierto. Viaja entera y no campo por
+	// campo: la pantalla ya necesitaba tres, y deducirlas del nombre del motor
+	// del lado del frontend sería adivinar lo que acá está comprobado.
+	Caps engine.Caps `json:"caps"`
+
 	// RowLimit y StatementTimeoutSeconds son los efectivos de esta conexión, ya
 	// resueltos: el cero de la configuración significa "usá el default", y la
 	// interfaz no tiene por qué conocer esa convención para poder mostrar
@@ -387,6 +392,7 @@ func (s *Session) viewLocked() SessionView {
 		Describe:     c.Describe(),
 		Environment:  c.Environment,
 		Server:       s.current.server,
+		Caps:         s.current.db.Caps(),
 		OpenedAt:     s.current.openedAt.Format(time.RFC3339),
 
 		RowLimit:                c.Safety.EffectiveRowLimit(),

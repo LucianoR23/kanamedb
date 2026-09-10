@@ -19,6 +19,8 @@ var capacidades = map[Kind]Caps{
 		GeneratedColumns:      true,
 		PartialIndexes:        true,
 		DeferrableConstraints: true,
+		MultiStatement:        true,
+		ResultPerStatement:    true,
 		// Postgres trunca en silencio a 63 bytes. Ver kaname-plan.md § 6.
 		MaxIdentifier: 63,
 	},
@@ -38,6 +40,8 @@ var capacidades = map[Kind]Caps{
 		GeneratedColumns:      true,
 		PartialIndexes:        false,
 		DeferrableConstraints: false,
+		MultiStatement:        false,
+		ResultPerStatement:    false,
 		MaxIdentifier:         64,
 	},
 	// MariaDB no es «MySQL con otro nombre», y probando las dos quedó a la
@@ -59,6 +63,8 @@ var capacidades = map[Kind]Caps{
 		GeneratedColumns:      true,
 		PartialIndexes:        false,
 		DeferrableConstraints: false,
+		MultiStatement:        false,
+		ResultPerStatement:    false,
 		MaxIdentifier:         64,
 	},
 	SQLite: {
@@ -75,6 +81,10 @@ var capacidades = map[Kind]Caps{
 		GeneratedColumns:      true,
 		PartialIndexes:        true,
 		DeferrableConstraints: false,
+		// Corre TODAS las sentencias del texto —comprobado contando filas— y
+		// devuelve el resultado de UNA. Ver Caps.ResultPerStatement.
+		MultiStatement:     true,
+		ResultPerStatement: false,
 		// SQLite no impone límite. Se pone uno igual, generoso: un nombre de
 		// mil caracteres no es un caso de uso, es un accidente.
 		MaxIdentifier: 255,

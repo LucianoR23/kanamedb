@@ -140,6 +140,34 @@ type Caps struct {
 	// clave foránea ofrece esa casilla.
 	DeferrableConstraints bool
 
+	// MultiStatement dice si UNA llamada puede llevar varias sentencias
+	// separadas por punto y coma.
+	//
+	// Es lo que el editor SQL hace sin preguntar: manda el texto entero. Con
+	// pgx eso funciona —el protocolo simple acepta varias y devuelve un
+	// resultado por cada una, que es por qué query.Batch tiene una lista— y
+	// con el driver de MySQL no, porque `multiStatements` viene apagado y no
+	// se enciende: encenderlo convierte cualquier lugar donde se concatene
+	// texto en un sitio donde se pueden APENDAR sentencias, y esta aplicación
+	// maneja credenciales de bases productivas. Ver CLAUDE.md.
+	//
+	// Comprobado motor por motor, no supuesto.
+	MultiStatement bool
+
+	// ResultPerStatement dice que además se recupera el resultado de CADA una.
+	//
+	// Es un campo aparte y no un lujo: SQLite corre las tres y devuelve una.
+	// Comprobado contando filas, no resultados —con tres SELECT los motores se
+	// ven casi iguales, con tres INSERT se ve lo único que importa—: contra
+	// SQLite, `INSERT; INSERT; INSERT` escribe TRES filas y la pantalla muestra
+	// UN resultado.
+	//
+	// O sea que quien selecciona varias sentencias y las corre no tiene cómo
+	// saber que las demás escribieron. Por eso la capacidad existe: mientras
+	// las sentencias no se partan del lado del cliente, la pantalla tiene que
+	// decirlo.
+	ResultPerStatement bool
+
 	// MaxIdentifier es cuántos bytes admite un nombre antes de que el motor lo
 	// trunque o lo rechace. Se valida ANTES de renderizar: Postgres trunca en
 	// silencio a 63, que es un bug esperando, y por eso ya se rechaza.

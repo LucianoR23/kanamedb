@@ -980,20 +980,52 @@ y el default sigue siendo `'nuevo'`.
 
 ---
 
-**El editor SQL corre varias sentencias contra Postgres y no contra MySQL.**
+**El editor SQL: los comentarios andan en los cuatro, varias sentencias no.**
 
-Los comentarios NO son el problema: `--`, `/* */`, al final de una línea y
-sueltos al final del texto andan en los dos. Lo que cambia es que el editor
-manda el texto **entero** en una sola llamada: pgx acepta varias sentencias en
-una consulta simple y devuelve un resultado por cada una —por eso `query.Batch`
-tiene una lista—, y el driver de MySQL tiene `multiStatements` apagado, así que
-contesta un error de sintaxis señalando el segundo `SELECT`.
+Primero lo que **no** es problema: `--`, `/* */` en varias líneas, al final de
+una línea y sueltos al final del texto andan en **los cuatro** motores. Se
+comprobó contra los cuatro y no contra los dos que estaban a mano, que es un
+error que ya se cometió en este proyecto.
 
-⏳ Queda por decidir cómo cerrarlo. Encender `multiStatements` es una línea y
-   ensancha lo que puede hacer una sola llamada al driver; partir las sentencias
-   del lado del cliente es más trabajo pero no cambia la postura de seguridad y
-   da tiempo por sentencia. Mientras tanto la pantalla **no lo dice**, que es lo
-   peor de las dos opciones.
+Lo que sí difiere es correr **varias sentencias de una vez**. El editor manda el
+texto entero en una sola llamada, así que decide el driver. Comprobado contando
+FILAS y no resultados —con tres `SELECT` los tres casos se ven casi iguales, con
+tres `INSERT` se ve lo único que importa—:
+
+| | ¿corren? | ¿se ven? |
+|---|---|---|
+| Postgres | las tres | **tres resultados** |
+| MySQL / MariaDB | **ninguna**, error de sintaxis | — |
+| SQLite | **las tres**, tres filas escritas | **un resultado** |
+
+El tercero es el grave: contra SQLite, `INSERT; INSERT; INSERT` escribe tres
+filas y la pantalla muestra un resultado. Quien selecciona varias sentencias y
+las corre **no tiene cómo saber que las demás escribieron**.
+
+Por eso `Caps` ganó dos campos y no uno: `MultiStatement` —una llamada puede
+llevar varias— y `ResultPerStatement` —y además se recupera el resultado de cada
+una—. Con uno solo, SQLite y Postgres se verían iguales. Mientras el editor no
+parta las sentencias, la pantalla lo dice.
+
+**No se enciende `multiStatements` en el driver de MySQL**, y la decisión es de
+seguridad, no de gusto. Es un parámetro del DSN que vale para **toda** conexión
+y **toda** llamada, no solo para el editor: a partir de ahí, cualquier lugar
+donde se concatene texto en una consulta deja de poder producir «una sentencia
+rara» y pasa a poder producir «una sentencia rara **y las que le sigan**». Un
+`;` deja de ser el final de nada. Esta aplicación maneja credenciales de bases
+productivas y la regla de CLAUDE.md —SQL siempre parametrizado— existe para que
+eso sea imposible; encenderlo saca la última red por debajo de una comodidad del
+editor. Y compra menos de lo que parece: seguiría sin arreglar SQLite, que ya
+corre las tres.
+
+⏳ **Lo que sí hay que hacer: partir las sentencias del lado del cliente.**
+   Arregla los tres motores a la vez —MySQL empieza a poder, SQLite deja de
+   esconder—, da tiempo y filas afectadas POR SENTENCIA, y permite parar en la
+   primera que falla en vez de descubrirlo después. No es gratis: hace falta un
+   tokenizador de verdad, porque un `;` vive también adentro de una cadena, de
+   un identificador citado, de un comentario y del cuerpo de un trigger
+   —`CREATE TRIGGER … BEGIN … ; … END`—, y un separador ingenuo parte eso al
+   medio. El tokenizador de `internal/sqlite/ddltext.go` ya resuelve la mitad.
 
 ---
 

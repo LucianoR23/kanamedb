@@ -402,6 +402,11 @@ export function Shell({
                       rowLimit={session?.rowLimit ?? 0}
                       connectionLabel={session?.describe ?? ""}
                       engine={session?.server?.engine ?? ""}
+                      // Corre todas las sentencias del texto y devuelve una sola.
+                      avisaResultadoUnico={
+                        (session?.caps?.MultiStatement ?? false) &&
+                        !(session?.caps?.ResultPerStatement ?? true)
+                      }
                     />
                   )}
                 </div>
