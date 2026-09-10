@@ -90,7 +90,18 @@ type Conn interface {
 	// PrimaryKeyColumns es por dónde ordenar para que el paginado sea estable.
 	PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]string, error)
 
-	// Run ejecuta SQL escrita por el usuario, tal como la escribió.
+	// Dialect es cómo se LEE el texto de este motor: qué delimita una cadena,
+	// dónde empieza un comentario, si el cuerpo de un trigger va entre BEGIN y
+	// END. Lo usa el editor para partir el texto en sentencias.
+	//
+	// Se pide a la conexión y no al Kind porque una de las banderas depende del
+	// SERVIDOR: con NO_BACKSLASH_ESCAPES, la barra invertida no escapa nada.
+	Dialect() query.Dialect
+
+	// Run ejecuta UNA sentencia escrita por el usuario, tal como la escribió.
+	//
+	// Una y no varias: el editor parte el texto antes de llegar acá. Ver
+	// query.Split y § 6 del plan.
 	Run(ctx context.Context, sql string, opts RunOptions) (*query.Batch, *Failure)
 	// Page lee una página de una tabla.
 	Page(ctx context.Context, esquema, tabla string, opts PageOptions) (*query.Result, *Failure)

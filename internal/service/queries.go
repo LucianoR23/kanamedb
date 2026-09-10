@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
@@ -88,14 +89,46 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	ctx, listo := q.registrar(ctx, runID)
 	defer listo()
 
-	lote, f := sesion.db.Run(ctx, sql, engine.RunOptions{
-		RowLimit: sesion.conn.Safety.EffectiveRowLimit(),
-	})
-	if f != nil {
-		// El lote parcial viaja igual: dice qué alcanzó a procesar el servidor
-		// antes del error, que es distinto de "no pasó nada".
-		return RunResult{Batch: lote, Failure: q.porElTunel(f)}
+	// El texto se parte ACÁ y cada sentencia se manda sola.
+	//
+	// Antes iba entero en una sola llamada y cada driver hacía una cosa
+	// distinta: Postgres corría todo y devolvía un resultado por sentencia,
+	// MySQL contestaba un error de sintaxis sin correr nada, y SQLite corría
+	// TODO y devolvía UN resultado —así que tres INSERT escribían tres filas y
+	// la pantalla mostraba una—. Ver query.Split y § 6 del plan.
+	sentencias := query.Split(sql, sesion.db.Dialect())
+	if len(sentencias) == 0 {
+		// Un texto que es solo comentarios o espacio. No es un error: no hay
+		// nada que ejecutar, y mandarlo al motor haría que conteste uno.
+		return RunResult{OK: true, Batch: &query.Batch{}}
 	}
+
+	limite := sesion.conn.Safety.EffectiveRowLimit()
+	inicio := time.Now()
+	lote := &query.Batch{Results: make([]query.Result, 0, len(sentencias))}
+
+	for i, st := range sentencias {
+		uno, f := sesion.db.Run(ctx, st.SQL, engine.RunOptions{RowLimit: limite})
+		if uno != nil {
+			for _, r := range uno.Results {
+				r.Line = st.Line
+				lote.Results = append(lote.Results, r)
+			}
+		}
+		if f != nil {
+			lote.ElapsedMs = time.Since(inicio).Milliseconds()
+			// Se corta en la primera que falla. Seguir sería peor: casi siempre
+			// las que vienen dependen de la que rompió, y el resultado sería
+			// una lista de errores en cascada donde el primero es el único que
+			// importa. Lo que YA corrió viaja en el lote, que es distinto de
+			// «no pasó nada».
+			f.Statement = i + 1
+			f.Line = st.Line
+			f.TotalStatements = len(sentencias)
+			return RunResult{Batch: lote, Failure: q.porElTunel(f)}
+		}
+	}
+	lote.ElapsedMs = time.Since(inicio).Milliseconds()
 	return RunResult{OK: true, Batch: lote}
 }
 

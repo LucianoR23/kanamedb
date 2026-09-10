@@ -93,6 +93,12 @@ type Result struct {
 	// vacía como si la consulta no hubiera encontrado nada.
 	ReturnsRows bool `json:"returnsRows"`
 
+	// Line es la línea del editor donde empieza la sentencia que produjo esto.
+	//
+	// Con varias sentencias, «el resultado 3» no le dice nada a quien está
+	// mirando el texto que escribió; «la de la línea 12» sí.
+	Line int `json:"line,omitempty"`
+
 	// AffectedRows es lo que informó el motor para INSERT, UPDATE y DELETE.
 	AffectedRows int64 `json:"affectedRows"`
 

@@ -40,6 +40,13 @@ func (c *Conn) DB() *sql.DB { return c.db }
 // engine.TxOptions{RebuildsTables: true}. Mandada por acá funcionaría —sin dar
 // ningún error— y borraría las filas de las tablas hijas. Ver
 // TestElRebuildNoDisparaElCascade.
+// Dialect: SQLite acepta corchetes para los identificadores —herencia de Access—
+// y el cuerpo de un trigger va entre BEGIN y END. La barra invertida no escapa
+// nada adentro de una cadena.
+func (c *Conn) Dialect() query.Dialect {
+	return query.Dialect{Brackets: true, Compound: true}
+}
+
 func (c *Conn) Exec(ctx context.Context, sql string) error {
 	_, err := c.db.ExecContext(ctx, sql)
 	return err

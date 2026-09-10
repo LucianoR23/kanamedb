@@ -196,6 +196,10 @@ Frontend y CI:
   el editor, no en la base: la conexión se guarda en la libreta, y escribir ahí
   algo que la persona no vio es cómo la lista se llena de entradas que nadie
   creó a sabiendas.
+- ✅ **S06** — el editor parte el texto en sentencias y las corre de a una, así
+  que los cuatro motores hacen lo mismo: antes Postgres corría todas, MySQL
+  ninguna, y SQLite todas mostrando una sola. Cada resultado trae su línea y el
+  fallo dice cuál sentencia fue.
 - ✅ **CI** — `KANAME_REQUIRE_ENGINES` puesto, y en el compose las **dos LTS de
   cada motor**: MySQL 9.7 y 8.4, MariaDB 12.3 y 10.11. Las cuatro corren la
   batería entera, y además los dos tests que dependen de la versión —modo solo
@@ -256,6 +260,27 @@ por mirar la aplicación y no el código:
 
 Edición de celdas con preview de `UPDATE`/`DELETE`, import/export CSV, y todo
 lo que entra y sale de la grilla.
+
+> **Con qué arranca.** La iteración 6 dejó tres cosas puestas que esta usa
+> directamente, y conviene saberlo antes de empezar:
+>
+> 1. **El apply va por tramos** y el resultado dice cuántos hubo y cuál falló.
+>    Un changeset de puros cambios de DATOS —que es exactamente lo que produce
+>    la grilla— es **un solo tramo transaccional en los cuatro motores**: el DML
+>    de InnoDB es transaccional de verdad. Así que editar celdas tiene la misma
+>    garantía contra MySQL que contra Postgres, y la casilla de S15 no miente.
+>    La limitación de MySQL es solo del esquema.
+> 2. **El ensayo de S15** ya existe y sirve igual para datos: un `UPDATE` que
+>    viola una clave se ve antes de aplicarlo.
+> 3. **`StatementResult.Applied` significa «quedó aplicada en la base»**, no
+>    «corrió sin error». Importa acá: `olvidarAplicados` saca del changeset lo
+>    que figure aplicado, y con la definición vieja una edición de un tramo
+>    revertido se perdía sin existir en la base.
+>
+> Y una que **falta** y que la grilla necesita: hoy el changeset no tiene
+> operaciones de datos. `change.Kind()` ya distingue `KindData` de `KindSchema`
+> y `TramosDe` ya las agrupa, pero los `Type` de insertar, actualizar y borrar
+> filas todavía no existen. Es lo primero de esta iteración.
 
 - **S07** — modo edición: celdas modificadas, filas nuevas, filas marcadas para
   borrar, tablas sin PK en solo lectura con explicación.
@@ -980,52 +1005,67 @@ y el default sigue siendo `'nuevo'`.
 
 ---
 
-**El editor SQL: los comentarios andan en los cuatro, varias sentencias no.**
+**El editor parte las sentencias, y por eso los cuatro motores se comportan
+igual.**
 
-Primero lo que **no** es problema: `--`, `/* */` en varias líneas, al final de
-una línea y sueltos al final del texto andan en **los cuatro** motores. Se
-comprobó contra los cuatro y no contra los dos que estaban a mano, que es un
-error que ya se cometió en este proyecto.
+Lo que **no** era problema: `--`, `/* */` en varias líneas, al final de una
+línea y sueltos al final del texto andan en los cuatro. Se comprobó contra los
+cuatro y no contra los dos que estaban a mano, que es un error que ya se había
+cometido en esta misma iteración.
 
-Lo que sí difiere es correr **varias sentencias de una vez**. El editor manda el
-texto entero en una sola llamada, así que decide el driver. Comprobado contando
-FILAS y no resultados —con tres `SELECT` los tres casos se ven casi iguales, con
-tres `INSERT` se ve lo único que importa—:
+Lo que sí difería era correr **varias sentencias de una vez**. El editor mandaba
+el texto entero en una llamada y decidía el driver. Comprobado contando FILAS y
+no resultados —con tres `SELECT` los tres casos se ven casi iguales, con tres
+`INSERT` se ve lo único que importa—:
 
-| | ¿corren? | ¿se ven? |
+| | ¿corrían? | ¿se veían? |
 |---|---|---|
-| Postgres | las tres | **tres resultados** |
+| Postgres | las tres | tres resultados |
 | MySQL / MariaDB | **ninguna**, error de sintaxis | — |
 | SQLite | **las tres**, tres filas escritas | **un resultado** |
 
-El tercero es el grave: contra SQLite, `INSERT; INSERT; INSERT` escribe tres
-filas y la pantalla muestra un resultado. Quien selecciona varias sentencias y
-las corre **no tiene cómo saber que las demás escribieron**.
+El tercero era el grave: `INSERT; INSERT; INSERT` escribía tres filas y la
+pantalla mostraba una.
 
-Por eso `Caps` ganó dos campos y no uno: `MultiStatement` —una llamada puede
-llevar varias— y `ResultPerStatement` —y además se recupera el resultado de cada
-una—. Con uno solo, SQLite y Postgres se verían iguales. Mientras el editor no
-parta las sentencias, la pantalla lo dice.
+**Se descartó encender `multiStatements` en el driver de MySQL.** Es un
+parámetro del DSN que vale para toda conexión y toda llamada, no solo para el
+editor: a partir de ahí un `;` deja de ser el final de nada, y cualquier lugar
+donde se concatene texto pasa de poder producir «una sentencia rara» a poder
+producir «una sentencia rara **y las que le sigan**». La regla de CLAUDE.md
+—SQL siempre parametrizado— existe para que eso sea imposible. Y compraba poco:
+no arreglaba SQLite, que ya corría las tres.
 
-**No se enciende `multiStatements` en el driver de MySQL**, y la decisión es de
-seguridad, no de gusto. Es un parámetro del DSN que vale para **toda** conexión
-y **toda** llamada, no solo para el editor: a partir de ahí, cualquier lugar
-donde se concatene texto en una consulta deja de poder producir «una sentencia
-rara» y pasa a poder producir «una sentencia rara **y las que le sigan**». Un
-`;` deja de ser el final de nada. Esta aplicación maneja credenciales de bases
-productivas y la regla de CLAUDE.md —SQL siempre parametrizado— existe para que
-eso sea imposible; encenderlo saca la última red por debajo de una comodidad del
-editor. Y compra menos de lo que parece: seguiría sin arreglar SQLite, que ya
-corre las tres.
+**Se parte del lado del cliente**, en `query.Split`. Con eso los cuatro motores
+hacen lo mismo, cada sentencia trae su tiempo y sus filas afectadas, y el fallo
+dice cuál fue y **en qué línea** —que es lo que sirve: quien escribió el texto
+está mirando números de línea, no contando sentencias—. Se corta en la primera
+que falla: seguir daría una cascada de errores donde el primero es el único que
+importa, y lo que ya corrió viaja igual en el lote.
 
-⏳ **Lo que sí hay que hacer: partir las sentencias del lado del cliente.**
-   Arregla los tres motores a la vez —MySQL empieza a poder, SQLite deja de
-   esconder—, da tiempo y filas afectadas POR SENTENCIA, y permite parar en la
-   primera que falla en vez de descubrirlo después. No es gratis: hace falta un
-   tokenizador de verdad, porque un `;` vive también adentro de una cadena, de
-   un identificador citado, de un comentario y del cuerpo de un trigger
-   —`CREATE TRIGGER … BEGIN … ; … END`—, y un separador ingenuo parte eso al
-   medio. El tokenizador de `internal/sqlite/ddltext.go` ya resuelve la mitad.
+No es un `strings.Split(sql, ";")`, y esa es toda la dificultad. Un punto y coma
+vive también adentro de:
+
+- una cadena, con `''` duplicada o `\'` según el modo del servidor;
+- un identificador citado —comillas dobles, acento invertido en MySQL,
+  corchetes en SQLite—;
+- un comentario de línea, uno de bloque, o uno con `#` en MySQL;
+- el cuerpo de una función de Postgres, entre `$$` o `$etiqueta$`;
+- el cuerpo de un trigger o un procedimiento, entre `BEGIN` y `END`.
+
+El último tiene una trampa que se llevó el rato: si `BEGIN` contara siempre
+como apertura de bloque, el `BEGIN;` que abre una **transacción** nunca
+encontraría su `END` y a partir de ahí no se partiría nada —sin ningún error
+que lo delate—. Por eso solo abre bloque dentro de un `CREATE`/`ALTER` de
+TRIGGER, PROCEDURE o FUNCTION.
+
+El dialecto sale de la conexión y no del motor, porque una de las banderas
+depende del SERVIDOR: con `NO_BACKSLASH_ESCAPES`, la barra invertida no escapa
+nada y la cadena termina antes.
+
+Y se cayeron dos capacidades que habían durado una hora: `MultiStatement` y
+`ResultPerStatement` existían para describir en qué se diferenciaban los
+motores, y partiendo del lado del cliente ya no se diferencian. Una capacidad
+que vale lo mismo en los cuatro no es una capacidad.
 
 ---
 

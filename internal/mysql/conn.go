@@ -50,6 +50,21 @@ func (c *Conn) base(esquema string) string {
 	return c.server.CurrentDB
 }
 
+// Dialect: acento invertido para los identificadores, `#` abre comentario, y el
+// cuerpo de un trigger o un procedimiento va entre BEGIN y END.
+//
+// La barra invertida sale del modo del SERVIDOR y no del motor: con
+// NO_BACKSLASH_ESCAPES no escapa nada, y creerle al motor en vez de al servidor
+// haría partir el texto adentro de una cadena.
+func (c *Conn) Dialect() query.Dialect {
+	return query.Dialect{
+		Backtick:         true,
+		HashComments:     true,
+		BackslashEscapes: !c.sinEscapes,
+		Compound:         true,
+	}
+}
+
 func (c *Conn) Exec(ctx context.Context, sql string) error {
 	_, err := c.db.ExecContext(ctx, sql)
 	return err

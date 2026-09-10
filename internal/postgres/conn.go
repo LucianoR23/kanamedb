@@ -113,6 +113,13 @@ func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
 }
 
+// Dialect: Postgres no tiene acento invertido ni corchetes, la barra invertida
+// no escapa nada adentro de una cadena —standard_conforming_strings—, y el
+// cuerpo de una función va entre $$ en vez de entre BEGIN y END sueltos.
+func (c *Conn) Dialect() query.Dialect {
+	return query.Dialect{DollarQuotes: true}
+}
+
 func (c *Conn) Exec(ctx context.Context, sql string) error {
 	_, err := c.pool.Exec(ctx, sql)
 	return err

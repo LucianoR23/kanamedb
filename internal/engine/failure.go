@@ -85,6 +85,19 @@ type Failure struct {
 	// pegar en un ticket. Interpretar y descartar el original deja al usuario
 	// sin la única frase que otro va a reconocer.
 	Detail string `json:"detail,omitempty"`
+
+	// Statement, Line y TotalStatements ubican el fallo cuando el texto tenía
+	// varias sentencias.
+	//
+	// Sin esto, correr diez sentencias y ver «error de sintaxis» obliga a
+	// buscar a mano cuál fue. Line es la que sirve de verdad: quien escribió el
+	// texto está mirando números de línea, no contando sentencias.
+	//
+	// Cero significa que no viene al caso —un fallo de conexión no pertenece a
+	// ninguna sentencia—.
+	Statement       int `json:"statement,omitempty"`
+	Line            int `json:"line,omitempty"`
+	TotalStatements int `json:"totalStatements,omitempty"`
 }
 
 func (f *Failure) Error() string { return f.Message }

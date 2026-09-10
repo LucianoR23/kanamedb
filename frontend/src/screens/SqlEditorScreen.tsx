@@ -39,7 +39,6 @@ export function SqlEditorScreen({
   rowLimit,
   connectionLabel,
   engine,
-  avisaResultadoUnico,
 }: {
   tabId: string;
   /** La pestaña está a la vista. CodeMirror necesita saberlo para volver a
@@ -53,10 +52,6 @@ export function SqlEditorScreen({
   /** El motor de la conexión abierta. Decide con qué reglas se resalta y se
    *  autocompleta, y qué dice la barra de estado. */
   engine: string;
-  /** El motor corre TODAS las sentencias del texto y devuelve UNA sola.
-   *  Es SQLite: `INSERT; INSERT; INSERT` escribe tres filas y muestra un
-   *  resultado, así que hay que decirlo o nadie se entera. */
-  avisaResultadoUnico: boolean;
 }) {
   const [sql, setSql] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "vacio" });
@@ -153,11 +148,6 @@ export function SqlEditorScreen({
           se traen hasta {rowLimit.toLocaleString("es", { useGrouping: true })}{" "}
           {plural(rowLimit, "fila", "filas")}
         </span>
-        {avisaResultadoUnico ? (
-          <span className={styles.roNote} title={`Con ${nombreDeMotor(engine)} el editor manda el texto entero en una sola llamada, y el motor devuelve el resultado de una sola sentencia.`}>
-            varias sentencias corren todas y se ve una
-          </span>
-        ) : null}
         <button type="button" className={styles.link} disabled title="Llega en la Iteración 9">
           Guardar consulta
         </button>
@@ -248,6 +238,7 @@ export function SqlEditorScreen({
               >
                 <span className={styles.resultTabNo}>{i + 1}</span>
                 {r.command}
+                {r.line ? <span className={styles.resultTabLinea}>ln {r.line}</span> : null}
               </button>
             ))}
           </div>
@@ -346,7 +337,11 @@ function Mensajes({ estado }: { estado: Estado }) {
         <div className={styles.errorCard}>
           <div className={styles.errorHead}>
             <span className={styles.errorMark}>!</span>
-            <span className={styles.errorTitulo}>La consulta falló</span>
+            <span className={styles.errorTitulo}>
+              {f.totalStatements && f.totalStatements > 1
+                ? `Falló la sentencia ${f.statement} de ${f.totalStatements}, línea ${f.line}`
+                : "La consulta falló"}
+            </span>
             {f.sqlState ? <span className={styles.errorState}>{f.sqlState}</span> : null}
           </div>
           <div className={styles.errorBody}>
@@ -355,6 +350,12 @@ function Mensajes({ estado }: { estado: Estado }) {
             {f.hint ? <p className={styles.errorHint}>{f.hint}</p> : null}
           </div>
         </div>
+        {f.totalStatements && f.totalStatements > 1 ? (
+          <p className={styles.errorHint}>
+            {corridas(estado.batch?.results ?? null)} y se cortó ahí: las que seguían no se
+            ejecutaron.
+          </p>
+        ) : null}
         <Tags resultados={estado.batch?.results ?? null} />
       </div>
     );
@@ -411,4 +412,11 @@ function metaDe(e: Estado): string {
     default:
       return "";
   }
+}
+
+/** «Corrieron 2 sentencias» / «No corrió ninguna», para el pie del error. */
+function corridas(rs: readonly Result[] | null): string {
+  const n = rs?.length ?? 0;
+  if (n === 0) return "No corrió ninguna";
+  return `${n === 1 ? "Corrió 1 sentencia" : `Corrieron ${n} sentencias`}`;
 }
