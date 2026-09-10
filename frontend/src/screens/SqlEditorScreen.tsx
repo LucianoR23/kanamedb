@@ -10,6 +10,7 @@ import { SqlEditor } from "../components/SqlEditor";
 import { CellViewer } from "./CellViewer";
 import { Splitter } from "../components/Splitter";
 import { cx } from "../lib/cx";
+import { nombreDeMotor } from "../lib/motor";
 import styles from "./SqlEditorScreen.module.css";
 
 type Estado =
@@ -37,6 +38,7 @@ export function SqlEditorScreen({
   statementTimeoutSeconds,
   rowLimit,
   connectionLabel,
+  engine,
 }: {
   tabId: string;
   /** La pestaña está a la vista. CodeMirror necesita saberlo para volver a
@@ -47,6 +49,9 @@ export function SqlEditorScreen({
   statementTimeoutSeconds: number;
   rowLimit: number;
   connectionLabel: string;
+  /** El motor de la conexión abierta. Decide con qué reglas se resalta y se
+   *  autocompleta, y qué dice la barra de estado. */
+  engine: string;
 }) {
   const [sql, setSql] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "vacio" });
@@ -155,6 +160,7 @@ export function SqlEditorScreen({
           active={active}
           onRun={() => void ejecutar()}
           onCursor={(linea, columna) => setCursor({ linea, columna })}
+                  engine={engine}
         />
         <Splitter
           size={ancho}
@@ -292,7 +298,7 @@ export function SqlEditorScreen({
         <span className={styles.statusDim}>
           ln {cursor.linea} · col {cursor.columna}
         </span>
-        <span className={styles.statusDim}>dialecto PostgreSQL</span>
+        <span className={styles.statusDim}>dialecto {nombreDeMotor(engine)}</span>
       </footer>
 
       {visor && result ? (

@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { PostgreSQL, sql } from "@codemirror/lang-sql";
+import { sql } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
+import { dialectoDe } from "../lib/motor";
 import styles from "./SqlEditor.module.css";
 
 /**
@@ -105,6 +106,7 @@ export function SqlEditor({
   onRun,
   onCursor,
   readOnly = false,
+  engine = "",
   active = true,
 }: {
   value: string;
@@ -113,6 +115,9 @@ export function SqlEditor({
   onRun: () => void;
   onCursor?: (line: number, col: number) => void;
   readOnly?: boolean;
+  /** El motor de la conexión abierta, para resaltar con SUS reglas. Vacío
+   *  mientras no hay ninguna. */
+  engine?: string;
   /** El editor está a la vista. Ver el efecto de abajo. */
   active?: boolean;
 }) {
@@ -139,7 +144,11 @@ export function SqlEditor({
         closeBrackets(),
         autocompletion({ activateOnTyping: true, icons: false }),
         lenguaje.current.of(
-          sql({ dialect: PostgreSQL, schema: esquemaParaCompletado(snapshot), upperCaseKeywords: false }),
+          sql({
+            dialect: dialectoDe(engine),
+            schema: esquemaParaCompletado(snapshot),
+            upperCaseKeywords: false,
+          }),
         ),
         syntaxHighlighting(resaltado),
         tema,
@@ -184,15 +193,19 @@ export function SqlEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // El esquema cambia cuando se refresca o se cambia de conexión. Se reconfigura
-  // el compartimento en vez de recrear el editor.
+  // El esquema y el MOTOR cambian cuando se refresca o se cambia de conexión.
+  // Se reconfigura el compartimento en vez de recrear el editor.
   useEffect(() => {
     view.current?.dispatch({
       effects: lenguaje.current.reconfigure(
-        sql({ dialect: PostgreSQL, schema: esquemaParaCompletado(snapshot), upperCaseKeywords: false }),
+        sql({
+          dialect: dialectoDe(engine),
+          schema: esquemaParaCompletado(snapshot),
+          upperCaseKeywords: false,
+        }),
       ),
     });
-  }, [snapshot]);
+  }, [snapshot, engine]);
 
   // Mientras la pestaña está escondida el editor mide cero, y al reaparecer
   // CodeMirror no se entera solo: queda con el alto viejo y el texto cortado o

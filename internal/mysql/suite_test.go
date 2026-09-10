@@ -118,7 +118,13 @@ func TestElModoSoloLecturaValeParaTodasLasConexiones(t *testing.T) {
 			if f != nil {
 				saltear(t, m.nombre, f)
 			}
-			defer w.Close()
+			// t.Cleanup y no defer: los defer de la función de test corren ANTES
+			// que los t.Cleanup, así que con defer el pool queda cerrado cuando
+			// el cleanup de abajo intenta borrar la tabla — y no borra nada, en
+			// silencio, porque el error se descarta. Los cleanup son LIFO, así
+			// que registrar el cierre primero lo deja último. Comprobado: la
+			// tabla quedaba en los cuatro servidores.
+			t.Cleanup(w.Close)
 			_ = w.Exec(ctx, "DROP TABLE IF EXISTS kn_solo_lectura")
 			if err := w.Exec(ctx, "CREATE TABLE kn_solo_lectura (id int)"); err != nil {
 				t.Fatalf("crear la tabla: %v", err)

@@ -27,7 +27,12 @@ import (
 // otro motivo.
 func TestVerifyAdelantaLasRestriccionesDiferidas(t *testing.T) {
 	c := abrirPG(t)
-	defer c.Close()
+	// t.Cleanup y no `defer c.Close()`: los defer de la funcion de test corren
+	// ANTES que los t.Cleanup, así que con defer la conexión queda cerrada cuando
+	// `limpiar` intenta usarla y los DROP no hacen nada —en silencio, porque el
+	// error se descarta—. Los cleanup corren LIFO, así que registrar el cierre
+	// PRIMERO lo deja corriendo ÚLTIMO. Comprobado: las tablas quedaban en la base.
+	t.Cleanup(c.Close)
 	ctx := context.Background()
 
 	padre := esquemaDePrueba + `."kn_ver_padre"`

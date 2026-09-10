@@ -489,12 +489,16 @@ func avisos(sesion *openSession, orden []ChangeView) []string {
 	}
 	if bloquean > 0 {
 		out = append(out, fmt.Sprintf(
-			"%d sentencias bloquean su tabla por completo mientras corren: nadie puede leerla "+
-				"ni escribirla.", bloquean))
+			"%d %s su tabla por completo mientras %s: nadie puede leerla "+
+				"ni escribirla.",
+			bloquean,
+			plural(bloquean, "sentencia bloquea", "sentencias bloquean"),
+			plural(bloquean, "corre", "corren")))
 	}
 	if destructivas > 0 {
 		out = append(out, fmt.Sprintf(
-			"%d cambios pierden datos o garantías de forma irreversible.", destructivas))
+			"%d %s datos o garantías de forma irreversible.",
+			destructivas, plural(destructivas, "cambio pierde", "cambios pierden")))
 	}
 	return out
 }

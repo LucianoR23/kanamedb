@@ -7,6 +7,7 @@ import type {
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { Button, CopyButton, Dialog, Input } from "../components/ui";
 import { cx } from "../lib/cx";
+import { nombreDeMotor } from "../lib/motor";
 import styles from "./SqlPreview.module.css";
 
 /** Cada cuánto se pregunta por dónde va el apply. */
@@ -29,19 +30,6 @@ const CADENCIA_MS = 180;
  *  un DDL en el medio de una transacción commitea todo lo anterior y el
  *  ROLLBACK final no revierte nada. El backend ya calculó en cuántos tramos se
  *  parte; acá solo se dice. */
-function nombreDeMotor(k: string): string {
-  switch (k) {
-    case "postgres":
-      return "PostgreSQL";
-    case "mysql":
-      return "MySQL";
-    case "mariadb":
-      return "MariaDB";
-    case "sqlite":
-      return "SQLite";
-  }
-  return "El motor";
-}
 
 function textoDeTxn(vista: ChangesetView, transaccion: boolean): string {
   if (!transaccion) {

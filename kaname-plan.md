@@ -202,43 +202,57 @@ Frontend y CI:
   lectura y límite de tiempo por sentencia—, que son justo donde los motores se
   separan.
 
-#### Pruebas manuales pendientes
+#### Pruebas manuales — hechas el 2026-09-09
 
-Todo esto está cubierto con tests de integración contra el motor de verdad, pero
-**nada se miró desde la aplicación**, y todo cambia lo que el usuario ve. Los
-cuatro primeros son arreglos que salieron sin tocar UI; los tres últimos son
-pantalla nueva de esta iteración.
+Se corrieron contra la aplicación de verdad, manejando la ventana por CDP:
+WebView2 acepta `AdditionalBrowserArgs: --remote-debugging-port`, así que la
+ventana de Wails es un target de depuración como cualquier página. **Eso no va
+al binario**: se compiló aparte, sin commitear, porque un socket que permite
+evaluar JS en la página puede llamar cualquier binding —`RevealPassword`
+incluido—.
 
-1. **MariaDB 10.11** — conectar desde S03 y ver que la barra de estado dice
-   «MariaDB 10.11.x», que el árbol trae las tablas y que el detalle de una tabla
-   abre sin errores. Era el que no conectaba en absoluto.
-2. **Modo solo lectura contra MySQL** — marcar la conexión como solo lectura,
-   abrir una tabla (una conexión), y después correr un `DELETE` en el editor
-   SQL (otra conexión del pool). Tiene que fallar, y el mensaje tiene que decir
-   «esta conexión está abierta en modo solo lectura» y no un código suelto —eso
-   prueba de paso el error 1792—.
-3. **Límite de tiempo por sentencia** — poner un límite corto en la conexión y
-   correr un `SELECT SLEEP(10)` en el editor. Tiene que cortarse solo, sin
-   tocar Cancelar.
-4. **Comentario con barra invertida** — ponerle a una columna el comentario
-   `C:\ruta`, aplicar, refrescar, y ver que quedó con UNA barra. Contra un
-   servidor con `NO_BACKSLASH_ESCAPES` y contra uno sin él.
+| | Qué | Resultado |
+|---|---|---|
+| 1 | MariaDB 10.11 desde S03 | ✅ conecta, «MariaDB 10.11.19» en la barra, árbol y detalle sin errores |
+| 2 | Solo lectura contra MySQL | ✅ el DELETE falla con 25006 y «esta conexión está abierta en modo solo lectura» |
+| 3 | Límite de tiempo | ✅ `SELECT SLEEP(10)` cortado a los **2012 ms** |
+| 4 | Comentario con barra invertida | ⛔ **no se puede probar**: ver abajo |
+| 5 | SQLite con `#` y `%` en la ruta | ✅ abre el archivo real y muestra sus 3 filas, no una base vacía |
+| 6 | Atajo «Abrir archivo SQLite…» | ⚠️ el botón está y llega al editor; **el selector nativo no se puede manejar por CDP** y queda para probar a mano |
+| 7 | Ensayo de S15 | ✅ el cambio inválido se caza antes de aplicar, con SQLSTATE 23502 y la consulta para encontrar las filas; el válido dice «Nada aplicado» en violeta, no en verde |
 
-Y tres que no son de esos cuatro pero se prueban en el mismo rato:
+Lo que salieron de ahí, todo corregido salvo lo último:
 
-5. **Archivo SQLite con `#` en la ruta** — abrir una base que esté en una
-   carpeta con `#` o `%` en el nombre y comprobar que muestra los datos que
-   tiene, y no una base vacía. Ahora se llega desde el botón «Abrir archivo
-   SQLite…» de S01, que es el camino que la gente va a usar.
-6. **El atajo «Abrir archivo SQLite…»** — desde S01 y desde S02: tiene que
-   abrir el editor con el motor, la ruta y el nombre ya puestos, y sin nada en
-   rojo. Cancelar el selector no tiene que dejar el diálogo abierto ni crear
-   nada.
-7. **El ensayo de S15** — contra Postgres, con un cambio que va a fallar (por
-   ejemplo exigir que no sea nula una columna que tiene nulos): tiene que
-   decirlo ANTES de aplicar, y no quedar nada. Y con uno válido: tiene que
-   decir que no aplicó nada, en un color que **no** sea el verde de «quedó
-   aplicado». Contra MySQL el botón no tiene que estar.
+- **La limpieza de dos tests no limpiaba.** `defer c.Close()` corre ANTES que los
+  `t.Cleanup`, así que los DROP se ejecutaban sobre un pool cerrado y fallaban
+  en silencio —el error iba a `_`—. Dejaban `kn_ver_padre`/`kn_ver_hija` en
+  Postgres y `kn_solo_lectura` en los cuatro servidores de MySQL. Los cleanup
+  son LIFO: registrar el cierre primero lo deja último.
+- **El editor SQL hablaba PostgreSQL contra los cuatro motores.** `dialect`
+  estaba fijo y la barra decía «dialecto PostgreSQL» conectado a MySQL 9.7. No
+  es cosmético: cambia qué es palabra reservada, cómo se citan los
+  identificadores y qué ofrece el autocompletado. Ahora sale del motor abierto
+  —y MariaDB usa su propio dialecto, que no es el de MySQL—. Comprobado con `#`,
+  que es comentario en MySQL y no en Postgres.
+- **Tres plurales rotos**: «1 sentencias bloquean su tabla», «1 cambios pierden
+  datos» y «1 tablas visibles».
+- **Un texto vencido**: el panel de conexiones decía que la tab Safety «llega en
+  la Iteración 5».
+
+Y dos que **no son bugs sino agujeros de planificación**, los dos encontrados
+por mirar la aplicación y no el código:
+
+- ⏳ **La tab Safety de S03 no la agenda ninguna iteración.** Está
+  deshabilitada con el cartel «Llega en la Iteración 5», que ya pasó, y la 9
+  solo lista «S03 — tabs TLS y Advanced». Mientras tanto el límite de tiempo por
+  sentencia y las otras dos protecciones solo se editan en `connections.toml`
+  —que es lo que hubo que hacer para correr la prueba 3—.
+- ⏳ **`setColumnComment` no se puede crear desde ninguna pantalla.** El
+  changeset sabe renderizarlo y aplicarlo, y `PendingChanges` sabe cómo
+  nombrarlo, pero no hay menú ni campo que lo produzca. Por eso la prueba 4
+  —que existe porque `QuoteString` corrompía las barras invertidas— no se puede
+  hacer: el arreglo está probado contra el motor y no hay forma de llegar a él
+  desde la interfaz.
 
 ### Iteración 7 — Grilla editable
 
@@ -334,12 +348,42 @@ Vistas, funciones, procedures, triggers y enums como editor de definición.
 
 Historial, atajos, drift check, builds Linux/macOS, firma de código.
 
-- **S22 Command palette** — primero: es lo que más se usa.
+- **S22 Command palette** — primero: es lo que más se usa. Hoy el chip
+  «Ctrl K» ya está en la barra de título de S01 y S05 y **no hay ningún handler
+  de teclado en el frontend**: promete algo que no existe. Es lo primero que la
+  paleta arregla.
+- **Botón de desborde en la barra de título**, junto con S22. Se decidió
+  expresamente **no hacer una barra de menús** —Archivo / Edición / Vista—: es
+  la respuesta de 1984 a descubrir acciones, obliga a inventar categorías para
+  cosas que no las tienen («Aplicar changeset» no es Archivo ni Edición), cuesta
+  alto vertical permanente en una pantalla que muestra filas y un diagrama, y
+  como no se usan elementos nativos habría que construirla entera a mano.
+
+  Una barra de menús resuelve tres problemas distintos, y acá cada uno va por
+  su lado: **encontrar cualquier acción** es la paleta; **actuar sobre un
+  objeto** es el menú contextual sobre el objeto, que ya existe en
+  `components/ui` y usa S02; y **lo de la app que nadie hace a diario** —Acerca
+  de, ajustes, dónde está el archivo de conexiones, salir— es este botón de
+  desborde, uno solo.
+
+  **La excepción es macOS**, que exige un menú de app de verdad: Cmd+Q, Cmd+, y
+  Edición→Copiar/Pegar son contratos del sistema. Cuando esta iteración haga
+  ese build va un menú nativo **solo con lo que el sistema obliga**, no un
+  espejo de las funciones de la aplicación.
 - **S21 Query history / saved queries** — segundo.
 - **S20 Drift check** — reutiliza S15 para la SQL de reconciliación.
 - **S23 Settings** — completa, incluido el panel de seguridad y el check de
   updates manual.
-- **S03** — tabs TLS y Advanced.
+- **S03** — tabs TLS, **Safety** y Advanced. Safety quedó huérfana: la
+  Iteración 1 la difirió a la 5, la 5 no la hizo, y hasta ahora esta lista
+  nombraba solo TLS y Advanced —así que el cartel «Llega en la Iteración 5»
+  iba a quedar ahí para siempre—. Mientras no esté, el límite de tiempo por
+  sentencia y las otras dos protecciones se editan en `connections.toml`.
+- **Poner un comentario a una tabla o a una columna.** `setColumnComment` y
+  `setTableComment` ya existen en el changeset y se aplican bien; lo que falta
+  es la forma de crearlos —un ítem en el menú contextual de la columna, junto a
+  «Renombrar»—. Sin eso, el arreglo de `QuoteString` con
+  `NO_BACKSLASH_ESCAPES` no se puede comprobar desde la aplicación.
 - **S24** — variante "unsaved changes on tab close".
 - Tema claro de S05, S06, S12 y S15 — al final, no al principio.
 - **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
@@ -894,6 +938,24 @@ Y lo que el ensayo **no** promete, dicho en la propia pantalla: hace el mismo
 trabajo que el apply —incluidas las reescrituras de tabla enteras— y toma los
 mismos candados, así que contra una tabla grande sale lo mismo que aplicar y
 después hay que aplicar igual; y entre el ensayo y el apply la base sigue viva.
+
+---
+
+**El editor SQL hablaba PostgreSQL contra los cuatro motores.** El `dialect` de
+CodeMirror estaba fijo en `PostgreSQL` y la barra de estado decía «dialecto
+PostgreSQL» estando conectado a MySQL 9.7. Lo encontró una prueba manual, no un
+test: la costura de Go estaba bien, la pantalla no.
+
+No es cosmético. El dialecto decide qué es palabra reservada, cómo se citan los
+identificadores —acento invertido en MySQL, comilla doble en los otros—, si `#`
+abre un comentario y qué ofrece el autocompletado. Ahora sale del motor de la
+conexión abierta, y **MariaDB usa su propio dialecto**, que en CodeMirror no es
+el de MySQL: divergen en palabras reservadas, igual que divergen los motores.
+
+De paso, `nombreDeMotor` estaba copiado en dos pantallas y este cambio iba a
+poner una tercera copia. Tres copias de un switch de cuatro casos es donde
+alguien agrega un motor y arregla dos: se movió a `lib/motor.ts` junto con el
+dialecto.
 
 ---
 

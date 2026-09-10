@@ -451,7 +451,10 @@ func TestElChangesetAvisaDeLoQueVaACostar(t *testing.T) {
 		t.Fatal(err)
 	}
 	junto := strings.Join(v.Warnings, " | ")
-	if !strings.Contains(junto, "bloquean") {
+	// "bloquea" y no "bloquean": el aviso concuerda en número, y acá hay UNA
+	// sentencia. Buscar la forma plural ataba el test a la redacción de un caso
+	// que no es el que arma.
+	if !strings.Contains(junto, "bloquea su tabla") {
 		t.Errorf("falta el aviso de bloqueo: %q", junto)
 	}
 	if !strings.Contains(junto, "irreversible") {

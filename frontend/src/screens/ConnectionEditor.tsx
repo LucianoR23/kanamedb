@@ -732,7 +732,9 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
             </span>
             <span className={styles.testDetail}>
               {test.ok && test.server
-                ? `${test.server.display} · ${test.server.latencyMs} ms · ${test.server.visibleTables} tablas visibles`
+                ? `${test.server.display} · ${test.server.latencyMs} ms · ${test.server.visibleTables} ${
+                    test.server.visibleTables === 1 ? "tabla visible" : "tablas visibles"
+                  }`
                 : (test.failure?.hint ?? "")}
             </span>
             <span className={styles.spacer} />

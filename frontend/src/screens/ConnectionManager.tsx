@@ -414,9 +414,9 @@ function Detail({
             <SafetyRow on={c.safety.blockDropTruncate} label="Bloquear DROP y TRUNCATE" />
           </ul>
           <p className={styles.safetyNote}>
-            Solo lectura se cambia acá. Las otras tres se configuran en la tab Safety del
-            editor, que llega en la Iteración 5; hasta entonces se editan en
-            connections.toml, y los valores ya se guardan y se respetan.
+            Solo lectura se cambia acá. Las otras tres se editan por ahora en
+            connections.toml —los valores se guardan y se respetan— y van a tener su tab
+            en el editor.
           </p>
         </section>
       </div>

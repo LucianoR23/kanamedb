@@ -15,6 +15,7 @@ import {
 } from "../components/ui";
 import { SqlPreview } from "./SqlPreview";
 import { cx } from "../lib/cx";
+import { nombreDeMotor } from "../lib/motor";
 import styles from "./PendingChanges.module.css";
 
 /** Los filtros de la tira de arriba. */
@@ -49,19 +50,6 @@ function textoDeTransaccion(vista: ChangesetView, transaccion: boolean): string 
   return `${nombreDeMotor(vista.engine)} no revierte cambios de esquema: van en ${vista.tramos} tramos`;
 }
 
-function nombreDeMotor(k: string): string {
-  switch (k) {
-    case "postgres":
-      return "PostgreSQL";
-    case "mysql":
-      return "MySQL";
-    case "mariadb":
-      return "MariaDB";
-    case "sqlite":
-      return "SQLite";
-  }
-  return "El motor";
-}
 
 export function PendingChanges({
   active,

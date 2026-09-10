@@ -400,6 +400,7 @@ export function Shell({
                       statementTimeoutSeconds={session?.statementTimeoutSeconds ?? 0}
                       rowLimit={session?.rowLimit ?? 0}
                       connectionLabel={session?.describe ?? ""}
+                      engine={session?.server?.engine ?? ""}
                     />
                   )}
                 </div>
