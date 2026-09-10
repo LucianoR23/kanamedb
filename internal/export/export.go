@@ -36,10 +36,19 @@ const (
 	// una tabla grande.
 	JSONL    Format = "jsonl"
 	Markdown Format = "markdown"
+	// SQL son INSERTs que se pueden volver a correr. Necesita saber a qué
+	// tabla y cómo cita el motor, así que no sale de New sino de NewInto.
+	SQL Format = "sql"
 )
 
 // Formats es la lista en el orden en que se ofrece.
-var Formats = []Format{CSV, JSON, JSONL, Markdown}
+var Formats = []Format{CSV, JSON, JSONL, Markdown, SQL}
+
+// NeedsTable dice si el formato necesita saber de qué tabla salen las filas.
+//
+// El resultado de una consulta no tiene tabla —puede ser un join de tres— así
+// que el editor no puede ofrecer este formato. Exportar una tabla sí.
+func (f Format) NeedsTable() bool { return f == SQL }
 
 // Extension es la extensión del archivo, con punto.
 func (f Format) Extension() string {
@@ -52,6 +61,8 @@ func (f Format) Extension() string {
 		return ".jsonl"
 	case Markdown:
 		return ".md"
+	case SQL:
+		return ".sql"
 	}
 	return ""
 }
@@ -112,8 +123,16 @@ type Writer interface {
 	End() error
 }
 
-// New arma el escritor de un formato sobre w.
+// New arma el escritor de un formato que no necesita tabla.
 func New(f Format, w io.Writer, o Options) (Writer, error) {
+	return NewInto(f, w, o, nil)
+}
+
+// NewInto arma el escritor sabiendo a qué tabla van las filas.
+//
+// `t` solo hace falta para el formato SQL; los demás lo ignoran. Sin él, SQL
+// devuelve un error en vez de escribir un archivo sin nombre de tabla.
+func NewInto(f Format, w io.Writer, o Options, t *SQLTarget) (Writer, error) {
 	o, err := o.normalizada()
 	if err != nil {
 		return nil, err
@@ -135,6 +154,11 @@ func New(f Format, w io.Writer, o Options) (Writer, error) {
 		interno = &escritorJSON{w: bw, lineas: true}
 	case Markdown:
 		interno = &escritorMarkdown{w: bw, o: o}
+	case SQL:
+		if t == nil {
+			return nil, fmt.Errorf("el formato SQL necesita saber a qué tabla insertar")
+		}
+		interno = &escritorSQL{w: bw, o: o, t: *t}
 	default:
 		return nil, fmt.Errorf("formato de exportación desconocido: %q", string(f))
 	}

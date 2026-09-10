@@ -125,7 +125,36 @@ func TestExportPreviewYRender(t *testing.T) {
 
 func TestExportFormats(t *testing.T) {
 	fs := NewExports(nil).Formats()
-	if len(fs) != 4 || fs[0].Key != export.CSV || fs[0].Extension != ".csv" || fs[3].Extension != ".md" {
+	if len(fs) != 5 || fs[0].Key != export.CSV || fs[0].Extension != ".csv" || fs[3].Extension != ".md" {
 		t.Fatalf("formatos: %+v", fs)
+	}
+	// Solo el SQL necesita tabla, y es el que el editor no puede ofrecer.
+	for _, f := range fs {
+		if f.NeedsTable != (f.Key == export.SQL) {
+			t.Errorf("%s dice needsTable=%v", f.Key, f.NeedsTable)
+		}
+	}
+}
+
+// TestElResultadoDelEditorNoAceptaElFormatoSQL: una consulta puede venir de
+// tres tablas o de ninguna, así que no hay a cuál insertar.
+func TestElResultadoDelEditorNoAceptaElFormatoSQL(t *testing.T) {
+	e := NewExports(nil)
+	r := resultadoDePrueba()
+	r.Format = export.SQL
+
+	if _, err := e.Render(r); err == nil {
+		t.Error("Render() aceptó el formato SQL para un resultado")
+	}
+	if _, err := e.Preview(r, 2); err == nil {
+		t.Error("Preview() aceptó el formato SQL para un resultado")
+	}
+	dir := t.TempDir()
+	ruta := filepath.Join(dir, "x.sql")
+	if _, err := e.Save(r, ruta); err == nil {
+		t.Error("Save() aceptó el formato SQL para un resultado")
+	}
+	if _, err := os.Stat(ruta); !os.IsNotExist(err) {
+		t.Error("el rechazo dejó un archivo")
 	}
 }

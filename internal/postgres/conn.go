@@ -119,6 +119,15 @@ func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement,
 	return RenderDDL(ch)
 }
 
+// Quoting expone el citado de este motor para el formato SQL de la exportación.
+func (c *Conn) Quoting() engine.Quoting {
+	return engine.Quoting{
+		Table:   dialectoDML.Table,
+		Ident:   dialectoDML.QuoteIdent,
+		Literal: dialectoDML.QuoteLiteral,
+	}
+}
+
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
 }

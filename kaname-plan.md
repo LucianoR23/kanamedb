@@ -328,13 +328,14 @@ lo que entra y sale de la grilla.
   tabla no entra en la cuenta. `engine.Conn.Scan` es la costura, con su caso
   en la batería que todo motor pasa. Probado a mano en los cuatro motores el
   2026-09-10.
-- ⏳ **S19 — varias tablas y el formato «SQL inserts».** Varias no es otra
-  función: es la misma en un bucle más un selector. Lo que hay que decidir es
-  el formato del conjunto (un directorio de CSVs, un `.sql` con INSERTs, un
-  zip). «SQL inserts» necesita el citado por motor, que ya existe en
-  `dml.Dialect`. El alcance «filtro actual» entra cuando existan los filtros
-  por columna, que son otra unidad de esta misma iteración; «Schema only» del
-  diseño va con el volcado, que es donde vive la cobertura declarada.
+- ✅ **S19 — varias tablas y el formato «SQL inserts».** El alcance «todas las
+  del esquema» y un quinto formato que escribe INSERTs que se pueden volver a
+  correr. **El formato del conjunto lo decide el formato de cada tabla**: con
+  SQL todo va a UN archivo, porque un volcado que se pueda correr es un solo
+  script; con los demás va un archivo POR TABLA en una carpeta, porque un CSV
+  con tres tablas adentro no lo lee nadie. El zip se descartó: no se puede
+  mirar sin abrirlo y no ahorra nada que el disco no ahorre solo. «Schema only»
+  del diseño va con el volcado, que es donde vive la cobertura declarada.
 - ⏳ **El visor: la fila entera como JSON, el modo Items y los botones del
   pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
   menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
@@ -1075,6 +1076,38 @@ después falla: lo escrito queda con el array de JSON **abierto**, no cerrado
 como si estuviera entero. La primera inyección que escribí no ponía nada en
 rojo —el test cancelaba antes de que el recorrido arrancara— y eso era
 justamente un test que no podía fallar.
+
+**El formato SQL es el único lugar donde un valor de fila se escribe adentro de
+la SQL.** Y es legítimo, porque esa SQL **no la ejecuta Kaname**: es un archivo
+que alguien va a leer y, si quiere, correr en otro lado. Todo lo que Kaname
+ejecuta sigue yendo con parámetros. Para que el archivo sirva hacían falta tres
+cosas que no son obvias:
+
+- **Citar como cita el motor.** Sale de la costura: `Conn.Quoting()` devuelve
+  las tres funciones —tabla, identificador, literal— y `engine` no se entera de
+  qué formatos hay. En MySQL el citado de literales depende del SERVIDOR
+  —`NO_BACKSLASH_ESCAPES`—, así que se pide a la conexión y no a una función
+  suelta.
+- **Lotes de 500 filas por INSERT.** Ni una por fila —un millón de sentencias
+  tarda una eternidad en volver a entrar— ni todas juntas, que se pasa del
+  tamaño máximo de paquete y además deja un archivo de una sola línea de 200 MB
+  que no se puede ni mirar. Es lo que usan los volcados de MySQL. El último lote
+  se cierra con punto y coma aunque no esté lleno: sin eso el archivo no se
+  puede correr, y se ve igual que uno completo.
+- **Una tabla vacía no escribe nada.** Un `INSERT … VALUES` sin filas no es SQL
+  válida.
+
+**El resultado del editor no puede exportarse como SQL.** Una consulta puede ser
+un join de tres tablas o un `select 1`: no hay a cuál insertar. El formato
+declara `NeedsTable` y la interfaz no lo ofrece ahí — y el servicio lo rechaza
+igual, porque lo que la interfaz no ofrece hoy lo puede ofrecer mañana por
+error.
+
+**Con varias tablas, si una falla se dice cuáles quedaron.** No se borran las
+anteriores: son archivos enteros y correctos, y quien exportó puede querer
+quedárselos. Con el formato que junta todo es al revés —el script se arma en un
+temporal y solo toma el nombre elegido si terminó—, porque un volcado a medias
+que parece completo es peor que ninguno.
 
 **Los filtros: catorce operadores, y ninguno que no sepan los cuatro motores.**
 `ILIKE` es de Postgres y las expresiones regulares las escribe cada uno a su

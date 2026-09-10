@@ -83,10 +83,22 @@
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   height: 28px;
   padding: 0 12px;
-  background: var(--bg-hover);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
 }
+.alcance:hover { background: var(--bg-hover); }
+.alcanceElegido { background: var(--bg-hover); }
+.alcanceRadioApagado {
+  border-color: var(--border-strong);
+  background: var(--bg-inset);
+}
+.alcanceRadioApagado > span { background: transparent; }
 .alcanceRadio {
   flex: none;
   display: inline-flex;

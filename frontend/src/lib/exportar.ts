@@ -48,6 +48,13 @@ export const FORMATOS: readonly FormatoInfo[] = [
     nota: "documentos y tickets",
     opciones: ["nullEmpty", "gzip"],
   },
+  {
+    key: Format.SQL,
+    tag: "SQL",
+    label: "INSERTs",
+    nota: "para volver a cargarlo",
+    opciones: ["gzip"],
+  },
 ];
 
 export const DELIMITADORES: readonly { valor: string; label: string }[] = [
@@ -92,6 +99,28 @@ export async function elegirDestino(nombre: string, extension: string, gzip: boo
   } catch (err) {
     if (cancelado(err)) return "";
     throw new Error(`No se pudo abrir el selector de archivos del sistema. (${textoDe(err)})`);
+  }
+}
+
+/**
+ * elegirCarpeta abre el selector de carpetas del sistema.
+ *
+ * Con varias tablas y un formato que no las junta, el destino es una CARPETA:
+ * un CSV con tres tablas adentro no lo lee nadie, así que va un archivo por
+ * tabla. Devuelve la cadena vacía si la persona cancela.
+ */
+export async function elegirCarpeta(): Promise<string> {
+  try {
+    const ruta = await Dialogs.OpenFile({
+      Title: "Elegir la carpeta donde guardar",
+      CanChooseDirectories: true,
+      CanChooseFiles: false,
+      CanCreateDirectories: true,
+    });
+    return ruta ?? "";
+  } catch (err) {
+    if (cancelado(err)) return "";
+    throw new Error(`No se pudo abrir el selector de carpetas del sistema. (${textoDe(err)})`);
   }
 }
 

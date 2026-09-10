@@ -44,13 +44,17 @@ type ResultExport struct {
 type FormatInfo struct {
 	Key       export.Format `json:"key"`
 	Extension string        `json:"extension"`
+	// NeedsTable dice que el formato necesita saber de qué tabla salen las
+	// filas, y que por lo tanto no sirve para el resultado del editor: una
+	// consulta puede ser un join de tres tablas y no hay a cuál insertar.
+	NeedsTable bool `json:"needsTable"`
 }
 
 // Formats lista los formatos en el orden en que se ofrecen.
 func (e *Exports) Formats() []FormatInfo {
 	out := make([]FormatInfo, 0, len(export.Formats))
 	for _, f := range export.Formats {
-		out = append(out, FormatInfo{Key: f, Extension: f.Extension()})
+		out = append(out, FormatInfo{Key: f, Extension: f.Extension(), NeedsTable: f.NeedsTable()})
 	}
 	return out
 }
@@ -60,11 +64,17 @@ func (e *Exports) Preview(r ResultExport, limit int) (string, error) {
 	if limit <= 0 {
 		return "", errors.New("la vista previa necesita un límite de filas")
 	}
+	if err := sirveParaUnResultado(r.Format); err != nil {
+		return "", err
+	}
 	return export.Render(r.Format, r.Options, r.Columns, r.Rows, limit)
 }
 
 // Render devuelve el texto entero, para el portapapeles.
 func (e *Exports) Render(r ResultExport) (string, error) {
+	if err := sirveParaUnResultado(r.Format); err != nil {
+		return "", err
+	}
 	return export.Render(r.Format, r.Options, r.Columns, r.Rows, 0)
 }
 
@@ -77,9 +87,25 @@ type SaveInfo struct {
 
 // Save escribe el resultado del editor en path.
 func (e *Exports) Save(r ResultExport, path string) (SaveInfo, error) {
+	if err := sirveParaUnResultado(r.Format); err != nil {
+		return SaveInfo{}, err
+	}
 	return e.guardar(path, func(w io.Writer) (int, error) {
 		return export.Write(r.Format, w, r.Options, r.Columns, r.Rows, 0)
 	})
+}
+
+// sirveParaUnResultado rechaza los formatos que necesitan una tabla.
+//
+// El resultado del editor puede ser un join de tres tablas o `select 1`: no hay
+// a qué insertar. La interfaz no lo ofrece, y acá se comprueba igual, porque lo
+// que la interfaz no ofrece hoy lo puede ofrecer mañana por error.
+func sirveParaUnResultado(f export.Format) error {
+	if f.NeedsTable() {
+		return fmt.Errorf("el formato %s necesita una tabla, y el resultado de una consulta no tiene una: "+
+			"puede venir de varias, o de ninguna", string(f))
+	}
+	return nil
 }
 
 // guardar escribe en un archivo temporal del mismo directorio y lo renombra al
@@ -205,7 +231,7 @@ func (e *Exports) volcar(
 	}
 	defer flujo.Close()
 
-	esc, err := export.New(r.Format, w, opts)
+	esc, err := export.NewInto(r.Format, w, opts, destinoDe(sesion, r.Schema, r.Table))
 	if err != nil {
 		return 0, err
 	}
@@ -249,9 +275,168 @@ func volcarFlujo(flujo engine.RowStream, esc export.Writer, limit int) (int, err
 	return n, nil
 }
 
+// destinoDe arma lo que el formato SQL necesita: a qué tabla y cómo cita este
+// motor. Los demás formatos lo ignoran.
+func destinoDe(sesion *openSession, esquema, tabla string) *export.SQLTarget {
+	q := sesion.db.Quoting()
+	return &export.SQLTarget{
+		Table:        q.Table(esquema, tabla),
+		QuoteIdent:   q.Ident,
+		QuoteLiteral: q.Literal,
+	}
+}
+
 func nombreDeTabla(esquema, tabla string) string {
 	if esquema == "" {
 		return tabla
 	}
 	return esquema + "." + tabla
+}
+
+/* ---------------------------------------------------------- varias tablas */
+
+// TablesExport son varias tablas exportadas de una vez.
+//
+// El formato del CONJUNTO no es una decisión libre: depende del formato de cada
+// tabla. Con SQL todo va a UN archivo, porque un volcado que se pueda volver a
+// correr es un solo script; con los demás va un archivo POR TABLA en un
+// directorio, porque un CSV con tres tablas adentro no lo lee nadie. Un zip se
+// descartó: no se puede inspeccionar sin abrirlo y no ahorra nada que el disco
+// no ahorre solo.
+type TablesExport struct {
+	RunID  string `json:"runId"`
+	Schema string `json:"schema"`
+	// Tables son los nombres, sin esquema. Vacío es un error: exportar «nada»
+	// escribiría un directorio vacío sin decir por qué.
+	Tables []string `json:"tables"`
+
+	Format  export.Format  `json:"format"`
+	Options export.Options `json:"options"`
+}
+
+// TablesInfo cuenta cómo quedó una exportación de varias tablas.
+type TablesInfo struct {
+	// Path es el archivo, o el directorio si fue uno por tabla.
+	Path  string     `json:"path"`
+	Files []SaveInfo `json:"files"`
+	Rows  int        `json:"rows"`
+	Bytes int64      `json:"bytes"`
+}
+
+// OneFile dice si el formato junta todas las tablas en un archivo.
+func OneFile(f export.Format) bool { return f == export.SQL }
+
+// SaveTables exporta varias tablas.
+//
+// `destino` es un archivo cuando el formato junta todo —SQL— y un directorio
+// que ya existe cuando va una por tabla.
+func (e *Exports) SaveTables(ctx context.Context, r TablesExport, destino string) (TablesInfo, error) {
+	if len(r.Tables) == 0 {
+		return TablesInfo{}, errors.New("no se eligió ninguna tabla")
+	}
+	if destino == "" {
+		return TablesInfo{}, errors.New("falta dónde guardar")
+	}
+	if OneFile(r.Format) {
+		return e.aUnArchivo(ctx, r, destino)
+	}
+	return e.aUnDirectorio(ctx, r, destino)
+}
+
+// aUnArchivo escribe todas las tablas en un solo script.
+//
+// El archivo se arma entero en un temporal y recién al final toma el nombre
+// elegido, igual que una tabla sola: si la tercera de cinco falla, no queda un
+// script a medias que parece completo.
+func (e *Exports) aUnArchivo(ctx context.Context, r TablesExport, destino string) (TablesInfo, error) {
+	info := TablesInfo{Path: destino}
+	total, err := e.guardar(destino, func(w io.Writer) (int, error) {
+		suma := 0
+		for _, t := range r.Tables {
+			n, err := e.volcar(ctx, TableExport{
+				RunID:   r.RunID,
+				Schema:  r.Schema,
+				Table:   t,
+				Format:  r.Format,
+				Options: sinComprimir(r.Options),
+				OrderBy: nil,
+			}, sinComprimir(r.Options), w, 0)
+			if err != nil {
+				return suma, err
+			}
+			info.Files = append(info.Files, SaveInfo{Path: destino, Rows: n})
+			suma += n
+		}
+		return suma, nil
+	})
+	if err != nil {
+		return TablesInfo{}, err
+	}
+	info.Rows = total.Rows
+	info.Bytes = total.Bytes
+	return info, nil
+}
+
+// sinComprimir apaga el gzip de cada tabla: cuando todo va a un archivo, el
+// gzip lo pone `guardar` una sola vez alrededor de todo. Comprimir tabla por
+// tabla dejaría varios miembros gzip pegados, que se descomprimen bien pero
+// confunden a cualquiera que mire el archivo.
+func sinComprimir(o export.Options) export.Options {
+	o.Gzip = false
+	return o
+}
+
+// aUnDirectorio escribe un archivo por tabla.
+func (e *Exports) aUnDirectorio(ctx context.Context, r TablesExport, dir string) (TablesInfo, error) {
+	st, err := os.Stat(dir)
+	if err != nil {
+		return TablesInfo{}, fmt.Errorf("no se pudo usar la carpeta %s: %w", dir, err)
+	}
+	if !st.IsDir() {
+		return TablesInfo{}, fmt.Errorf("%s no es una carpeta", dir)
+	}
+	ext := r.Format.Extension()
+	if r.Options.Gzip {
+		ext += ".gz"
+	}
+
+	info := TablesInfo{Path: dir}
+	for _, t := range r.Tables {
+		ruta := filepath.Join(dir, archivoDeTabla(t)+ext)
+		uno, err := e.SaveTable(ctx, TableExport{
+			RunID:   r.RunID,
+			Schema:  r.Schema,
+			Table:   t,
+			Format:  r.Format,
+			Options: r.Options,
+		}, ruta)
+		if err != nil {
+			// Se corta en la primera que falla y se dice cuáles quedaron
+			// escritas. Borrar las anteriores sería peor: son archivos enteros
+			// y correctos, y quien exportó puede querer quedárselos.
+			return info, fmt.Errorf("%w (quedaron escritas %d de %d)", err, len(info.Files), len(r.Tables))
+		}
+		info.Files = append(info.Files, uno)
+		info.Rows += uno.Rows
+		info.Bytes += uno.Bytes
+	}
+	return info, nil
+}
+
+// archivoDeTabla saca de un nombre de tabla lo que ningún sistema de archivos
+// acepta. Una tabla puede llamarse `pedidos/2026` — es raro pero es legal.
+func archivoDeTabla(tabla string) string {
+	limpio := make([]rune, 0, len(tabla))
+	for _, r := range tabla {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			limpio = append(limpio, '-')
+		default:
+			limpio = append(limpio, r)
+		}
+	}
+	if len(limpio) == 0 {
+		return "tabla"
+	}
+	return string(limpio)
 }

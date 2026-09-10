@@ -1,0 +1,118 @@
+package export
+
+import (
+	"bufio"
+	"fmt"
+
+	"github.com/LucianoR23/kanamedb/internal/query"
+)
+
+// SQLTarget es lo que el formato SQL necesita y los demás no: a qué tabla
+// insertar y cómo cita este motor.
+//
+// Se recibe como funciones y no como un `dml.Dialect` para que `export` no
+// dependa de cómo se arma el DML: lo único que hace falta acá es citar, y
+// citar es distinto en cada motor.
+type SQLTarget struct {
+	// Table es el nombre de la tabla ya calificado y citado por el motor.
+	Table string
+	// QuoteIdent cita el nombre de una columna.
+	QuoteIdent func(string) string
+	// QuoteLiteral cita un texto como literal.
+	QuoteLiteral func(string) string
+}
+
+// filasPorSentencia es cuántas filas entran en cada INSERT.
+//
+// Ni una por fila —un millón de sentencias tarda una eternidad en volver a
+// entrar— ni todas juntas: un INSERT gigante puede pasarse del tamaño máximo
+// de paquete del servidor, y además un archivo de una sola línea de 200 MB no
+// se puede ni mirar. Quinientas es lo que usan los volcados de MySQL.
+const filasPorSentencia = 500
+
+// escritorSQL escribe INSERTs que se pueden volver a correr.
+//
+// Es el ÚNICO lugar del proyecto donde el valor de una fila se escribe adentro
+// de la SQL, y es legítimo porque acá la SQL no se ejecuta: es un archivo que
+// alguien va a leer y, si quiere, correr en otro lado. Todo lo que Kaname
+// ejecuta va con parámetros. Ver CLAUDE.md y `internal/dml`.
+type escritorSQL struct {
+	w *bufio.Writer
+	o Options
+	t SQLTarget
+
+	columnas []query.Column
+	cabecera string
+	enLote   int
+	buf      []byte
+}
+
+func (e *escritorSQL) Begin(cols []query.Column) error {
+	e.columnas = cols
+	nombres := make([]byte, 0, 64)
+	for i, c := range cols {
+		if i > 0 {
+			nombres = append(nombres, ", "...)
+		}
+		nombres = append(nombres, e.t.QuoteIdent(c.Name)...)
+	}
+	e.cabecera = fmt.Sprintf("INSERT INTO %s (%s) VALUES\n", e.t.Table, nombres)
+	return nil
+}
+
+func (e *escritorSQL) Row(vals []*string) error {
+	if len(vals) != len(e.columnas) {
+		return fmt.Errorf("la fila tiene %d valores y el resultado %d columnas", len(vals), len(e.columnas))
+	}
+	e.buf = e.buf[:0]
+	switch {
+	case e.enLote == 0:
+		e.buf = append(e.buf, e.cabecera...)
+	default:
+		e.buf = append(e.buf, ",\n"...)
+	}
+	e.buf = append(e.buf, '(')
+	for i, v := range vals {
+		if i > 0 {
+			e.buf = append(e.buf, ", "...)
+		}
+		e.buf = e.literal(e.buf, e.columnas[i].Class, v)
+	}
+	e.buf = append(e.buf, ')')
+
+	e.enLote++
+	if e.enLote >= filasPorSentencia {
+		e.buf = append(e.buf, ";\n"...)
+		e.enLote = 0
+	}
+	if _, err := e.w.Write(e.buf); err != nil {
+		return fmt.Errorf("escribir el SQL: %w", err)
+	}
+	return nil
+}
+
+func (e *escritorSQL) End() error {
+	if e.enLote > 0 {
+		if _, err := e.w.WriteString(";\n"); err != nil {
+			return fmt.Errorf("escribir el SQL: %w", err)
+		}
+		e.enLote = 0
+	}
+	return nil
+}
+
+// literal escribe el valor como lo escribiría alguien a mano.
+//
+// La regla es la misma que en JSON, y por el mismo motivo: solo se escribe sin
+// comillas lo que es inequívoco. Una columna numérica cuyo texto es un número
+// va sin comillas; todo lo demás va citado, que es lo que hace que el archivo
+// se pueda volver a correr aunque el tipo de la columna cambie. NULL es NULL.
+func (e *escritorSQL) literal(b []byte, clase query.Class, v *string) []byte {
+	if v == nil {
+		return append(b, "NULL"...)
+	}
+	if clase == query.ClassNumber && numeroJSON.MatchString(*v) {
+		return append(b, *v...)
+	}
+	return append(b, e.t.QuoteLiteral(*v)...)
+}

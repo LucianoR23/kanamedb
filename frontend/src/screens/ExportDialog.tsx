@@ -6,6 +6,7 @@ import type {
   FormatInfo,
   ResultExport,
   TableExport,
+  TablesExport,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import * as ExportsSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/exports";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
@@ -15,6 +16,7 @@ import { textoDe } from "../lib/dialogos";
 import {
   DELIMITADORES,
   FORMATOS,
+  elegirCarpeta,
   elegirDestino,
   nombreDeArchivo,
   opcionesPorDefecto,
@@ -68,6 +70,8 @@ export type OrigenExport =
       orderBy?: string[];
       /** El filtro que está puesto en la grilla, si hay alguno. */
       where?: Condition[];
+      /** Las demás tablas del esquema, para el alcance «todas». */
+      tablasDelEsquema?: readonly string[];
     };
 
 /**
@@ -100,6 +104,9 @@ export function ExportDialog({
   const [formato, setFormato] = useState<Format>(Format.CSV);
   const [opciones, setOpciones] = useState<Options>(opcionesPorDefecto);
   const [formatos, setFormatos] = useState<FormatInfo[]>([]);
+  // El alcance solo tiene dos valores hoy: esta tabla, o todas las del
+  // esquema. Con un resultado del editor no hay elección.
+  const [todas, setTodas] = useState(false);
   const [ruta, setRuta] = useState("");
   const [vista, setVista] = useState<Vista>({ fase: "pidiendo" });
   const [estado, setEstado] = useState<Estado>({ fase: "quieto" });
@@ -107,12 +114,32 @@ export function ExportDialog({
   // cancelación y no con el error crudo del contexto muerto.
   const pidioCancelar = useRef(false);
 
+  // Un resultado del editor no tiene tabla, así que los formatos que la
+  // necesitan —SQL— no se ofrecen ahí. Lo dice Go: `needsTable`.
+  const disponibles = FORMATOS.filter(
+    (f) =>
+      origen.tipo === "tabla" ||
+      !(formatos.find((x) => x.key === f.key)?.needsTable ?? false),
+  );
   const info = FORMATOS.find((f) => f.key === formato) ?? FORMATOS[0]!;
   // La extensión la dice Go, y tarda un viaje por el puente. Vacía significa
   // «todavía no llegó», no «este formato no tiene»: sin esperarla, apretar
   // «Elegir…» apenas se abre el diálogo proponía `consulta` sin extensión y
   // escribía el archivo sin `.csv`.
   const extension = formatos.find((f) => f.key === formato)?.extension ?? "";
+  const otrasTablas = origen.tipo === "tabla" ? (origen.tablasDelEsquema ?? []) : [];
+  // Solo el SQL junta todas las tablas en un archivo: un volcado que se pueda
+  // volver a correr es un solo script. Lo decide Go y acá se refleja.
+  const juntaTodo = formato === Format.SQL;
+  // Con varias tablas el destino cambia de forma —un archivo si el formato las
+  // junta, una carpeta si no—, así que la ruta elegida deja de servir.
+  const elegirAlcance = (v: boolean) => {
+    if (v === todas) return;
+    setTodas(v);
+    setRuta("");
+    setEstado({ fase: "quieto" });
+  };
+
   const listo = extension !== "";
   const conFiltro = origen.tipo === "tabla" && (origen.where?.length ?? 0) > 0;
   // Mientras se escribe el archivo no se puede cambiar lo que se está
@@ -146,6 +173,17 @@ export function ExportDialog({
       orderBy: origen.orderBy ?? [],
       descending: false,
       where: origen.where ?? [],
+    };
+  };
+
+  const pedidoDeTablas = (): TablesExport => {
+    if (origen.tipo !== "tabla") throw new Error("no es una tabla");
+    return {
+      runId: runID,
+      schema: origen.schema,
+      tables: [...(origen.tablasDelEsquema ?? [])],
+      format: formato,
+      options: opciones,
     };
   };
 
@@ -200,9 +238,14 @@ export function ExportDialog({
     setEstado({ fase: "quieto" });
   };
 
+  // Con varias tablas y un formato que no las junta, el destino es una CARPETA
+  // y no un archivo: va uno por tabla.
+  const aCarpeta = todas && !juntaTodo;
   const elegir = async (): Promise<string> => {
     try {
-      const r = await elegirDestino(nombreDeArchivo(nombre), extension, opciones.gzip);
+      const r = aCarpeta
+        ? await elegirCarpeta()
+        : await elegirDestino(nombreDeArchivo(nombre), extension, opciones.gzip);
       if (r) setRuta(r);
       return r;
     } catch (err) {
@@ -220,7 +263,9 @@ export function ExportDialog({
       const info =
         origen.tipo === "resultado"
           ? await ExportsSvc.Save(pedidoDeResultado(0), destino)
-          : await ExportsSvc.SaveTable(pedidoDeTabla(), destino);
+          : todas
+            ? await ExportsSvc.SaveTables(pedidoDeTablas(), destino)
+            : await ExportsSvc.SaveTable(pedidoDeTabla(), destino);
       setEstado({ fase: "guardado", ruta: info.path, bytes: info.bytes, filas: info.rows });
     } catch (err) {
       setEstado(
@@ -278,8 +323,11 @@ export function ExportDialog({
       : conFiltro
         ? `${origen.table}, con el filtro puesto`
         : `${origen.table}, entera`;
-  const nota =
-    origen.tipo === "tabla"
+  const nota = todas
+    ? juntaTodo
+      ? `Las ${otrasTablas.length} tablas van a un solo script, una detrás de otra. Es lo que se puede volver a correr.`
+      : `Va un archivo por tabla dentro de la carpeta, con el nombre de cada una. Un ${info.label} con varias tablas adentro no lo lee nadie.`
+    : origen.tipo === "tabla"
       ? (conFiltro
           ? "Se exportan las filas que pasan el filtro de la grilla, no las que están cargadas: se leen del servidor y se escriben al archivo a medida que llegan."
           : "Se lee del servidor y se escribe al archivo a medida que llega: no pasa por la memoria, así que el tamaño de la tabla no es un problema.")
@@ -310,7 +358,11 @@ export function ExportDialog({
             onClick={() => void exportar()}
             disabled={!listo || guardando}
           >
-            {estado.fase === "guardando" ? "Guardando…" : `Exportar ${cuenta}`}
+            {estado.fase === "guardando"
+              ? "Guardando…"
+              : todas
+                ? `Exportar ${otrasTablas.length} ${plural(otrasTablas.length, "tabla", "tablas")}`
+                : `Exportar ${cuenta}`}
           </Button>
         </>
       }
@@ -319,7 +371,7 @@ export function ExportDialog({
         <aside className={styles.lateral}>
           <div className={styles.seccionTitulo}>Formato</div>
           <div role="listbox" aria-label="Formato">
-            {FORMATOS.map((f) => (
+            {disponibles.map((f) => (
               <button
                 type="button"
                 role="option"
@@ -341,13 +393,21 @@ export function ExportDialog({
           </div>
 
           <div className={cx(styles.seccionTitulo, styles.seccionSegunda)}>Alcance</div>
-          <div className={styles.alcance}>
-            <span className={styles.alcanceRadio} aria-hidden="true">
-              <span />
-            </span>
-            <span className={styles.alcanceLabel}>{alcance}</span>
-            <span className={styles.grow} />
-            {filas === null ? null : <span className={styles.dim}>{cuenta}</span>}
+          <div role="radiogroup" aria-label="Alcance">
+            <Alcance
+              elegido={!todas}
+              label={alcance}
+              detalle={filas === null ? "" : cuenta}
+              onElegir={() => elegirAlcance(false)}
+            />
+            {otrasTablas.length > 0 ? (
+              <Alcance
+                elegido={todas}
+                label={`Todas las de ${origen.tipo === "tabla" ? origen.schema || "la base" : ""}`}
+                detalle={`${otrasTablas.length} ${plural(otrasTablas.length, "tabla", "tablas")}`}
+                onElegir={() => elegirAlcance(true)}
+              />
+            ) : null}
           </div>
 
           <span className={styles.grow} />
@@ -358,10 +418,10 @@ export function ExportDialog({
 
         <section className={styles.principal}>
           <div className={styles.ajustes}>
-            <label className={styles.etiqueta}>Guardar en</label>
+            <label className={styles.etiqueta}>{aCarpeta ? "Carpeta" : "Guardar en"}</label>
             <div className={styles.rutaFila}>
               <span className={cx(styles.ruta, !ruta && styles.rutaVacia)} title={ruta}>
-                {ruta || (listo ? "se pregunta al exportar" : "…")}
+                {ruta || (listo ? (aCarpeta ? "se pregunta la carpeta al exportar" : "se pregunta al exportar") : "…")}
               </span>
               <Button size="sm" disabled={!listo || guardando} onClick={() => void elegir()}>
                 Elegir…
@@ -451,7 +511,9 @@ export function ExportDialog({
             <span className={styles.seccionTitulo}>Vista previa</span>
             <span className={styles.grow} />
             <span className={styles.dim}>
-              {filas === 0
+              {todas
+                ? `${origen.tipo === "tabla" ? origen.table : ""}, las primeras ${FILAS_DE_VISTA}`
+                : filas === 0
                 ? "sin filas"
                 : filas === null
                   ? `primeras ${FILAS_DE_VISTA} filas`
@@ -485,6 +547,35 @@ export function ExportDialog({
         </section>
       </div>
     </Dialog>
+  );
+}
+
+function Alcance({
+  elegido,
+  label,
+  detalle,
+  onElegir,
+}: {
+  elegido: boolean;
+  label: string;
+  detalle: string;
+  onElegir: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={elegido}
+      className={cx(styles.alcance, elegido && styles.alcanceElegido)}
+      onClick={onElegir}
+    >
+      <span className={cx(styles.alcanceRadio, !elegido && styles.alcanceRadioApagado)} aria-hidden="true">
+        <span />
+      </span>
+      <span className={styles.alcanceLabel}>{label}</span>
+      <span className={styles.grow} />
+      {detalle ? <span className={styles.dim}>{detalle}</span> : null}
+    </button>
   );
 }
 

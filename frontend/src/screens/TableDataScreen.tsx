@@ -812,6 +812,7 @@ export function TableDataScreen({
             // vuelve a generar mañana tiene que poder compararse con el de hoy.
             orderBy: orderedBy,
             where: filtro,
+            tablasDelEsquema,
           }}
           nombre={table}
           runID={runIDExport}

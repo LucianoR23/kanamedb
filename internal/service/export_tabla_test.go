@@ -267,3 +267,127 @@ func TestElLimiteDeLaVistaPreviaCortaSinSerUnError(t *testing.T) {
 		t.Errorf("el corte por límite no cerró el archivo:\n%s", b.String())
 	}
 }
+
+/* --------------------------------------------------------- varias tablas */
+
+// TestExportarVariasTablasEnLosCuatroMotores.
+//
+// Dos formas distintas según el formato, y es lo que hay que comprobar: con SQL
+// todo va a UN archivo —un volcado que se pueda volver a correr es un solo
+// script— y con los demás va un archivo POR TABLA en un directorio.
+func TestExportarVariasTablasEnLosCuatroMotores(t *testing.T) {
+	for _, caso := range motoresDeDatos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			sesion, c := sesionDe(t, caso.nombre, caso.uri)
+			ctx := context.Background()
+			esq, una := tablaDeDatos(t, sesion, c, "kn_multi_a", true)
+			_, otra := tablaDeDatos(t, sesion, c, "kn_multi_b", true)
+
+			e := NewExports(NewQueries(sesion))
+			base := TablesExport{
+				RunID:  "multi",
+				Schema: esq,
+				Tables: []string{una, otra},
+			}
+
+			// Un archivo por tabla, en un directorio.
+			dir := t.TempDir()
+			base.Format = export.CSV
+			info, err := e.SaveTables(ctx, base, dir)
+			if err != nil {
+				t.Fatalf("SaveTables(csv): %v", err)
+			}
+			if len(info.Files) != 2 || info.Rows != 4 {
+				t.Fatalf("info: %+v", info)
+			}
+			for _, f := range info.Files {
+				b, err := os.ReadFile(f.Path)
+				if err != nil {
+					t.Fatalf("leer %s: %v", f.Path, err)
+				}
+				if !strings.HasPrefix(string(b), "id,nombre\n") {
+					t.Errorf("%s no arranca con el encabezado:\n%s", f.Path, b)
+				}
+			}
+			nombres, _ := filepath.Glob(filepath.Join(dir, "*.csv"))
+			if len(nombres) != 2 {
+				t.Errorf("en la carpeta quedaron %d archivos y se esperaban 2: %v", len(nombres), nombres)
+			}
+
+			// Todo junto, en un script.
+			base.Format = export.SQL
+			ruta := filepath.Join(t.TempDir(), "volcado.sql")
+			info, err = e.SaveTables(ctx, base, ruta)
+			if err != nil {
+				t.Fatalf("SaveTables(sql): %v", err)
+			}
+			if info.Path != ruta || info.Rows != 4 {
+				t.Fatalf("info: %+v", info)
+			}
+			b, err := os.ReadFile(ruta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			texto := string(b)
+			// Las dos tablas, cada una con su INSERT y su punto y coma.
+			if n := strings.Count(texto, "INSERT INTO"); n != 2 {
+				t.Errorf("el script tiene %d INSERT y se esperaban 2:\n%s", n, texto)
+			}
+			for _, tab := range []string{una, otra} {
+				if !strings.Contains(texto, tab) {
+					t.Errorf("el script no nombra a %s:\n%s", tab, texto)
+				}
+			}
+			if strings.Count(texto, ";\n") != 2 {
+				t.Errorf("faltan puntos y coma: un script sin cerrar no se puede correr:\n%s", texto)
+			}
+			// Y las filas están como literales, que es lo que hace que el
+			// script sirva: es el único lugar donde un valor va en la SQL.
+			if !strings.Contains(texto, "'uno'") {
+				t.Errorf("el script no trae los valores:\n%s", texto)
+			}
+		})
+	}
+}
+
+func TestSaveTablesSeNiegaSinTablasOSinDestino(t *testing.T) {
+	e := NewExports(nil)
+	ctx := context.Background()
+	if _, err := e.SaveTables(ctx, TablesExport{Format: export.CSV}, t.TempDir()); err == nil {
+		t.Error("aceptó exportar cero tablas")
+	}
+	if _, err := e.SaveTables(ctx, TablesExport{Format: export.CSV, Tables: []string{"t"}}, ""); err == nil {
+		t.Error("aceptó exportar sin destino")
+	}
+}
+
+// TestUnaCarpetaQueNoExisteSeDiceAntesDeEmpezar: sin esto, la primera tabla
+// fallaría al escribir y el mensaje hablaría de la tabla y no de la carpeta.
+func TestUnaCarpetaQueNoExisteSeDiceAntesDeEmpezar(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq, tabla := tablaDeDatos(t, sesion, c, "kn_multi_dir", true)
+
+	e := NewExports(NewQueries(sesion))
+	_, err := e.SaveTables(ctx, TablesExport{
+		RunID: "m2", Schema: esq, Tables: []string{tabla}, Format: export.CSV,
+	}, filepath.Join(t.TempDir(), "no-existe"))
+	if err == nil || !strings.Contains(err.Error(), "carpeta") {
+		t.Fatalf("error: %v", err)
+	}
+}
+
+func TestElNombreDelArchivoSaleDelNombreDeLaTabla(t *testing.T) {
+	casos := map[string]string{
+		"pedidos":      "pedidos",
+		"pedidos/2026": "pedidos-2026",
+		`a\b:c*d?e"f`:  "a-b-c-d-e-f",
+		"<x>|y":        "-x--y",
+		"":             "tabla",
+	}
+	for entra, sale := range casos {
+		if got := archivoDeTabla(entra); got != sale {
+			t.Errorf("archivoDeTabla(%q) = %q, quería %q", entra, got, sale)
+		}
+	}
+}

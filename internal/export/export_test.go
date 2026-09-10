@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -268,7 +269,7 @@ func TestGzipEscribeUnArchivoQueSeDescomprime(t *testing.T) {
 
 func TestUnaFilaConOtraCantidadDeColumnasEsUnError(t *testing.T) {
 	for _, f := range Formats {
-		esc, err := New(f, io.Discard, Options{})
+		esc, err := NewInto(f, io.Discard, Options{}, &destinoDePrueba)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -282,7 +283,7 @@ func TestUnaFilaConOtraCantidadDeColumnasEsUnError(t *testing.T) {
 }
 
 func TestExtension(t *testing.T) {
-	want := map[Format]string{CSV: ".csv", JSON: ".json", JSONL: ".jsonl", Markdown: ".md"}
+	want := map[Format]string{CSV: ".csv", JSON: ".json", JSONL: ".jsonl", Markdown: ".md", SQL: ".sql"}
 	for _, f := range Formats {
 		if f.Extension() != want[f] {
 			t.Fatalf("%s: %q", f, f.Extension())
@@ -355,5 +356,98 @@ func TestSoloElCSVNeutralizaFormulas(t *testing.T) {
 		if !strings.Contains(got, "=1+1") || strings.Contains(got, "'=1+1") {
 			t.Errorf("%s cambió el valor: %q", f, got)
 		}
+	}
+}
+
+/* ------------------------------------------------------------ formato SQL */
+
+// destinoDePrueba cita como Postgres.
+var destinoDePrueba = SQLTarget{
+	Table:        `public."pedidos"`,
+	QuoteIdent:   func(s string) string { return `"` + s + `"` },
+	QuoteLiteral: func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" },
+}
+
+func sql(t *testing.T, o Options, cols []query.Column, rows [][]*string) string {
+	t.Helper()
+	var b strings.Builder
+	e, err := NewInto(SQL, &b, o, &destinoDePrueba)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Begin(cols); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range rows {
+		if err := e.Row(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.End(); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+func TestSQLEscribeInsertsQueSePuedenVolverACorrer(t *testing.T) {
+	got := sql(t, Options{}, columnas, filas)
+	want := `INSERT INTO public."pedidos" ("id", "nombre", "activo", "extra") VALUES` + "\n" +
+		`(1, 'Ana', 't', '{"a": 1}'),` + "\n" +
+		`(2, '', 'f', NULL),` + "\n" +
+		`(3, NULL, NULL, 'no es json');` + "\n"
+	if got != want {
+		t.Fatalf("SQL:\n%s\nquería:\n%s", got, want)
+	}
+}
+
+// TestSQLCitaLoQueRompeElArchivo: es el único lugar donde un valor se escribe
+// adentro de la SQL, así que la comilla simple tiene que quedar escapada.
+func TestSQLCitaLoQueRompeElArchivo(t *testing.T) {
+	cols := []query.Column{{Name: "n", Class: query.ClassText}, {Name: "x", Class: query.ClassNumber}}
+	rows := [][]*string{
+		{p("O'Brien"), p("1")},
+		{p("'); drop table pedidos; --"), p("2")},
+		{p("dos\nlíneas"), p("NaN")},
+	}
+	got := sql(t, Options{}, cols, rows)
+	want := `INSERT INTO public."pedidos" ("n", "x") VALUES` + "\n" +
+		`('O''Brien', 1),` + "\n" +
+		`('''); drop table pedidos; --', 2),` + "\n" +
+		"('dos\nlíneas', 'NaN');\n"
+	if got != want {
+		t.Fatalf("SQL:\n%s\nquería:\n%s", got, want)
+	}
+}
+
+func TestSQLParteEnLotesYCierraElUltimo(t *testing.T) {
+	cols := []query.Column{{Name: "id", Class: query.ClassNumber}}
+	rows := make([][]*string, filasPorSentencia+3)
+	for i := range rows {
+		v := fmt.Sprint(i + 1)
+		rows[i] = []*string{&v}
+	}
+	got := sql(t, Options{}, cols, rows)
+	// Dos sentencias: una de 500 y otra de 3, las dos terminadas en punto y coma.
+	if n := strings.Count(got, "INSERT INTO"); n != 2 {
+		t.Errorf("se escribieron %d sentencias y se esperaban 2", n)
+	}
+	if n := strings.Count(got, ";\n"); n != 2 {
+		t.Errorf("hay %d puntos y coma y se esperaban 2: un archivo sin cerrar la última "+
+			"sentencia no se puede volver a correr", n)
+	}
+	if !strings.HasSuffix(got, "(503);\n") {
+		t.Errorf("el archivo termina en %q", got[len(got)-20:])
+	}
+}
+
+func TestSQLSinFilasNoEscribeNada(t *testing.T) {
+	if got := sql(t, Options{}, columnas, nil); got != "" {
+		t.Fatalf("una tabla vacía escribió %q; un INSERT sin filas no es SQL válida", got)
+	}
+}
+
+func TestSQLNecesitaSaberLaTabla(t *testing.T) {
+	if _, err := New(SQL, io.Discard, Options{}); err == nil {
+		t.Fatal("se aceptó el formato SQL sin decir a qué tabla insertar")
 	}
 }

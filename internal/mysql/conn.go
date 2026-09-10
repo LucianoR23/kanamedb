@@ -144,6 +144,16 @@ func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement,
 	return renderDDL(ch, c.server.Kind, c.sinEscapes)
 }
 
+// Quoting expone el citado de este motor para el formato SQL de la exportación.
+//
+// El citado de literales depende del SERVIDOR —con NO_BACKSLASH_ESCAPES la
+// barra invertida no escapa nada—, así que sale de la conexión y no de una
+// función suelta.
+func (c *Conn) Quoting() engine.Quoting {
+	d := dialectoDML(func(s string) string { return quoteString(s, c.sinEscapes) })
+	return engine.Quoting{Table: d.Table, Ident: d.QuoteIdent, Literal: d.QuoteLiteral}
+}
+
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
 }

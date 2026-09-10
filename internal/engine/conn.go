@@ -111,6 +111,25 @@ type RowStream interface {
 	Close()
 }
 
+// Quoting es cómo este motor escribe un nombre y un valor en SQL para LEER.
+//
+// Existe para el formato de exportación «SQL inserts», que es el único lugar
+// donde un valor de fila se escribe adentro de la SQL — y es legítimo porque
+// esa SQL no la ejecuta Kaname: es un archivo. Todo lo que Kaname ejecuta va
+// con parámetros.
+//
+// Se devuelven funciones y no un formato armado para que la costura no sepa
+// qué formatos hay: lo único que el motor aporta es cómo se cita acá.
+type Quoting struct {
+	// Table arma el nombre calificado de la tabla, con la regla del motor
+	// sobre qué hacer con el esquema.
+	Table func(esquema, tabla string) string
+	// Ident cita el nombre de una columna.
+	Ident func(string) string
+	// Literal cita un texto como literal.
+	Literal func(string) string
+}
+
 // Conn es una conexión abierta a una base, del motor que sea.
 //
 // Es la superficie completa que `internal/service` necesita, y por eso está
@@ -141,6 +160,9 @@ type Conn interface {
 	ColumnTypes(ctx context.Context) ([]schema.TypeOption, error)
 	// PrimaryKeyColumns es por dónde ordenar para que el paginado sea estable.
 	PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]string, error)
+
+	// Quoting es cómo este motor cita nombres y valores. Ver Quoting.
+	Quoting() Quoting
 
 	// Dialect es cómo se LEE el texto de este motor: qué delimita una cadena,
 	// dónde empieza un comentario, si el cuerpo de un trigger va entre BEGIN y
