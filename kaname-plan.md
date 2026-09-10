@@ -78,7 +78,9 @@ lectura.
   de tipo y de clave, orden contra el servidor. Sin modo edición.
 - ⏳ **S09 Cell viewer** — modos por tipo: JSON formateado, hex para bytea, texto
   y el caso null. Falta el modo "Items" de arrays, que necesita un parser de
-  literales de Postgres y va en Go cuando la Iteración 7 lo use para editar.
+  literales de Postgres y va en Go. **Agendado en la Iteración 7**, en la
+  unidad del visor —junto con la fila entera como JSON y los botones de
+  escritura del pie, que siguen diciendo «Llega en la Iteración 7»—.
 - ✅ **S10 Table data tab** — grilla, orden, "cargar más", conteo exacto y aviso
   cuando la tabla no tiene clave primaria.
 - ✅ **Solo lectura** — el interruptor se adelantó desde la Iteración 5. Ver el
@@ -222,7 +224,7 @@ incluido—.
 | 3 | Límite de tiempo | ✅ `SELECT SLEEP(10)` cortado a los **2012 ms** |
 | 4 | Comentario con barra invertida | ✅ hecha el 2026-09-09, después de construirle la puerta de entrada |
 | 5 | SQLite con `#` y `%` en la ruta | ✅ abre el archivo real y muestra sus 3 filas, no una base vacía |
-| 6 | Atajo «Abrir archivo SQLite…» | ⚠️ el botón está y llega al editor; **el selector nativo no se puede manejar por CDP** y queda para probar a mano |
+| 6 | Atajo «Abrir archivo SQLite…» | ✅ el selector nativo no se puede manejar por CDP; **probado a mano por el usuario el 2026-09-10**, abre el archivo y llega al editor |
 | 7 | Ensayo de S15 | ✅ el cambio inválido se caza antes de aplicar, con SQLSTATE 23502 y la consulta para encontrar las filas; el válido dice «Nada aplicado» en violeta, no en verde |
 
 Lo que salieron de ahí, todo corregido salvo lo último:
@@ -246,11 +248,12 @@ Lo que salieron de ahí, todo corregido salvo lo último:
 Y dos que **no son bugs sino agujeros de planificación**, los dos encontrados
 por mirar la aplicación y no el código:
 
-- ⏳ **La tab Safety de S03 no la agenda ninguna iteración.** Está
-  deshabilitada con el cartel «Llega en la Iteración 5», que ya pasó, y la 9
-  solo lista «S03 — tabs TLS y Advanced». Mientras tanto el límite de tiempo por
-  sentencia y las otras dos protecciones solo se editan en `connections.toml`
-  —que es lo que hubo que hacer para correr la prueba 3—.
+- ✅ **La tab Safety de S03 quedó agendada en la Iteración 9** (decidido el
+  2026-09-10). No la agendaba ninguna: estaba deshabilitada con el cartel
+  «Llega en la Iteración 5», que ya había pasado, y la 9 solo listaba «S03 —
+  tabs TLS y Advanced». El cartel ahora dice 9. Mientras tanto el límite de
+  tiempo por sentencia y las otras dos protecciones solo se editan en
+  `connections.toml` —que es lo que hubo que hacer para correr la prueba 3—.
 - ✅ **`setColumnComment` ya tiene puerta de entrada**: «Comentar…» en el menú
   contextual de la columna, deshabilitado con SQLite y explicando por qué. Y el
   campo «Comentario» del alta de columna, que existía y no hacía nada, ahora
@@ -320,9 +323,15 @@ lo que entra y sale de la grilla.
   así que es formateo puro, sin consulta ni streaming. Reusa el renderizador de
   S19 y se hace primero, porque es lo que valida el formato antes de meterlo en
   el camino difícil.
-- ⏳ **Ver la fila entera como JSON** — hoy S09 formatea JSON de UNA celda. La fila
-  completa es un ítem del menú contextual y se resuelve del lado del servidor
-  con `row_to_json`.
+- ⏳ **El visor: la fila entera como JSON, el modo Items y los botones del
+  pie.** Hoy S09 formatea JSON de UNA celda; la fila completa es un ítem del
+  menú contextual y se resuelve del lado del servidor con `row_to_json`. En la
+  misma unidad entra lo que S09 dejó pendiente desde la Iteración 2: el modo
+  «Items» de los arrays —el parser del literal de Postgres va en Go, con sus
+  casos de comillas y escapes probados— y los botones «Revertir» y «Preparar
+  cambio» del pie, que siguen deshabilitados con «Llega en la Iteración 7».
+  Ahora que la grilla tiene estado de edición, el visor es la forma de editar
+  un valor largo —un JSON, un texto— sin hacerlo en una celda de una línea.
 - ⏳ **Filtros por columna en la grilla** — un constructor de `WHERE` sobre la
   tabla que se está mirando, que hoy obliga a irse al editor SQL. Va acá porque
   comparte pantalla y modelo con la edición de celdas.

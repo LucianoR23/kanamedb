@@ -33,7 +33,7 @@ interface Props {
    *
    *  Es el único interruptor de protecciones que se adelantó a esta
    *  iteración. Lo primero que puede escribir en la base es el editor SQL,
-   *  que llega ahora; la tab Safety completa recién está en la 5, y hasta
+   *  que llega ahora; la tab Safety completa recién está en la 9, y hasta
    *  entonces la única forma de activarlo era editar connections.toml. */
   onToggleReadOnly: (view: ConnectionView, readOnly: boolean) => void;
   onConnect: (view: ConnectionView) => void;

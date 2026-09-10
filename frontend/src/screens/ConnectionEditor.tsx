@@ -32,7 +32,7 @@ const TABS = [
   { id: "general", label: "General", ready: true, since: "" },
   { id: "tunnel", label: "Túnel SSH", ready: true, since: "" },
   { id: "tls", label: "TLS", ready: false, since: "Iteración 9" },
-  { id: "safety", label: "Safety", ready: false, since: "Iteración 5" },
+  { id: "safety", label: "Safety", ready: false, since: "Iteración 9" },
   { id: "advanced", label: "Advanced", ready: false, since: "Iteración 9" },
 ] as const;
 
