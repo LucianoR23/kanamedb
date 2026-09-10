@@ -69,51 +69,104 @@ func (d *Dumps) PgDump(ctx context.Context, r DumpRequest) (PgDumpStatus, error)
 
 	st := PgDumpStatus{Command: dump.ComandoTexto(opcionesDePgDump(sesion, r, ""))}
 
-	ruta, err := exec.LookPath("pg_dump")
-	if err != nil {
-		st.Reason = "`pg_dump` no está en el PATH de esta máquina."
-		st.Hint = "Copiá el comando y corrélo donde sí esté, o instalá las herramientas cliente de PostgreSQL."
-		return st, nil
-	}
-	st.Found, st.Path = true, ruta
+	// Primero se averigua TODO lo que se puede decir de la herramienta —si está,
+	// qué versión, qué versión tiene el servidor— y recién después se decide si
+	// se puede correr. Al revés, cada comprobación salía por su propio `return`
+	// y la primera que pegaba tapaba a las demás: en CI, con un `pg_dump` 16
+	// contra un servidor 18, el motivo era siempre la versión y el túnel no se
+	// mencionaba nunca. Además dejaba los campos informativos a medio llenar
+	// —sin `pg_dump` en el PATH no se decía ni la versión del servidor—.
+	diag := diagnosticoDePgDump{tunel: sesion.conn.SSH.Enabled}
 
-	version, err := versionDePgDump(ctx, ruta)
-	if err != nil {
-		st.Reason = "No se pudo averiguar la versión de `pg_dump`: " + err.Error()
-		return st, nil
-	}
-	st.Version = version.String()
+	if ruta, err := exec.LookPath("pg_dump"); err == nil {
+		diag.enElPath = true
+		st.Found, st.Path = true, ruta
 
-	servidor, hay := dump.ParseVersion(versionDelServidor(sesion))
-	if hay {
-		st.ServerVersion = servidor.String()
-		// Es la comprobación que separa una herramienta de una trampa.
-		// `pg_dump` soporta servidores más VIEJOS que él, nunca más nuevos: uno
-		// de la 15 contra un servidor 18 falla, y en algunas combinaciones no
-		// falla —escribe un archivo que parece completo y no lo está—.
-		if !version.AlcanzaPara(servidor) {
-			st.Reason = fmt.Sprintf(
-				"`pg_dump` es de la versión %s y el servidor es %s. Una herramienta más vieja "+
-					"que el servidor puede fallar, o —peor— escribir un archivo incompleto sin avisar.",
-				version, servidor)
-			st.Hint = "Actualizá las herramientas cliente de PostgreSQL a la " + servidor.String() + " o más."
-			return st, nil
+		version, err := versionDePgDump(ctx, ruta)
+		diag.versionErr = err
+		if err == nil {
+			diag.version = version
+			st.Version = version.String()
 		}
 	}
+	if servidor, hay := dump.ParseVersion(versionDelServidor(sesion)); hay {
+		diag.servidor = servidor
+		st.ServerVersion = servidor.String()
+	}
 
+	st.Reason, st.Hint = diag.impedimento()
+	st.CanRun = st.Reason == ""
+	return st, nil
+}
+
+// diagnosticoDePgDump son los hechos —ya averiguados— que deciden si Kaname
+// puede correr la herramienta.
+//
+// Están separados de la decisión a propósito: así el ORDEN en que se cuentan
+// los impedimentos se puede probar sin depender de qué `pg_dump` esté instalado
+// en la máquina que corre los tests. Fue exactamente lo que hizo falta: acá el
+// test del túnel pasaba y en CI fallaba, porque allá `pg_dump` es de la 16 y el
+// servidor de la 18, y ese impedimento se contaba primero.
+type diagnosticoDePgDump struct {
+	tunel      bool
+	enElPath   bool
+	versionErr error
+
+	version  dump.Version
+	servidor dump.Version
+}
+
+// impedimento devuelve por qué no se puede correr `pg_dump`, o dos cadenas
+// vacías si se puede.
+//
+// Los impedimentos NO son excluyentes —se puede no tener la herramienta y
+// además estar detrás de un bastión— y se cuenta uno solo: el más de fondo.
+// El túnel va primero porque es el único que, ignorado, no falla: `pg_dump`
+// correría contra lo que responda en ese host y puerto SIN el túnel y volcaría
+// OTRA base, con un archivo de aspecto impecable. Los demás fallan de frente.
+func (d diagnosticoDePgDump) impedimento() (razon, hint string) {
+	switch {
 	// El túnel de Kaname es un dialer de Go, no un puerto local escuchando:
 	// `pg_dump` es otro proceso y no puede pasar por él. Abrirle un puerto en
 	// 127.0.0.1 sería alcanzable por cualquier cosa que corra en la máquina, y
 	// este proyecto no abre sockets locales. Ver CLAUDE.md.
-	if sesion.conn.SSH.Enabled {
-		st.Reason = "Esta conexión pasa por un bastión SSH, y `pg_dump` es otro proceso: " +
-			"no puede usar el túnel de Kaname."
-		st.Hint = "Abrí vos el reenvío con `ssh -L` y corré el comando contra el puerto local."
-		return st, nil
-	}
+	case d.tunel:
+		hint := "Abrí vos el reenvío con `ssh -L` y corré el comando contra el puerto local."
+		// Se cuenta UN impedimento, pero no al precio de mandar a alguien a
+		// armar un reenvío para descubrir después que tampoco tiene la
+		// herramienta. Es lo único que hace falta agregar: los otros dos
+		// impedimentos se arreglan en la misma máquina donde ya está `pg_dump`.
+		if !d.enElPath {
+			hint += " Y tené en cuenta que `pg_dump` tampoco está en el PATH de esta máquina."
+		}
+		return "Esta conexión pasa por un bastión SSH, y `pg_dump` es otro proceso: " +
+			"no puede usar el túnel de Kaname.", hint
 
-	st.CanRun = true
-	return st, nil
+	case !d.enElPath:
+		return "`pg_dump` no está en el PATH de esta máquina.",
+			"Copiá el comando y corrélo donde sí esté, o instalá las herramientas cliente de PostgreSQL."
+
+	case d.versionErr != nil:
+		return "No se pudo averiguar la versión de `pg_dump`: " + d.versionErr.Error(), ""
+
+	// Es la comprobación que separa una herramienta de una trampa. `pg_dump`
+	// soporta servidores más VIEJOS que él, nunca más nuevos: uno de la 15
+	// contra un servidor 18 falla, y en algunas combinaciones no falla —escribe
+	// un archivo que parece completo y no lo está—.
+	//
+	// No lleva un «si se sabe la versión del servidor» adelante, y no por
+	// olvido: un servidor cuya versión no se pudo leer queda en `Mayor: 0`, y
+	// `AlcanzaPara` contra eso es siempre verdadera. La acusación no puede
+	// salir de la nada, así que el guardia sería una segunda forma de decir lo
+	// mismo —y una que ningún test puede poner en rojo—.
+	case !d.version.AlcanzaPara(d.servidor):
+		return fmt.Sprintf(
+				"`pg_dump` es de la versión %s y el servidor es %s. Una herramienta más vieja "+
+					"que el servidor puede fallar, o —peor— escribir un archivo incompleto sin avisar.",
+				d.version, d.servidor),
+			"Actualizá las herramientas cliente de PostgreSQL a la " + d.servidor.String() + " o más."
+	}
+	return "", ""
 }
 
 // RunPgDump ejecuta la herramienta y espera a que termine.

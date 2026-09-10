@@ -1549,6 +1549,49 @@ anteriores, que es exactamente para lo que sirve revisar el rango entero:
    excluidos al juntar. Con test en los cuatro motores, y la inyección del
    `Ordered()` viejo lo pone en rojo.
 
+**El túnel se cuenta antes que los demás impedimentos de `pg_dump`, y lo
+encontró CI.** Los tres motivos por los que Kaname no corre la herramienta —no
+está en el PATH, su versión no alcanza para el servidor, la conexión pasa por un
+bastión— salían cada uno por su propio `return`, así que ganaba **el primero que
+se comprobaba**, no el que importa. En mi máquina `pg_dump` y el servidor son de
+la misma versión y el túnel quedaba como único impedimento; en CI hay un
+`pg_dump` 16 contra servidores 17 y 18, ganaba la versión, y el bastión no se
+mencionaba nunca. Ahora se averiguan todos los hechos primero —así el panel dice
+la versión del servidor aunque la herramienta no esté— y un solo lugar decide
+cuál se cuenta.
+
+El orden no es arbitrario: **el túnel es el único impedimento que, ignorado, no
+falla.** `pg_dump` correría contra lo que responda en ese host y puerto sin el
+túnel —otra base— y escribiría un archivo de aspecto impecable. Los otros dos
+fallan de frente. Un impedimento silencioso se cuenta antes que uno ruidoso.
+
+La lección de testing es la que vale más que el arreglo: **el test dependía de
+qué `pg_dump` estuviera instalado en la máquina que lo corre.** Verde acá, rojo
+allá, y ninguna de las dos cosas decía nada del código. La decisión —el orden—
+se separó en una función pura sobre los hechos ya averiguados, y se prueba con
+los impedimentos armados a mano, incluida la combinación exacta de CI. La
+inyección que la pone en rojo es mover el caso del túnel al final del `switch`,
+y el mensaje que sale es palabra por palabra el que falló en CI.
+
+**Y el review encontró que mi primer test del arreglo tampoco podía fallar.**
+Había escrito una comprobación de que «un servidor cuya versión no se pudo leer
+no habilita la comparación», creyendo que protegía el `si se sabe la versión`
+que llevaba adelante el caso. No protegía nada: una versión que no se pudo leer
+queda en `Mayor: 0` y `AlcanzaPara` compara con `>=`, así que contra el cero
+cualquier herramienta alcanza y el caso no se dispara con guardia o sin ella.
+Sacar el guardia dejaba el test igual de verde. La salida no fue reforzar el
+test sino **borrar el guardia**, que era una segunda forma de decir lo mismo, y
+mover la invariante a donde de verdad vive: `AlcanzaPara`. Ahí sí es
+falsificable —cambiar el `>=` por `==` hace que un servidor desconocido acuse a
+una herramienta impecable, con el mensaje absurdo «el servidor es 0»— y ese es
+el test que quedó.
+
+**El impedimento se cuenta de a uno; el consejo no.** Con bastión Y sin
+`pg_dump` instalado, decir solo «abrí el reenvío con `ssh -L`» manda a alguien a
+armar un túnel para descubrir recién ahí que no tiene la herramienta. El motivo
+sigue siendo uno solo —el de fondo— pero el consejo agrega la otra mitad cuando
+hace falta.
+
 ### Iteración 6 — 2026-09-09
 
 **Reconstruir una tabla en SQLite borra las filas de las tablas hijas, en

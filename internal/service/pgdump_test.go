@@ -3,10 +3,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
 
+	"github.com/LucianoR23/kanamedb/internal/dump"
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
@@ -132,4 +134,125 @@ func TestElStderrRecortadoNoRompeElProceso(t *testing.T) {
 	if got := l.w.String(); len(got) > 200 {
 		t.Errorf("no recortó: %d bytes", len(got))
 	}
+}
+
+// TestElTunelSeCuentaAntesQueLosDemasImpedimentos.
+//
+// Es el test que faltaba y por eso CI encontró lo que mi máquina no: acá
+// `pg_dump` y el servidor son de la misma versión, así que el túnel quedaba
+// como único impedimento y el test de arriba pasaba. En CI hay un `pg_dump` 16
+// contra servidores 17 y 18, ganaba el impedimento de la versión, y la pantalla
+// no mencionaba el bastión NUNCA.
+//
+// Que gane el túnel no es un capricho del orden: es el único impedimento que,
+// ignorado, no falla. `pg_dump` correría contra lo que responda en ese host y
+// puerto SIN el túnel —otra base— y escribiría un archivo de aspecto impecable.
+// Los otros dos fallan de frente y se entienden solos.
+func TestElTunelSeCuentaAntesQueLosDemasImpedimentos(t *testing.T) {
+	vieja := dump.Version{Mayor: 16, Menor: 15}
+	servidor := dump.Version{Mayor: 18, Menor: 6}
+
+	// Todo mal a la vez: detrás de un bastión, sin la herramienta en el PATH,
+	// sin poder averiguar su versión y con una versión que no alcanza.
+	todo := diagnosticoDePgDump{
+		tunel:      true,
+		versionErr: errors.New("permission denied"),
+		version:    vieja,
+		servidor:   servidor,
+	}
+
+	casos := []struct {
+		nombre string
+		diag   diagnosticoDePgDump
+		razon  string
+		hints  []string
+	}{
+		{
+			// El túnel gana, pero el hint no manda a nadie a armar un reenvío
+			// para descubrir después que tampoco tiene la herramienta.
+			"todos los impedimentos juntos", todo,
+			"bastión", []string{"ssh -L", "tampoco está en el PATH"},
+		},
+		{
+			"solo el túnel", diagnosticoDePgDump{tunel: true, enElPath: true},
+			"bastión", []string{"ssh -L"},
+		},
+		{
+			// El caso exacto de CI: la herramienta está y es vieja, y además hay
+			// bastión. Es el que se contaba al revés.
+			"un túnel y una herramienta vieja",
+			diagnosticoDePgDump{
+				tunel: true, enElPath: true,
+				version: vieja, servidor: servidor,
+			},
+			"bastión", []string{"ssh -L"},
+		},
+		{
+			"sin túnel gana la herramienta que falta", conTunel(todo, false),
+			"no está en el PATH", []string{"instalá"},
+		},
+		{
+			"con la herramienta gana no saber su versión", enElPath(conTunel(todo, false)),
+			"permission denied", nil,
+		},
+		{
+			"y con la versión sabida, que no alcance",
+			diagnosticoDePgDump{enElPath: true, version: vieja, servidor: servidor},
+			"16.15", []string{"18.6"},
+		},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			razon, hint := c.diag.impedimento()
+			if !strings.Contains(razon, c.razon) {
+				t.Errorf("el motivo no dice %q: %q", c.razon, razon)
+			}
+			for _, q := range c.hints {
+				if !strings.Contains(hint, q) {
+					t.Errorf("al consejo le falta %q: %q", q, hint)
+				}
+			}
+		})
+	}
+
+	// Y sin ningún impedimento no se inventa uno: dos cadenas vacías es lo que
+	// prende el botón de correr.
+	sano := diagnosticoDePgDump{enElPath: true, version: servidor, servidor: servidor}
+	if razon, hint := sano.impedimento(); razon != "" || hint != "" {
+		t.Errorf("con todo en orden se inventó un impedimento: %q / %q", razon, hint)
+	}
+}
+
+// TestUnServidorDeVersionDesconocidaNoAcusaALaHerramienta.
+//
+// Lo que protege es que la acusación de «tu `pg_dump` es viejo» no pueda salir
+// de la nada: si la versión del servidor no se pudo leer queda en `Mayor: 0`, y
+// contra eso cualquier herramienta alcanza.
+//
+// Vive acá y no adentro del test del orden porque lo que lo sostiene NO es el
+// `switch` —ahí no hay ningún guardia que lo mire, y ponerlo sería una segunda
+// forma de decir lo mismo que ningún test podría poner en rojo— sino
+// `AlcanzaPara`, que compara con `>=`. La inyección que lo pone en rojo es
+// cambiar ese `>=` por `==` en internal/dump/pgdump.go: ahí un servidor
+// desconocido pasa a acusar a una herramienta que está perfecta.
+func TestUnServidorDeVersionDesconocidaNoAcusaALaHerramienta(t *testing.T) {
+	// Así queda el diagnóstico cuando `ParseVersion` no entendió lo que dijo el
+	// servidor: `PgDump` no toca el campo y el cero es «no se sabe».
+	d := diagnosticoDePgDump{enElPath: true, version: dump.Version{Mayor: 16, Menor: 15}}
+	if _, hay := dump.ParseVersion("no soy una versión"); hay {
+		t.Fatal("el fixture no representa un servidor sin versión")
+	}
+	if razon, _ := d.impedimento(); razon != "" {
+		t.Errorf("se acusó a la herramienta contra un servidor de versión desconocida: %q", razon)
+	}
+}
+
+func conTunel(d diagnosticoDePgDump, tunel bool) diagnosticoDePgDump {
+	d.tunel = tunel
+	return d
+}
+
+func enElPath(d diagnosticoDePgDump) diagnosticoDePgDump {
+	d.enElPath = true
+	return d
 }
