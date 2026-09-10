@@ -442,6 +442,15 @@ var dialectoDML = dml.Dialect{
 	QuoteLiteral: quoteString,
 	Placeholder:  func(n int) string { return "$" + strconv.Itoa(n) },
 	EmptyInsert:  "DEFAULT VALUES",
+	InsertSuffix: func(ignorar bool) string {
+		if ignorar {
+			// Sin destino: cualquier restricción única o de exclusión que
+			// choque saltea la fila. Elegir un destino exigiría saber cuál es
+			// la clave que va a chocar, y puede ser más de una.
+			return " ON CONFLICT DO NOTHING"
+		}
+		return ""
+	},
 }
 
 func listaDeIdent(nombres []string) string {

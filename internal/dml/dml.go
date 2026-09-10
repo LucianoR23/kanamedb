@@ -40,6 +40,16 @@ type Dialect struct {
 	// con todos sus defaults: "DEFAULT VALUES" en Postgres y SQLite, "() VALUES
 	// ()" en MySQL, que no acepta la otra forma.
 	EmptyInsert string
+
+	// InsertPrefix e InsertSuffix son cómo este motor pide que una fila que
+	// choca con otra se saltee en vez de abortar. Son dos porque cada motor lo
+	// pone en un lado: Postgres y SQLite al final —`ON CONFLICT DO NOTHING`,
+	// `OR IGNORE`— y MySQL adelante, en `INSERT IGNORE INTO`.
+	//
+	// Nil se trata como «solo se puede insertar sin ignorar»: el prefijo por
+	// defecto es "INSERT INTO " y el sufijo, nada.
+	InsertPrefix func(ignorar bool) string
+	InsertSuffix func(ignorar bool) string
 }
 
 // Render escribe un cambio de datos. Devuelve error para cualquier otro tipo.
@@ -168,4 +178,63 @@ func CountWhere(schema, table string, where []change.Cell, d Dialect) (string, [
 	}
 	e.donde(where)
 	return e.ejecutable.String(), e.args
+}
+
+// insertPrefix y insertSuffix aplican el default cuando el dialecto no los
+// define, que es el caso de todo lo que no importa CSV.
+func (d Dialect) prefijo(ignorar bool) string {
+	if d.InsertPrefix == nil {
+		return "INSERT INTO "
+	}
+	return d.InsertPrefix(ignorar)
+}
+
+func (d Dialect) sufijo(ignorar bool) string {
+	if d.InsertSuffix == nil {
+		return ""
+	}
+	return d.InsertSuffix(ignorar)
+}
+
+// InsertBatch escribe UN insert con varias filas y sus valores como parámetros.
+//
+// Es lo que usa la importación de CSV: mil filas por sentencia, porque una por
+// fila hace un viaje al servidor por fila y todas juntas se pasa del límite de
+// parámetros —Postgres admite 65535 por sentencia—.
+//
+// `ignorar` pide que las filas que chocan con una que ya está se salteen en vez
+// de abortar. La cláusula es distinta en cada motor y por eso sale del dialecto.
+func InsertBatch(
+	schema, table string, columnas []string, filas [][]*string, d Dialect, ignorar bool,
+) (string, []any) {
+	var b strings.Builder
+	var args []any
+
+	b.WriteString(d.prefijo(ignorar))
+	b.WriteString(d.Table(schema, table))
+	b.WriteString(" (")
+	for i, c := range columnas {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(d.QuoteIdent(c))
+	}
+	b.WriteString(") VALUES ")
+
+	for i, fila := range filas {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("(")
+		for j, v := range fila {
+			if j > 0 {
+				b.WriteString(", ")
+			}
+			args = append(args, v)
+			b.WriteString(d.Placeholder(len(args)))
+		}
+		b.WriteString(")")
+	}
+	b.WriteString(d.sufijo(ignorar))
+	return b.String(), args
 }

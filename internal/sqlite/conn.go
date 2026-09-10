@@ -77,6 +77,12 @@ func (c *Conn) Quoting() engine.Quoting {
 	}
 }
 
+func (c *Conn) InsertBatch(
+	esquema, tabla string, columnas []string, filas [][]*string, ignorar bool,
+) (string, []any) {
+	return dml.InsertBatch(esquema, tabla, columnas, filas, dialectoDML, ignorar)
+}
+
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
 }

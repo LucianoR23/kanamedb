@@ -154,6 +154,13 @@ func (c *Conn) Quoting() engine.Quoting {
 	return engine.Quoting{Table: d.Table, Ident: d.QuoteIdent, Literal: d.QuoteLiteral}
 }
 
+func (c *Conn) InsertBatch(
+	esquema, tabla string, columnas []string, filas [][]*string, ignorar bool,
+) (string, []any) {
+	cita := func(s string) string { return quoteString(s, c.sinEscapes) }
+	return dml.InsertBatch(c.base(esquema), tabla, columnas, filas, dialectoDML(cita), ignorar)
+}
+
 func (c *Conn) ClassifyStatement(err error, desc string) *engine.Failure {
 	return ClassifyStatement(err, desc)
 }

@@ -295,4 +295,10 @@ var dialectoDML = dml.Dialect{
 	QuoteLiteral: QuoteString,
 	Placeholder:  func(int) string { return "?" },
 	EmptyInsert:  "DEFAULT VALUES",
+	InsertPrefix: func(ignorar bool) string {
+		if ignorar {
+			return "INSERT OR IGNORE INTO "
+		}
+		return "INSERT INTO "
+	},
 }

@@ -164,6 +164,14 @@ type Conn interface {
 	// Quoting es cómo este motor cita nombres y valores. Ver Quoting.
 	Quoting() Quoting
 
+	// InsertBatch escribe UN insert con varias filas, con los valores como
+	// parámetros. Es lo que usa la importación de CSV.
+	//
+	// `ignorar` pide que una fila que choca con otra se saltee en vez de
+	// abortar, y la cláusula que hace eso es distinta en cada motor: por eso
+	// sale de acá y no de quien llama.
+	InsertBatch(esquema, tabla string, columnas []string, filas [][]*string, ignorar bool) (string, []any)
+
 	// Dialect es cómo se LEE el texto de este motor: qué delimita una cadena,
 	// dónde empieza un comentario, si el cuerpo de un trigger va entre BEGIN y
 	// END. Lo usa el editor para partir el texto en sentencias.

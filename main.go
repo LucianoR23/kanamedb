@@ -52,6 +52,7 @@ func main() {
 			application.NewService(consultas),
 			application.NewService(service.NewHosts(known)),
 			application.NewService(service.NewExports(consultas)),
+			application.NewService(service.NewImports(consultas)),
 		},
 
 		Assets: application.AssetOptions{

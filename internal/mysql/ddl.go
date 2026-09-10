@@ -424,5 +424,14 @@ func dialectoDML(cita func(string) string) dml.Dialect {
 		QuoteLiteral: cita,
 		Placeholder:  func(int) string { return "?" },
 		EmptyInsert:  "() VALUES ()",
+		InsertPrefix: func(ignorar bool) string {
+			if ignorar {
+				// MySQL lo pone adelante y no al final. IGNORE degrada a aviso
+				// MÁS cosas que un choque de clave —un valor fuera de rango, por
+				// ejemplo— así que solo se usa cuando se pidió saltear.
+				return "INSERT IGNORE INTO "
+			}
+			return "INSERT INTO "
+		},
 	}
 }

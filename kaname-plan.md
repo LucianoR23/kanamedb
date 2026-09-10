@@ -309,10 +309,12 @@ lo que entra y sale de la grilla.
   Se abre desde la grilla («Revisar las filas») y desde Cambios pendientes.
   La variante de producción es la de siempre: la confirmación la pide Go al
   preparar y al aplicar. Probada a mano en los cuatro motores el 2026-09-10.
-- ⏳ **S18 CSV import wizard** — completa. `COPY … FROM STDIN` de pgx hace el
-  trabajo; lo caro es el asistente —mapear columnas, tipos, NULL contra cadena
-  vacía, encoding, y qué hacer con las filas que no entran—, que es justamente
-  por qué es una pantalla y no un botón.
+- ⏳ **S18 CSV import wizard.** **El contrato de Go está hecho y probado en los
+  cuatro motores** (`internal/csvimport` + `service.Imports`): leer el archivo,
+  mapear columnas, ensayar y correr en una sola transacción. **Falta la
+  pantalla**: el asistente de cuatro pasos —origen, mapeo, validación,
+  importar— que es justamente lo caro, y por eso es una pantalla y no un botón.
+  Falta también el review de esta unidad.
 - ✅ **Exportar el resultado del editor SQL** — CSV, JSON, JSON Lines y
   Markdown, desde «Exportar…» en la barra de resultados, con el diálogo de
   S19 —formato, delimitador, opciones, vista previa, guardar y copiar— y un
@@ -1075,6 +1077,38 @@ después falla: lo escrito queda con el array de JSON **abierto**, no cerrado
 como si estuviera entero. La primera inyección que escribí no ponía nada en
 rojo —el test cancelaba antes de que el recorrido arrancara— y eso era
 justamente un test que no podía fallar.
+
+**La importación no adivina tipos: pregunta.** El paso de «validación» del
+diseño lista fila por fila lo que va a fallar, con motivos como «invalid
+timestamptz». Eso exigiría un verificador de tipos del lado de Kaname que
+inevitablemente va a discrepar con el motor, y justo en los casos raros —el
+formato de fecha, la coma decimal, el infinito—. En vez de eso, el ensayo hace
+**la importación de verdad adentro de una transacción y la revierte**: la misma
+idea que el ensayo de S15, y la respuesta la da el servidor, que es quien sabe.
+Lo que sí se comprueba sin la base es lo que no depende de ella: las líneas con
+otra cantidad de campos, y si el archivo tiene bytes que no son UTF-8.
+
+Tres decisiones más de esa unidad:
+
+- **No se convierten codificaciones, se avisan.** Convertir necesita saber DE
+  QUÉ codificación —latin-1, windows-1252, big5— y adivinarlo mal escribe
+  basura en la base sin que nadie se entere hasta mucho después. Hacerlo bien
+  necesita `x/text`, que es una dependencia nueva y va en su propio commit.
+- **La marca de orden de bytes se saltea.** Excel la escribe al guardar un CSV,
+  y sin saltearla la primera columna se llama `<BOM>id` y no coincide con `id`
+  de la tabla — el error que se ve es «no existe la columna id» sobre una tabla
+  que la tiene. Con test.
+- **Mil filas por sentencia, todo en UNA transacción.** Una por fila hace un
+  viaje al servidor por fila; todas juntas se pasa del límite de parámetros
+  —Postgres admite 65535, así que con veinte columnas el tope real está en 3276
+  filas—. El caso que importa es el segundo lote: si el primero entró y el
+  segundo falla, no queda nada. Con test, y la inyección —cada lote por su
+  cuenta— deja las mil filas huérfanas.
+- **«Saltear las que chocan» se escribe distinto en cada motor** —`ON CONFLICT
+  DO NOTHING`, `INSERT IGNORE`, `INSERT OR IGNORE`— así que sale del dialecto.
+  El default es abortar: es el único que no pierde información en silencio.
+  «Actualizar las que ya están» del diseño queda pendiente, porque necesita
+  saber por qué clave y armar el SET.
 
 **El visor: tres cosas que S09 debía desde la Iteración 2.**
 
