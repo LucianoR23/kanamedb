@@ -228,3 +228,33 @@ func textos(s []Statement) []string {
 	}
 	return out
 }
+
+// TestElComandoSalteaLosComentarios.
+//
+// Desde que el editor parte el texto, los comentarios de adelante viajan
+// adentro de la sentencia. Tomar la primera palabra a secas hacía que la
+// pestaña del resultado dijera «--» en vez de «SELECT».
+func TestElComandoSalteaLosComentarios(t *testing.T) {
+	casos := []struct {
+		d      Dialect
+		sql    string
+		quiere string
+	}{
+		{pg, "SELECT 1", "SELECT"},
+		{pg, "select 1", "SELECT"},
+		{pg, "-- un comentario\nSELECT 1", "SELECT"},
+		{pg, "/* bloque\n   de dos */ INSERT INTO t VALUES (1)", "INSERT"},
+		{pg, "-- uno\n/* y otro */\n\tALTER TABLE t ADD c int", "ALTER"},
+		{my, "# almohadilla\nUPDATE t SET a = 1", "UPDATE"},
+		// Lo que no empieza con una palabra no tiene comando que mostrar. La
+		// almohadilla no es comentario en Postgres, pero tampoco es un comando.
+		{pg, "#raro", ""},
+		{pg, "-- solo un comentario", ""},
+		{pg, "", ""},
+	}
+	for _, c := range casos {
+		if got := Command(c.sql, c.d); got != c.quiere {
+			t.Errorf("Command(%q) = %q, se esperaba %q", c.sql, got, c.quiere)
+		}
+	}
+}

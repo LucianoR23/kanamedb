@@ -321,3 +321,40 @@ func esLetra(c rune) bool {
 func esEspacio(c rune) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
+
+// Command saca el comando de una sentencia: SELECT, INSERT, ALTER…
+//
+// Saltea los comentarios de adelante, y eso no es un detalle de prolijidad:
+// desde que el editor parte el texto, los comentarios que preceden a una
+// sentencia viajan ADENTRO de ella —pueden ser una indicación para el
+// planificador, así que sacarlos sería peor—, y tomar la primera palabra a
+// secas hacía que la pestaña del resultado dijera «--» en vez de «SELECT».
+//
+// Es una función y no un método porque la usan dos motores; Postgres no la
+// necesita, que recibe el comando del propio servidor.
+func Command(sql string, d Dialect) string {
+	r := []rune(sql)
+	i := 0
+	for i < len(r) {
+		switch {
+		case esEspacio(r[i]):
+			i++
+		case r[i] == '-' && i+1 < len(r) && r[i+1] == '-':
+			i = finDeLinea(r, i)
+		case d.HashComments && r[i] == '#':
+			i = finDeLinea(r, i)
+		case r[i] == '/' && i+1 < len(r) && r[i+1] == '*':
+			j := i + 2
+			for j < len(r) && !(r[j] == '*' && j+1 < len(r) && r[j+1] == '/') {
+				j++
+			}
+			if j < len(r) {
+				j += 2
+			}
+			i = j
+		default:
+			return strings.ToUpper(string(r[i:finDePalabra(r, i)]))
+		}
+	}
+	return ""
+}

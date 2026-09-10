@@ -15,7 +15,9 @@ import (
 //
 // No se envuelve, no se le agrega LIMIT y no se parsea: un editor de SQL que
 // reescribe lo que ejecutás es un editor en el que no se puede confiar.
-func run(ctx context.Context, db *sql.DB, sql_ string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
+func run(
+	ctx context.Context, db *sql.DB, sql_ string, d query.Dialect, opts engine.RunOptions,
+) (*query.Batch, *engine.Failure) {
 	limite := opts.RowLimit
 	if limite == 0 {
 		limite = DefaultRowLimit
@@ -62,7 +64,7 @@ func run(ctx context.Context, db *sql.DB, sql_ string, opts engine.RunOptions) (
 			Results: []query.Result{{
 				ReturnsRows:  false,
 				AffectedRows: afectadas,
-				Command:      comandoDe(sql_),
+				Command:      query.Command(sql_, d),
 			}},
 			ElapsedMs: time.Since(inicio).Milliseconds(),
 		}, nil
@@ -72,7 +74,7 @@ func run(ctx context.Context, db *sql.DB, sql_ string, opts engine.RunOptions) (
 	if fail != nil {
 		return nil, fail
 	}
-	r.Command = comandoDe(sql_)
+	r.Command = query.Command(sql_, d)
 	return &query.Batch{Results: []query.Result{*r}, ElapsedMs: time.Since(inicio).Milliseconds()}, nil
 }
 
@@ -196,14 +198,6 @@ func claseDe(tipo string) query.Class {
 		return query.ClassJSON
 	}
 	return query.ClassOther
-}
-
-func comandoDe(sql string) string {
-	campos := strings.Fields(strings.TrimSpace(sql))
-	if len(campos) == 0 {
-		return ""
-	}
-	return strings.ToUpper(campos[0])
 }
 
 // page lee una página de una tabla.

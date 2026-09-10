@@ -73,7 +73,7 @@ func (c *Conn) PrimaryKeyColumns(ctx context.Context, _, tabla string) ([]string
 }
 
 func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
-	return run(ctx, c.db, sql, opts)
+	return run(ctx, c.db, sql, c.Dialect(), opts)
 }
 
 func (c *Conn) Page(
