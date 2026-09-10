@@ -33,7 +33,13 @@ import { DataReview } from "./DataReview";
 import { ExportDialog } from "./ExportDialog";
 import { ImportWizard } from "./ImportWizard";
 import { esCambioDeDatos } from "../lib/cambios";
-import { alPortapapeles, textoDeCelda } from "../lib/copiar";
+import {
+  FORMATOS_DE_COPIA,
+  alPortapapeles,
+  textoDeCelda,
+  textoDeFilas,
+} from "../lib/copiar";
+import type { FormatoDeCopia } from "../lib/copiar";
 import { textoDe } from "../lib/dialogos";
 import { TableFilters } from "./TableFilters";
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
@@ -143,6 +149,8 @@ export function TableDataScreen({
   // Copiar bien NO avisa: Ctrl+C es un contrato del sistema y nadie espera
   // un cartel al copiar una celda.
   const [errorCopia, setErrorCopia] = useState("");
+  // El menú de «Copiar…» de la barra, anclado al botón.
+  const [menuCopiar, setMenuCopiar] = useState<MenuAnchor | null>(null);
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
   // datos.
@@ -532,6 +540,33 @@ export function TableDataScreen({
     }
   }
 
+  /** Copia esas filas en ese formato. El texto lo arma Go. */
+  async function copiarFilas(
+    filasACopiar: readonly ((string | null)[] | null)[],
+    formato: FormatoDeCopia,
+  ) {
+    setErrorCopia("");
+    try {
+      const columnas = acumulado?.columns ?? [];
+      await alPortapapeles(await textoDeFilas(columnas, filasACopiar, formato));
+    } catch (err) {
+      setErrorCopia(textoDe(err));
+    }
+  }
+
+  /** Las entradas de formato, para el menú que sea. */
+  function entradasDeFormato(
+    prefijo: string,
+    filasACopiar: () => readonly ((string | null)[] | null)[],
+  ): MenuEntry[] {
+    return FORMATOS_DE_COPIA.map((f) => ({
+      id: `${prefijo}-${f.key}`,
+      label: f.label,
+      hint: f.nota,
+      onSelect: () => void copiarFilas(filasACopiar(), f),
+    }));
+  }
+
   function entradasDelMenu(ref: CellRef): MenuEntry[] {
     const nueva = ref.row >= filas.length;
     const borrada = edicion.borradas.has(ref.row);
@@ -577,6 +612,15 @@ export function TableDataScreen({
         onSelect: () => ponerValor(ref, null),
       },
     ];
+    // La fila entera, en un formato. Va al final: es menos frecuente que
+    // copiar la celda y no tiene sentido sobre una fila que todavía no existe.
+    if (!nueva) {
+      out.push(
+        { kind: "separator", id: "sep-copiar" },
+        { kind: "label", id: "lbl-copiar", label: "Copiar la fila como" },
+        ...entradasDeFormato("fila", () => [filas[ref.row] ?? []]),
+      );
+    }
     if (editada) {
       out.push({
         id: "volver",
@@ -708,6 +752,17 @@ export function TableDataScreen({
               onClick={() => alternarBorrado(filaSeleccionada)}
             >
               {seleccionNueva ? "Quitar fila" : seleccionBorrada ? "No borrar" : "Borrar fila"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={filas.length === 0}
+              title={filas.length === 0 ? "No hay filas para copiar" : undefined}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setMenuCopiar({ x: r.left, y: r.bottom });
+              }}
+            >
+              Copiar…
             </Button>
             <Button size="sm" onClick={() => setExportando(true)}>
               Exportar…
@@ -847,6 +902,28 @@ export function TableDataScreen({
           anchor={menuCelda.anchor}
           entries={entradasDelMenu(menuCelda.ref)}
           onClose={() => setMenuCelda(null)}
+        />
+      ) : null}
+
+      {menuCopiar ? (
+        <ContextMenu
+          anchor={menuCopiar}
+          entries={[
+            {
+              kind: "label",
+              id: "lbl",
+              // Cuántas, en el título: copiar quinientas filas sin saberlo es
+              // una sorpresa fea. Lo que se copia es lo CARGADO, no la tabla
+              // entera —para eso está Exportar—.
+              label: `Copiar ${filas.length.toLocaleString("es", { useGrouping: true })} ${plural(
+                filas.length,
+                "fila cargada",
+                "filas cargadas",
+              )} como`,
+            },
+            ...entradasDeFormato("todas", () => filas),
+          ]}
+          onClose={() => setMenuCopiar(null)}
         />
       ) : null}
 

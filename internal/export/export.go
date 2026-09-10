@@ -97,6 +97,17 @@ type Options struct {
 	// Gzip comprime la salida al escribir.
 	Gzip bool `json:"gzip"`
 
+	// Align rellena las columnas del Markdown para que la tabla se lea ANTES
+	// de renderizarse. Solo vale al armar TEXTO —el portapapeles—, nunca al
+	// escribir un archivo.
+	//
+	// El motivo no es de estilo: alinear exige saber el ancho de cada columna,
+	// y para eso hay que tener todas las filas antes de escribir la primera.
+	// Con dos millones de filas eso no entra en memoria, y por eso `NewInto`
+	// —el camino que escribe de a una fila— la RECHAZA en vez de aceptarla y
+	// quedarse sin memoria a mitad de archivo.
+	Align bool `json:"align,omitempty"`
+
 	// NeutralizeFormulas antepone un apóstrofo a los campos que Excel y
 	// LibreOffice ejecutarían como fórmula al abrir el archivo: los que
 	// empiezan con `=`, `+`, `-`, `@`, tabulación o retorno de carro.
@@ -136,6 +147,11 @@ func NewInto(f Format, w io.Writer, o Options, t *SQLTarget) (Writer, error) {
 	o, err := o.normalizada()
 	if err != nil {
 		return nil, err
+	}
+	if o.Align {
+		return nil, fmt.Errorf(
+			"el alineado del Markdown necesita todas las filas juntas y este escritor va de a una: " +
+				"solo se puede al armar texto, no al escribir un archivo")
 	}
 	var gz *gzip.Writer
 	if o.Gzip {
@@ -234,6 +250,11 @@ func Write(f Format, w io.Writer, o Options, columns []query.Column, rows [][]*s
 // y para el portapapeles, que son texto y no un archivo: el gzip se ignora.
 func Render(f Format, o Options, columns []query.Column, rows [][]*string, limit int) (string, error) {
 	o.Gzip = false
+	// El alineado NO lo hace el escritor de a una fila: necesita todas las
+	// filas juntas, y acá las hay. Se atiende antes de armar el escritor.
+	if f == Markdown && o.Align {
+		return RenderMarkdownAlineado(o, columns, rows, limit), nil
+	}
 	var b strings.Builder
 	if _, err := Write(f, &b, o, columns, rows, limit); err != nil {
 		return "", err

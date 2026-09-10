@@ -495,8 +495,38 @@ y era lo único que no se podía sin abrir un diálogo.
   es lo que significa; copiar la palabra `NULL` metería cuatro letras donde no
   había nada. Lo que se pierde —distinguir NULL de la cadena vacía— lo dice el
   visor con todas las letras.
-- ⏳ **Copiar filas en un formato** — botón «Copiar…» en la barra de la tabla y
-  en la del editor, con JSON, Markdown, TSV y CSV.
+- ✅ **Copiar filas en un formato** — «Copiar…» en la barra de la tabla y en la
+  del editor abre un menú con TSV, CSV, JSON y Markdown; el mismo menú, sobre
+  la fila del clic derecho, copia UNA fila. **El alcance lo decide dónde se
+  aprieta**, como en Beekeeper: no hay un selector aparte. El título del menú
+  dice CUÁNTAS filas —copiar quinientas sin saberlo es una sorpresa fea— y son
+  las CARGADAS, no la tabla entera: para eso está Exportar, y dos millones de
+  filas en el portapapeles no son una función sino un cuelgue.
+
+  El texto lo arma Go, con los mismos escritores que la exportación: copiar y
+  exportar tienen que dar el mismo texto de las mismas filas, o el archivo y el
+  portapapeles dirían cosas distintas y nadie sabría cuál creer.
+
+**El Markdown que se copia va ALINEADO, con un tope de 40 caracteres.** Sin
+relleno, una tabla pegada en un ticket no se lee hasta que algo la renderiza. Y
+sin tope tampoco: una columna con un JWT de trescientos caracteres deja a todas
+las demás con doscientos noventa espacios y la tabla queda peor que sin alinear.
+Las columnas más anchas que el tope se escriben sin rellenar: desalinean su
+renglón y dejan el resto legible.
+
+Alinear **solo se puede al armar texto**, y el contrato lo hace cumplir: para
+saber el ancho de una columna hay que tener todas las filas antes de escribir la
+primera, así que `NewInto` —el escritor de a una fila, el que va al archivo—
+RECHAZA la opción en vez de aceptarla y quedarse sin memoria en una tabla de dos
+millones. El ancho se mide en RUNAS: con bytes, un acento cuenta dos y la
+columna queda corrida justo en las tablas en castellano.
+
+**El TSV no encomilla todo**, que es lo que hacen otras herramientas: Excel no
+siempre saca las comillas al pegar y quedaría `"81758"` literal en la celda. El
+escritor encomilla solo donde hace falta, así que un valor con una tabulación
+adentro sigue estando bien. Lo que se pierde es distinguir el NULL de la cadena
+vacía, y es a propósito: una planilla no tiene forma de mostrar esa diferencia.
+El CSV sí la distingue, y es el que sirve para volver a importar.
 
 **Copiar no exige poder editar**, y el orden de las guardas lo refleja: una
 tabla sin clave primaria o una conexión de solo lectura se leen igual, y copiar

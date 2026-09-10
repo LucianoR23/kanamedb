@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import * as ExportsSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/exports";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
-import { Format } from "../../bindings/github.com/LucianoR23/kanamedb/internal/export";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
-import { Button, PillTabs, Spinner } from "../components/ui";
+import { Button, ContextMenu, PillTabs, Spinner } from "../components/ui";
+import type { MenuAnchor } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
 import { CellViewer } from "./CellViewer";
 import { ExportDialog } from "./ExportDialog";
 import { Splitter } from "../components/Splitter";
-import { alPortapapeles, textoDeCelda } from "../lib/copiar";
+import {
+  FORMATOS_DE_COPIA,
+  alPortapapeles,
+  textoDeCelda,
+  textoDeFilas,
+} from "../lib/copiar";
 import { cx } from "../lib/cx";
-import { opcionesPorDefecto } from "../lib/exportar";
 import { nombreDeMotor, plural } from "../lib/motor";
 import styles from "./SqlEditorScreen.module.css";
 
@@ -71,6 +74,7 @@ export function SqlEditorScreen({
   const [exportando, setExportando] = useState(false);
   // null mientras no se copió; "ok" o "error" un rato después de intentarlo.
   const [copia, setCopia] = useState<null | "ok" | "error">(null);
+  const [menuCopiar, setMenuCopiar] = useState<MenuAnchor | null>(null);
   const copiadoTimer = useRef<number | null>(null);
 
   // El identificador de ejecución es por pestaña: cancelar acá no puede cortar
@@ -126,9 +130,6 @@ export function SqlEditorScreen({
     void QueriesSvc.Cancel(runID);
   }
 
-  // Copia el resultado separado por tabulaciones, que es lo que una planilla
-  // pega en celdas. NULL va vacío: `\N` en una planilla es ruido. Lo arma Go
-  // con el mismo escritor que la exportación.
   // Ctrl+C sobre la grilla copia LA CELDA seleccionada, no el resultado entero:
   // el resultado entero es lo que hace el botón «Copiar» de la barra. Son dos
   // cosas distintas y la tecla es la del sistema, que en cualquier grilla copia
@@ -144,19 +145,13 @@ export function SqlEditorScreen({
       .catch(() => setCopia("error"));
   }
 
-  async function copiarResultado() {
+  async function copiarResultado(formato: (typeof FORMATOS_DE_COPIA)[number]) {
     if (!result?.returnsRows) return;
     // Con try/catch: si el formateo o el portapapeles fallan, el botón lo dice.
     // Sin él la promesa se rechazaba sola y apretar «Copiar» no hacía nada
     // visible, que es la peor forma de fallar de un botón.
     try {
-      const texto = await ExportsSvc.Render({
-        format: Format.CSV,
-        options: { ...opcionesPorDefecto(), delimiter: "\t", nullAsEmpty: true },
-        columns: result.columns ?? [],
-        rows: result.rows ?? [],
-      });
-      await navigator.clipboard.writeText(texto);
+      await alPortapapeles(await textoDeFilas(result.columns ?? [], result.rows ?? [], formato));
       setCopia("ok");
     } catch {
       setCopia("error");
@@ -280,9 +275,13 @@ export function SqlEditorScreen({
               <button
                 type="button"
                 className={cx(styles.link, copia === "error" && styles.metaError)}
-                onClick={() => void copiarResultado()}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setCopia(null);
+                  setMenuCopiar({ x: r.left, y: r.bottom });
+                }}
               >
-                {copia === "ok" ? "Copiado" : copia === "error" ? "No se pudo copiar" : "Copiar"}
+                {copia === "ok" ? "Copiado" : copia === "error" ? "No se pudo copiar" : "Copiar…"}
               </button>
               <button type="button" className={styles.link} onClick={() => setExportando(true)}>
                 Exportar…
@@ -369,6 +368,28 @@ export function SqlEditorScreen({
         </span>
         <span className={styles.statusDim}>dialecto {nombreDeMotor(engine)}</span>
       </footer>
+
+      {menuCopiar && result?.returnsRows ? (
+        <ContextMenu
+          anchor={menuCopiar}
+          entries={[
+            {
+              kind: "label",
+              id: "lbl",
+              label: `Copiar ${(result.rows ?? []).length.toLocaleString("es", {
+                useGrouping: true,
+              })} ${plural((result.rows ?? []).length, "fila", "filas")} como`,
+            },
+            ...FORMATOS_DE_COPIA.map((f) => ({
+              id: f.key,
+              label: f.label,
+              hint: f.nota,
+              onSelect: () => void copiarResultado(f),
+            })),
+          ]}
+          onClose={() => setMenuCopiar(null)}
+        />
+      ) : null}
 
       {visor && result ? (
         <CellViewer
