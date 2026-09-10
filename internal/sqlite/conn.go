@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 	"github.com/LucianoR23/kanamedb/internal/schema"
@@ -338,4 +339,13 @@ func (t *txLite) restaurar(ctx context.Context) {
 	if t.fkEstaban {
 		_, _ = t.cn.ExecContext(ctx, "PRAGMA foreign_keys = ON")
 	}
+}
+
+func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []change.Cell) (int64, error) {
+	sql, args := dml.CountWhere(esquema, tabla, where, dialectoDML)
+	var n int64
+	if err := c.db.QueryRowContext(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }

@@ -369,6 +369,7 @@ export function Shell({
                       snapshot={snapshot}
                       recarga={recarga}
                       onShowInErd={openErd}
+                      onRevisar={openCambios}
                       onStaged={() => {
                         void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
                       }}

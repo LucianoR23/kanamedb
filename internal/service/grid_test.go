@@ -59,7 +59,7 @@ func TestLaGrillaSeConvierteEnCambiosEnElOrdenDeSusColumnas(t *testing.T) {
 	if got := celdasTexto(u.Key); got != "id=7" {
 		t.Errorf("la clave tiene que ser la LEÍDA, no la editada: %q", got)
 	}
-	if got := celdasTexto(u.Previous); got != "id=7 apodo=NULL edad=30" {
+	if got := celdasTexto(u.Previous); got != "id=7 nombre=juan apodo=NULL edad=30" {
 		t.Errorf("Previous = %q", got)
 	}
 

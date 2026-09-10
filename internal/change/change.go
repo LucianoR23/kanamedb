@@ -220,8 +220,9 @@ type Change struct {
 	Key []Cell `json:"key,omitempty"`
 
 	// Previous es lo que había antes, para que la revisión pueda mostrar
-	// «apodo: juan → juanci» en vez de solo la sentencia. En updateRow son los
-	// valores viejos de las columnas de Values; en deleteRow, la fila entera.
+	// «apodo: juan → juanci» en vez de solo la sentencia. En updateRow y en
+	// deleteRow es la fila ENTERA como se leyó, para que la revisión muestre
+	// todas las columnas y marque las tocadas.
 	//
 	// No entra en ninguna sentencia. Es para leer.
 	Previous []Cell `json:"previous,omitempty"`

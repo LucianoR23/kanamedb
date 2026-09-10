@@ -198,3 +198,23 @@
 .chipQuitar:hover {
   color: var(--text-1);
 }
+
+/* Un enlace adentro de la nota de la tira: mismo tamaño, color de acento. */
+.enlace {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.enlace:hover {
+  text-decoration: underline;
+}
+
+/* Aviso en la tira: la base cambió mientras había ediciones sin preparar. */
+.preparadasAviso {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--warning);
+}

@@ -149,3 +149,23 @@ func (e *escritor) donde(clave []change.Cell) {
 		e.valor(k.Value)
 	}
 }
+
+// CountWhere escribe la consulta que cuenta las filas que coinciden con
+// `where`, con los valores como parámetros. Es lo que usan las comprobaciones
+// de la revisión de filas: «¿la clave identifica una sola fila?», «¿existe el
+// padre al que apunta esta clave foránea?», «¿cuántas hijas arrastra este
+// borrado?».
+//
+// Sin condiciones no cuenta la tabla entera: devuelve una consulta que no
+// coincide con nada. Contar todo por un descuido en quien llama sería la
+// consulta más cara de la aplicación disparada sin querer.
+func CountWhere(schema, table string, where []change.Cell, d Dialect) (string, []any) {
+	e := escritor{d: d}
+	e.texto("SELECT COUNT(*) FROM " + d.Table(schema, table))
+	if len(where) == 0 {
+		e.texto(" WHERE 1 = 0")
+		return e.ejecutable.String(), nil
+	}
+	e.donde(where)
+	return e.ejecutable.String(), e.args
+}

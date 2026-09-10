@@ -130,3 +130,18 @@ func TestLoQueNoValidaNoSeEscribe(t *testing.T) {
 		}
 	}
 }
+
+func TestContarPorClaveVaConParametros(t *testing.T) {
+	sql, args := CountWhere("p", "t", []change.Cell{{Column: "a", Value: v("1")}, {Column: "b", Value: nil}}, prueba)
+	if quiero := `SELECT COUNT(*) FROM «p».«t» WHERE «a» = $1 AND «b» IS NULL`; sql != quiero {
+		t.Errorf("SQL = %s, se esperaba %s", sql, quiero)
+	}
+	if len(args) != 1 || *args[0].(*string) != "1" {
+		t.Errorf("args = %v", args)
+	}
+	// Sin condiciones no se cuenta la tabla entera.
+	sql, args = CountWhere("", "t", nil, prueba)
+	if !strings.Contains(sql, "1 = 0") || len(args) != 0 {
+		t.Errorf("sin condiciones tendría que no coincidir con nada: %s %v", sql, args)
+	}
+}

@@ -1,0 +1,321 @@
+/* S08 Data review. Misma caja que la vista previa de SQL: casi toda la altura
+   de la ventana, scroll por dentro, lista a la izquierda y detalle a la
+   derecha. */
+.marco {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  height: min(76vh, 760px);
+  margin: -4px -2px 0;
+  border-top: 1px solid var(--border);
+}
+.grow { flex: 1; }
+.dim {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.seccionTitulo {
+  white-space: nowrap;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ---- lista ---------------------------------------------------------------- */
+
+.lista {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.listaCabecera,
+.listaPie {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+}
+.listaCabecera { border-bottom: 1px solid var(--border-subtle); }
+.listaPie { border-top: 1px solid var(--border-subtle); }
+.listaCuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+}
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.item:hover { background: var(--bg-hover); }
+.itemActivo { background: var(--bg-sel); box-shadow: inset 2px 0 0 currentColor; }
+.itemLinea { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.itemTabla {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-1);
+}
+.itemResumen {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+}
+.masVerde { font: 400 10.5px var(--font-mono); color: var(--success); }
+.masAmbar { font: 400 10.5px var(--font-mono); color: var(--warning); }
+.masRojo  { font: 400 10.5px var(--font-mono); color: var(--danger); }
+
+/* El color del ítem activo —la franja de la izquierda— es el de su operación:
+   currentColor lo toma de estas clases. */
+.op {
+  flex: none;
+  white-space: nowrap;
+  padding: 0 4px;
+  border-radius: 2px;
+  font: 600 9.5px var(--font-mono);
+}
+.opInsert { color: var(--success); }
+.opUpdate { color: var(--warning); }
+.opDelete { color: var(--danger); }
+.op.opInsert { background: var(--success-quiet); }
+.op.opUpdate { background: var(--warning-quiet); }
+.op.opDelete { background: var(--danger-quiet); }
+.opGrande {
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  font: 600 10px var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.opGrande.opInsert { background: var(--success-quiet); }
+.opGrande.opUpdate { background: var(--warning-quiet); }
+.opGrande.opDelete { background: var(--danger-quiet); }
+
+/* ---- detalle -------------------------------------------------------------- */
+
+.detalle {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.detalleCabecera {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.detalleTabla { font: 600 15px var(--font-mono); color: var(--text-1); }
+.detalleCuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px;
+}
+.detallePie {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.enlace {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 11.5px var(--font-ui);
+  cursor: pointer;
+}
+.enlace:hover { color: var(--text-1); }
+
+/* ---- la fila como tabla ---------------------------------------------------- */
+
+.tabla {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.tr {
+  display: grid;
+  grid-template-columns: 176px 110px minmax(0, 1fr);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tr:last-child { border-bottom: 0; }
+.trLado {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.trLado:last-child { border-bottom: 0; }
+.th {
+  height: 26px;
+  align-items: center;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.th > div { padding: 0 11px; }
+.thPendiente { color: var(--warning); }
+.thNota {
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: right;
+  font: 400 10px var(--font-mono);
+  color: var(--text-dim);
+}
+.trCambia { background: var(--cell-modified); }
+.trNueva { background: var(--cell-added); }
+.trBorrada { background: var(--cell-deleted); }
+
+.tdNombre,
+.tdNombreLado,
+.tdTipo,
+.tdValor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 11px;
+  border-right: 1px solid var(--border-subtle);
+}
+.tdValor { flex-direction: column; align-items: flex-start; gap: 3px; border-right: 0; }
+.tdNombreLado { font: 400 11.5px var(--font-mono); color: var(--text-3); }
+.tdTipo {
+  overflow: hidden;
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.tag { flex: none; white-space: nowrap; font: 700 8px var(--font-mono); color: var(--text-dim); }
+.tag_PK { color: var(--env-stage); }
+.tag_FK { color: var(--accent); }
+.nombre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-2);
+}
+.nombreCambia { color: var(--text-1); }
+
+.viejo,
+.nuevo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.marca,
+.marcaMenos,
+.marcaMas,
+.marcaNada {
+  flex: none;
+  width: 8px;
+  white-space: nowrap;
+  font: 600 10px var(--font-mono);
+}
+.marcaMenos { color: var(--danger); }
+.marcaMas { color: var(--success); }
+.valor,
+.valorNulo,
+.valorApagado {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px var(--font-mono);
+  color: var(--text-1);
+  user-select: text;
+}
+.valorNulo { color: var(--cell-null); font-style: italic; }
+.valorApagado { color: var(--text-3); }
+.tachado { text-decoration: line-through; color: var(--text-3); }
+.tachado .valor { color: var(--text-3); }
+.nota { white-space: nowrap; font: 400 10.5px var(--font-ui); color: var(--text-dim); }
+
+.lados {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* ---- sentencia y comprobaciones ----------------------------------------- */
+
+.abajo {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 14px;
+  align-items: start;
+}
+.caja {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.cajaCabecera {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 11px;
+  border-bottom: 1px solid var(--border);
+}
+.cajaCuerpo { padding: 11px 13px; }
+.sql {
+  margin: 0;
+  padding: 11px 13px;
+  background: var(--bg-inset);
+  font: 400 12px/1.7 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.check { display: flex; gap: 8px; }
+.punto {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border-radius: 50%;
+  text-align: center;
+  font: 700 9px/14px var(--font-mono);
+}
+.punto_ok { background: var(--success-quiet); color: var(--success); }
+.punto_warn { background: var(--warning-quiet); color: var(--warning); }
+.punto_bad { background: var(--danger); color: var(--text-on-accent); }
+.checkTexto { min-width: 0; }
+.checkLabel { font: 400 11.5px/1.45 var(--font-ui); color: var(--text-1); }
+.checkDetalle { font: 400 10.5px/1.45 var(--font-mono); color: var(--text-3); word-break: break-word; }
+.malo { font: 400 11.5px var(--font-ui); color: var(--danger); }

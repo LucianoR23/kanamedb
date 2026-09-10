@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 	"github.com/LucianoR23/kanamedb/internal/schema"
@@ -120,8 +121,8 @@ func (t *txMy) Commit(ctx context.Context) error {
 // por fila—, así que un COMMIT no puede fallar por algo que las sentencias no
 // hayan fallado ya.
 //
-// De todos modos estos dos motores nunca llegan acá: el ensayo de S15 exige DDL
-// transaccional y ellos no lo tienen.
+// Sí se llega acá: el ensayo de S15 corre contra estos dos motores cuando el
+// changeset es de puros datos, que es un solo tramo transaccional.
 func (t *txMy) Verify(context.Context) error { return nil }
 
 // Rollback después de un Commit exitoso es un no-op, para que quien la abrió
@@ -175,4 +176,14 @@ func (c *Conn) Page(
 
 func (c *Conn) Count(ctx context.Context, esquema, tabla string) (int64, *engine.Failure) {
 	return count(ctx, c.db, c.base(esquema), tabla)
+}
+
+func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []change.Cell) (int64, error) {
+	cita := func(s string) string { return quoteString(s, c.sinEscapes) }
+	sql, args := dml.CountWhere(c.base(esquema), tabla, where, dialectoDML(cita))
+	var n int64
+	if err := c.db.QueryRowContext(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }

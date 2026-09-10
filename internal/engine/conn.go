@@ -107,6 +107,12 @@ type Conn interface {
 	Page(ctx context.Context, esquema, tabla string, opts PageOptions) (*query.Result, *Failure)
 	// Count cuenta las filas de una tabla, exacto.
 	Count(ctx context.Context, esquema, tabla string) (int64, *Failure)
+	// CountWhere cuenta las filas que coinciden con los valores dados, que
+	// viajan como parámetros. Es lo que la revisión de una fila usa para
+	// decir si su clave identifica una sola, si el padre de su clave foránea
+	// existe y cuántas hijas arrastraría un borrado. Sin condiciones no
+	// cuenta nada.
+	CountWhere(ctx context.Context, esquema, tabla string, where []change.Cell) (int64, error)
 
 	// RenderDDL escribe una operación del changeset como SQL de este motor.
 	// Es lo único que sabe citar identificadores, y por eso la SQL nunca se

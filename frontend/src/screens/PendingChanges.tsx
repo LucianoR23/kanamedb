@@ -14,6 +14,7 @@ import {
   Spinner,
 } from "../components/ui";
 import { SqlPreview } from "./SqlPreview";
+import { DataReview, esCambioDeDatos } from "./DataReview";
 import { cx } from "../lib/cx";
 import { nombreDeMotor } from "../lib/motor";
 import styles from "./PendingChanges.module.css";
@@ -82,6 +83,8 @@ export function PendingChanges({
   const [transaccion, setTransaccion] = useState(true);
   const [previewAbierta, setPreviewAbierta] = useState(false);
   const [descartando, setDescartando] = useState(false);
+  // La revisión de filas (S08), abierta o no.
+  const [revisando, setRevisando] = useState(false);
 
   const leer = useCallback(async () => {
     setCargando(true);
@@ -290,6 +293,11 @@ export function PendingChanges({
           Ver la SQL y aplicar {r.included} {r.included === 1 ? "sentencia" : "sentencias"}
         </Button>
         <CopyButton text={vista.script} label="Copiar la SQL" />
+        {r.data > 0 ? (
+          <Button size="sm" onClick={() => setRevisando(true)}>
+            Revisar {r.data} {r.data === 1 ? "fila" : "filas"}
+          </Button>
+        ) : null}
         <span className={styles.grow} />
         <Button variant="dangerOutline" size="sm" onClick={() => setDescartando(true)}>
           Descartar todo
@@ -310,6 +318,18 @@ export function PendingChanges({
         Se vacía la lista. <strong>No se pierde ningún dato</strong> —nada se aplicó todavía—,
         pero las ediciones hay que volver a hacerlas.
       </ConfirmDialog>
+
+      {revisando ? (
+        <DataReview
+          cambios={todos.filter((v) => esCambioDeDatos(v.change))}
+          onClose={() => setRevisando(false)}
+          onDiscarded={() => void leer()}
+          onReviewSql={() => {
+            setRevisando(false);
+            setPreviewAbierta(true);
+          }}
+        />
+      ) : null}
 
       {previewAbierta ? (
         <SqlPreview

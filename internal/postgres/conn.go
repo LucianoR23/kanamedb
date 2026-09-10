@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
+	"github.com/LucianoR23/kanamedb/internal/dml"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/query"
 	"github.com/LucianoR23/kanamedb/internal/schema"
@@ -177,4 +178,13 @@ func (t *txPG) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 func (t *txPG) Verify(ctx context.Context) error {
 	_, err := t.tx.Exec(ctx, "SET CONSTRAINTS ALL IMMEDIATE")
 	return err
+}
+
+func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []change.Cell) (int64, error) {
+	sql, args := dml.CountWhere(esquema, tabla, where, dialectoDML)
+	var n int64
+	if err := c.pool.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }

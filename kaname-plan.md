@@ -299,7 +299,14 @@ lo que entra y sale de la grilla.
   Ctrl+Z: deshacer es la cruz de la pastilla. Probado a mano contra los cuatro
   motores el 2026-09-10, incluida la fila que otro borró; ver § 6 por lo que
   salió de MySQL.
-- ⏳ **S08 Data change review** — completa, incluida la variante de producción.
+- ✅ **S08 Data change review** — una fila por vez: la lista de filas tocadas,
+  la fila entera unificada o lado a lado con lo que había y lo que queda, la
+  sentencia, y las comprobaciones que Go hace mirando la base —la clave
+  identifica una sola fila, el padre de cada clave foránea existe, cuántas
+  hijas arrastra un borrado y qué les pasa, columnas NOT NULL sin valor—.
+  Se abre desde la grilla («Revisar las filas») y desde Cambios pendientes.
+  La variante de producción es la de siempre: la confirmación la pide Go al
+  preparar y al aplicar. Probada a mano en los cuatro motores el 2026-09-10.
 - ⏳ **S18 CSV import wizard** — completa. `COPY … FROM STDIN` de pgx hace el
   trabajo; lo caro es el asistente —mapear columnas, tipos, NULL contra cadena
   vacía, encoding, y qué hacer con las filas que no entran—, que es justamente
@@ -789,6 +796,55 @@ pregunta por (fila, columna) a una sola función que decide qué mostrar.
 valores del enum al editar una celda `ENM`. Los enums no se introspectan como
 objetos hasta S17 (iteración 8); hasta entonces una celda de enum se edita como
 texto y el servidor valida. Anotado para cuando existan.
+
+**La revisión de una fila mira la base, de a una fila.** S08 no se limita a
+mostrar el diff: `Session.ReviewRow` corre comprobaciones que solo la base
+puede contestar —si la clave sigue identificando una sola fila, si existe el
+padre al que apunta cada clave foránea que se escribe, cuántas hijas arrastra un
+borrado y qué les pasa según `ON DELETE`, qué columnas `NOT NULL` sin default
+quedaron sin valor en un alta—. Cada una es un `SELECT COUNT(*)` parametrizado
+(`engine.Conn.CountWhere`, escrito por `dml.CountWhere` con el mismo escritor
+que las sentencias, así que los valores tampoco entran acá en el texto). Se
+piden para la fila que se está mirando y no para todas al abrir: cien filas
+abiertas de golpe serían quinientas consultas antes de leer nada, y la pantalla
+muestra de a una. No reemplazan la comprobación del apply —la fila puede
+cambiar entre la revisión y el COMMIT— pero contestan lo que quien revisa quiere
+saber ahora, y las tres etiquetas dicen cosas distintas: «ok», «warn» es algo
+que va a pasar y conviene saber (una cascada), «bad» es algo que va a FALLAR.
+Con tests en los cuatro motores, incluidas las inyecciones de cascada trocada
+por restrict y de padre nunca contado.
+
+**`Previous` es la fila entera también en un update.** Antes llevaba solo las
+columnas cambiadas; la revisión muestra todas y marca las tocadas, y con solo
+las tocadas no podía. Las columnas y sus tipos salen de `Detail`, que
+`ReviewRow` ya lee para las claves foráneas.
+
+**Un susto que no fue nada, y una regla nueva.** Probando S08 a mano, un clic
+por texto sobre la lista de conexiones no cambió la selección —la primera de
+la lista era la de producción del usuario— y el «Conectar» siguiente conectó a
+producción. Solo se leyó el esquema y se desconectó en el acto; nada se
+escribió ni se preparó. La regla que queda: el script de conexión de las
+pruebas manuales comprueba, ANTES de tocar «Conectar», que la seleccionada sea
+la de prueba —`zz-prueba-*`— y que su entorno sea LOCAL o DEV, y si no, no
+conecta. Un «Conectar» a ciegas no se vuelve a ejecutar.
+
+**Del `/code-review high` de S08, cinco cosas, las cinco arregladas:**
+
+1. Las comprobaciones miraban solo la base y no lo que la misma tanda hace
+   antes: decían «no existe el padre» cuando el padre era la fila de arriba, y
+   «el borrado va a fallar» cuando las hijas se borraban dos filas antes.
+   Ahora la revisión recibe los cambios de datos que corren antes en el apply
+   —`Ordered` conserva el orden de edición— y los cuenta.
+2. En SQLite, `id INTEGER PRIMARY KEY` es un alias del rowid y se asigna
+   solo; la introspección no lo marcaba y la revisión decía que la columna
+   `NOT NULL` quedó sin valor. Ahora esa columna es identidad «by default».
+3. Un apply desde otra pestaña recargaba todas las abiertas y **pisaba las
+   ediciones sin preparar** de una tabla que no se tocó. Con ediciones, la
+   pestaña no relee: avisa en la tira y ofrece «Releer», que pregunta.
+4. El mensaje de «no alcanzó ninguna fila» culpaba siempre a otra sesión; un
+   trigger `BEFORE` que devuelve NULL también da cero. Lo dice.
+5. El aviso de las claves foráneas apagadas en SQLite se emitía aunque la
+   casilla de transacción estuviera apagada, y en ese modo no aplica. Lo dice.
 
 **MySQL mostraba una fecha que no se podía editar.** Salió de probar la grilla
 a mano contra MySQL —la UI es la misma para los cuatro, pero lo que llega a la

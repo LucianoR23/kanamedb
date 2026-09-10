@@ -405,6 +405,27 @@ func detalleColumnas(ctx context.Context, db *sql.DB, tabla, ddl string) ([]sche
 		return nil, err
 	}
 
+	// Una columna `INTEGER PRIMARY KEY` sola es un alias del rowid: si el
+	// INSERT no la trae, SQLite le pone el siguiente número. Eso es lo que en
+	// los otros motores se llama identidad «by default» —se puede dar un valor,
+	// y si no, lo pone la base—, y hay que decirlo: si no, la revisión de un
+	// alta que la omite diría que la columna NOT NULL quedó sin valor y que el
+	// alta va a fallar, cuando es el caso normal. Con WITHOUT ROWID no hay
+	// rowid que aliasar, y con una clave compuesta tampoco.
+	claves := 0
+	for _, c := range out {
+		if c.PrimaryKey {
+			claves++
+		}
+	}
+	if claves == 1 && !strings.Contains(strings.ToUpper(ddl), "WITHOUT ROWID") {
+		for i := range out {
+			if out[i].PrimaryKey && strings.EqualFold(strings.TrimSpace(out[i].DataType), "INTEGER") {
+				out[i].Identity = "by default"
+			}
+		}
+	}
+
 	// SQLite no tiene comentarios de columna, y AUTOINCREMENT —lo más parecido
 	// a una identidad— solo se ve en el texto del CREATE TABLE.
 	if strings.Contains(strings.ToUpper(ddl), "AUTOINCREMENT") {

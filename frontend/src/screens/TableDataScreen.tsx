@@ -29,6 +29,8 @@ import type { Edicion, Valor } from "../lib/edicion";
 import { cx } from "../lib/cx";
 import { plural } from "../lib/motor";
 import { CellViewer } from "./CellViewer";
+import { DataReview, esCambioDeDatos } from "./DataReview";
+import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { TableStructure, bytes } from "./TableStructure";
 import { useStage } from "../lib/useStage";
 import type { StructureView } from "./TableStructure";
@@ -63,6 +65,7 @@ export function TableDataScreen({
   recarga,
   onShowInErd,
   onStaged,
+  onRevisar,
 }: {
   tabId: string;
   schema: string;
@@ -76,6 +79,8 @@ export function TableDataScreen({
   onShowInErd: (schema: string, table: string) => void;
   /** Se llama cuando una edición entró al changeset. */
   onStaged: () => void;
+  /** Abre la pestaña de cambios pendientes, para «ver la SQL y aplicar». */
+  onRevisar: () => void;
 }) {
   const [result, setResult] = useState<Result | null>(null);
   const [filas, setFilas] = useState<(string | null)[][]>([]);
@@ -97,8 +102,16 @@ export function TableDataScreen({
   const [menuCelda, setMenuCelda] = useState<{ ref: CellRef; anchor: MenuAnchor } | null>(null);
   // Lo que se quería hacer y descartaría las ediciones: ordenar por otra
   // columna. Se pregunta antes.
-  const [descartarPara, setDescartarPara] = useState<(() => void) | null>(null);
+  const [descartarPara, setDescartarPara] = useState<{ accion: () => void; motivo: "ordenar" | "releer" } | null>(
+    null,
+  );
+  // La base cambió —un apply desde otra pestaña, «Refrescar»— mientras acá
+  // había ediciones sin preparar. No se releen las filas por encima: se avisa,
+  // y releer es una decisión de quien está editando.
+  const [releerPendiente, setReleerPendiente] = useState(false);
   const [preparado, setPreparado] = useState(0);
+  // La revisión de filas (S08) sobre lo que ya entró al changeset.
+  const [revision, setRevision] = useState<ChangeView[] | null>(null);
   // El elemento de la grilla, para enfocarlo después de «Agregar fila».
   const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -172,6 +185,7 @@ export function TableDataScreen({
       if (offset === 0) {
         setEdicion(sinEdicion());
         setEditando(null);
+        setReleerPendiente(false);
       }
     },
     [runID, schema, table],
@@ -229,8 +243,16 @@ export function TableDataScreen({
     ultimaRecarga.current = recarga;
     void leerDetalle();
     void leerPendientes();
+    // Con ediciones sin preparar no se pisan las filas: un apply hecho desde
+    // OTRA pestaña recarga todas las abiertas, y perder tres celdas escritas a
+    // mano por eso sería peor que mostrar la página vieja un rato más. Se
+    // avisa en la tira y se relee cuando quien edita lo decida.
+    if (hayEdiciones(edicion)) {
+      setReleerPendiente(true);
+      return;
+    }
     void cargar(0, orden);
-  }, [recarga, orden, cargar, leerDetalle, leerPendientes]);
+  }, [recarga, orden, cargar, leerDetalle, leerPendientes, edicion]);
 
   function ordenarPor(columna: string) {
     const siguiente: SortState =
@@ -245,7 +267,7 @@ export function TableDataScreen({
     // Ordenar vuelve a leer desde el principio y las ediciones se pierden.
     // Mejor preguntar que perder tres celdas escritas a mano por un clic en
     // un encabezado.
-    if (hayEdiciones(edicion)) setDescartarPara(() => ordenar);
+    if (hayEdiciones(edicion)) setDescartarPara({ accion: ordenar, motivo: "ordenar" });
     else ordenar();
   }
 
@@ -356,6 +378,22 @@ export function TableDataScreen({
         setPreparado(n);
       },
     );
+  }
+
+
+  // Abre la revisión de filas sobre los cambios de datos que ya entraron al
+  // changeset —los de esta tabla primero, pero todos—.
+  async function abrirRevision() {
+    try {
+      const v = await SessionSvc.Changeset();
+      const datos = (v.changes ?? []).filter((x) => esCambioDeDatos(x.change));
+      // Sin cambios de datos no hay nada que revisar: si el diálogo estaba
+      // abierto —se acaba de descartar la última fila— se cierra.
+      setRevision(datos.length === 0 ? null : datos);
+    } catch {
+      /* si no se puede leer el changeset, el botón no hace nada visible;
+         la pestaña de pendientes va a mostrar el error de verdad */
+    }
   }
 
   const edit: GridEdit | undefined = puedeEditar
@@ -595,6 +633,14 @@ export function TableDataScreen({
                 preparadas={preparado}
                 onQuitar={(fila) => setEdicion((e) => sinFila(e, fila))}
                 onQuitarNueva={(i) => setEdicion((e) => sinFilaNueva(e, i))}
+                onRevisar={() => void abrirRevision()}
+                releerPendiente={releerPendiente}
+                onReleer={() =>
+                  setDescartarPara({
+                    accion: () => void cargar(0, orden),
+                    motivo: "releer",
+                  })
+                }
               />
               <div className={styles.foot}>
                 {hayMas ? (
@@ -632,18 +678,33 @@ export function TableDataScreen({
         open={descartarPara !== null}
         severidad="aviso"
         title={`¿Descartar ${nEdiciones} ${plural(nEdiciones, "edición", "ediciones")}?`}
-        etiqueta="Descartar y ordenar"
+        etiqueta={descartarPara?.motivo === "releer" ? "Descartar y releer" : "Descartar y ordenar"}
         onClose={() => setDescartarPara(null)}
         onConfirm={() => {
           const seguir = descartarPara;
           setDescartarPara(null);
-          seguir?.();
+          seguir?.accion();
         }}
       >
-        Ordenar vuelve a leer la tabla desde el principio, y lo que escribiste en las celdas
-        todavía no está preparado. Se pierde. Si querés conservarlo, cancelá y tocá «Preparar»
-        primero.
+        {descartarPara?.motivo === "releer" ? "Releer" : "Ordenar"} vuelve a leer la tabla desde
+        el principio, y lo que escribiste en las celdas todavía no está preparado. Se pierde. Si
+        querés conservarlo, cancelá y tocá «Preparar» primero.
       </ConfirmDialog>
+
+      {revision ? (
+        <DataReview
+          cambios={revision}
+          onClose={() => setRevision(null)}
+          onDiscarded={() => {
+            onStaged();
+            void abrirRevision();
+          }}
+          onReviewSql={() => {
+            setRevision(null);
+            onRevisar();
+          }}
+        />
+      ) : null}
 
       {visor && acumulado ? (
         <CellViewer
@@ -676,6 +737,9 @@ function Preparadas({
   preparadas,
   onQuitar,
   onQuitarNueva,
+  onRevisar,
+  releerPendiente,
+  onReleer,
 }: {
   edicion: Edicion;
   filas: readonly (readonly Valor[])[];
@@ -686,6 +750,11 @@ function Preparadas({
   preparadas: number;
   onQuitar: (fila: number) => void;
   onQuitarNueva: (indice: number) => void;
+  /** Abre la revisión de filas de lo que ya se preparó. */
+  onRevisar: () => void;
+  /** La base cambió mientras había ediciones: se ofrece releer, con aviso. */
+  releerPendiente: boolean;
+  onReleer: () => void;
 }) {
   if (!puedeEditar) return null;
 
@@ -756,13 +825,30 @@ function Preparadas({
   return (
     <div className={styles.preparadas}>
       <span className={styles.preparadasTitulo}>Ediciones</span>
+      {releerPendiente ? (
+        <span className={styles.preparadasAviso}>
+          La base cambió desde que se leyó esta tabla ·{" "}
+          <button type="button" className={styles.enlace} onClick={onReleer}>
+            Releer
+          </button>{" "}
+          (descarta las ediciones)
+        </span>
+      ) : null}
       {chips.length > 0 ? (
         chips
       ) : (
         <span className={styles.preparadasNota}>
-          {preparadas > 0
-            ? `${preparadas} ${plural(preparadas, "cambio preparado", "cambios preparados")}: se revisan y se aplican desde «Cambios pendientes».`
-            : "sin ediciones — doble clic en una celda, o «Agregar fila»"}
+          {preparadas > 0 ? (
+            <>
+              {preparadas} {plural(preparadas, "cambio preparado", "cambios preparados")} ·{" "}
+              <button type="button" className={styles.enlace} onClick={onRevisar}>
+                Revisar las filas
+              </button>{" "}
+              · se aplican desde «Cambios pendientes»
+            </>
+          ) : (
+            "sin ediciones — doble clic en una celda, o «Agregar fila»"
+          )}
         </span>
       )}
       <span className={styles.grow} />

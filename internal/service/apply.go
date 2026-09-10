@@ -512,7 +512,8 @@ func avisos(sesion *openSession, orden []ChangeView) []string {
 			}
 		}
 		if hayDatos {
-			out = append(out, "Mientras corre la reconstrucción las claves foráneas están "+
+			out = append(out, "Con «Una sola transacción» puesta, mientras corre la reconstrucción las "+
+				"claves foráneas están "+
 				"apagadas, así que un borrado de esta tanda no arrastra sus filas hijas "+
 				"(ON DELETE CASCADE / SET NULL). Si las deja huérfanas, el apply entero se "+
 				"rechaza al cerrar y no queda nada. Para borrar con cascada, aplicá primero "+
@@ -1054,8 +1055,9 @@ func ejecutar(ctx context.Context, ej ejecutor, st change.Statement) error {
 			return fmt.Errorf("%w: El INSERT no insertó ninguna fila. Un trigger o una regla "+
 				"de la tabla la descartó sin dar error.", ErrRowCount)
 		case n == 0:
-			return fmt.Errorf("%w: No alcanzó ninguna fila: la fila ya no está en la base "+
-				"—otra sesión la borró o le cambió la clave desde que se leyó—.", ErrRowCount)
+			return fmt.Errorf("%w: No alcanzó ninguna fila. La fila ya no está en la base "+
+				"—otra sesión la borró o le cambió la clave desde que se leyó—, o un trigger "+
+				"BEFORE la descartó sin dar error.", ErrRowCount)
 		default:
 			return fmt.Errorf("%w: Alcanzó %d filas y tenía que alcanzar %d: la clave con la "+
 				"que se identificó la fila no es única en la base.", ErrRowCount, n, st.Bound.Rows)

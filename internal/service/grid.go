@@ -173,8 +173,11 @@ func cambiosDeGrilla(e GridEdits) ([]change.Change, error) {
 		if len(c.Values) == 0 {
 			return nil, fmt.Errorf("%s: una fila editada no tiene ningún valor cambiado", e.Table)
 		}
-		for _, v := range c.Values {
-			c.Previous = append(c.Previous, change.Cell{Column: v.Column, Value: u.Before[indice[v.Column]]})
+		// La fila ENTERA como se leyó, no solo lo que cambió: la revisión muestra
+		// todas las columnas y marca las tocadas, y con solo las tocadas no
+		// podría.
+		for i, col := range e.Columns {
+			c.Previous = append(c.Previous, change.Cell{Column: col, Value: u.Before[i]})
 		}
 		cs = append(cs, c)
 	}

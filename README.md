@@ -115,6 +115,19 @@ go test ./internal/postgres/ ./internal/mysql/ ./internal/sqlite/ -run TestSuite
 Eso son seis corridas de la misma batería: Postgres, las dos MySQL, las dos
 MariaDB y SQLite.
 
+Para probar **a mano** contra un solo motor no hace falta tener los seis
+corriendo: los servicios se paran y se vuelven a levantar de a uno. Ojo con
+Postgres: corre sobre `tmpfs`, así que pararlo borra lo que se haya creado a
+mano (los tests no lo notan: crean lo suyo).
+
+```sh
+docker compose -f docker-compose.test.yml stop postgres mysql mysql-lts mariadb-lts
+docker compose -f docker-compose.test.yml start postgres
+```
+
+La batería de Go sí los necesita a todos: con `KANAME_REQUIRE_ENGINES=1` un
+motor apagado es un test rojo, no uno salteado.
+
 Por defecto levanta PostgreSQL 18. Para probar contra otra versión de la matriz,
 `PG_VERSION` la elige — pero **hay que bajar el stack con `-v` antes de
 cambiarla**:
