@@ -545,8 +545,9 @@ Vistas, funciones, procedures, triggers y enums como editor de definición.
 - ✅ **El contrato de objetos** — `Conn.Objects` y `Conn.ObjectDefinition` en los
   cuatro motores, probados con el ciclo borrar → volver a correr. Es la base de
   las tres pantallas de abajo.
-- ⏳ **S16 Object editor** — completa, con lista de dependientes y aviso de
-  DROP + CREATE.
+- ⏳ **S16 Object editor** — la lista de dependientes está ✅; falta editar la
+  definición, con el aviso de DROP + CREATE y el cambio pasando por el
+  changeset.
 - ⏳ **S17 Enum / type editor** — completa.
 - ✅ **S05** — nodos de vistas, materialized views, funciones, procedures,
   triggers, enums, dominios, tipos compuestos, secuencias, políticas y eventos
@@ -826,6 +827,115 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 8 — 2026-09-10
+
+**S16 se parte en dos, y el orden no es casual: primero los dependientes.** La
+pantalla del objeto ya existía en solo lectura, así que la lista de qué se rompe
+se puede mostrar ahí y aporta sola. Al revés —el editor primero— habría un
+momento con una acción destructiva en pantalla y sin el aviso que la hace
+segura, aunque durara un commit.
+
+**Una lista de dependientes vacía y «no se puede saber» son la misma lista y
+significan lo contrario.** Es toda la razón de ser de `schema.Dependents`: sin
+el campo `Unknown` el tipo sobraría y sería un `[]Object`. Vacía quiere decir
+«reemplazá tranquilo, no rompés nada», que es exactamente lo que alguien mira
+antes de apretar algo destructivo. Y de los cuatro motores, **solo Postgres
+puede contestar de verdad**: MySQL sabe desde 8.0.13 y solo para vistas,
+MariaDB no tiene `VIEW_TABLE_USAGE`, y SQLite no guarda dependencias en
+absoluto. Los tres que no saben lo dicen, con el motivo, y la pantalla los
+pinta distinto —recuadro punteado, no el fondo tranquilo del «nada»—.
+
+En SQLite se evaluó buscar el nombre del objeto adentro del texto de los demás,
+que es lo único que `sqlite_master` tiene. Se descartó porque es adivinar:
+encontraría una coincidencia en un comentario o en una cadena, y se perdería una
+vista que lo usa con otro alias. Una respuesta inventada es peor que ninguna
+cuando lo que sigue es un DROP.
+
+**La consulta de Postgres pasa por `pg_rewrite`, y ese salto es el que se
+olvida.** Una vista NO depende de sus tablas directamente: depende a través de
+su regla `_RETURN`. Escrita de la forma que parece obvia —`pg_depend` contra
+`pg_class`— la consulta devuelve **vacío**, y vacío acá significa «no depende
+nada de esto». Es la inyección del test: con ella, una vista de la que cuelgan
+otra vista y una materializada reporta `map[]`. Solo se cuentan las
+dependencias `deptype = 'n'`, que son las que un DROP hace fallar y un DROP
+CASCADE arrastra; las automáticas —la secuencia de un `serial`, el índice de una
+restricción— son parte del objeto que las creó. Eso es lo único que se excluye a
+propósito: la primera versión dejaba afuera además clases ENTERAS sin querer, y
+eso lo arregló el review —ver más abajo—.
+
+La otra mitad de esa consulta son los triggers que llaman a una función, y es la
+que vuelve peligroso reemplazar una función: borrarla y volver a crearla rompe
+cada trigger que la use, y esos triggers están en otra pantalla.
+
+**El caso compartido no exige la lista, exige la honestidad.** Pedirle a los
+cuatro motores que nombren dependientes sería pedirle a tres lo que no pueden.
+Lo que se exige es la invariante que sí vale para todos: o hay lista, o se dice
+que no se puede saber **con el motivo**, y `Vacio()` nunca devuelve verdadero
+con `Unknown` puesto — que es exactamente el «nada depende de esto» que el caso
+existe para impedir.
+
+**El review `high` encontró que esta unidad cometía su propio error.** El tipo
+existe para impedir que una lista vacía mienta, y la primera versión mentía en
+cuatro clases de objeto. `pg_depend` no apunta al objeto que uno tiene en la
+cabeza sino al que lo implementa: una columna tipada con un enum se registra
+como una fila de `pg_class` con `objsubid`, y el `nextval(…)` de una columna
+como una de `pg_attrdef`. Ninguna de las dos entra por la rama de las vistas ni
+por la de los triggers, así que un enum que una tabla usa —uno que el propio
+servidor se niega a borrar— contestaba «Nada. Reemplazarlo no rompe ningún otro
+objeto». Comprobado contra PostgreSQL 18 antes de tocar nada.
+
+La salida fue una tercera rama con `pg_identify_object`, que nombra cualquier
+dependiente sea de la clase que sea, y dejar la clase **cruda** tal como la dice
+el catálogo —«table column», «default value»— en vez de traducirla a una de las
+nuestras. Es el mismo criterio que la cobertura del volcado y que los grupos del
+árbol: lo que no se conoce se muestra con su nombre, no se esconde. El test
+tiene un candado: le pide al servidor un `DROP TYPE` y **exige que falle**, así
+que si algún día dejara de haber dependencia el caso se rompe en vez de pasar
+sin probar nada.
+
+**El `default` de la búsqueda contestaba vacío para todo lo que no reconocía.**
+El comentario justificaba solo a los triggers —de un trigger no cuelga nada, y
+ahí «vacío» es la verdad— pero la rama se comía también las políticas, las
+extensiones y lo que aparezca mañana. Un `DROP EXTENSION postgis` arrastra
+cientos de objetos. Ahora el trigger es el único caso explícito de «vacío y
+seguro» y todo lo demás dice que no se sabe.
+
+**MySQL esconde filas por privilegio y no avisa.** `VIEW_TABLE_USAGE` devuelve
+solo las vistas sobre las que la conexión tiene `SHOW VIEW`; sin el permiso no
+da error, da menos filas — y menos filas, cuando llegan a cero, se leen como «no
+depende nada». Se comprueba el privilegio GLOBAL y no el de la base del objeto,
+porque una vista de otra base puede depender de esta tabla: tener todo sobre la
+propia no alcanza para afirmar que la lista está completa. Si no se puede
+afirmar, lo que se encontró se devuelve igual pero marcado como incompleto.
+
+Eso obligó a rehacer el panel: **la lista y el aviso de incompleto son dos
+preguntas, no un `if` encadenado**. Qué se encontró, y si se puede confiar en
+que eso es todo. Se dan juntas más seguido de lo que parece, y un `else` entre
+las dos habría tirado la lista para mostrar el aviso — o al revés.
+
+**Y los tres estados no se distinguían, porque los tokens de color que usé no
+existen.** Inventé `--surface`, `--surface-2`, `--text` y `--text-faint`; el
+sistema define `--bg-panel`, `--bg-inset` y `--text-1/2/3`. Un `var()` que no
+resuelve no falla: no pinta. Así que «no hay» y «no se puede saber» salían las
+dos sobre fondo transparente, separadas apenas por un borde punteado, mientras
+el comentario del archivo afirmaba que se distinguían por color y el del
+componente hablaba de un verde tranquilo que no estaba en ninguna parte. Ahora
+«no hay» usa `--success` de verdad. La regla de CLAUDE.md dice colores solo por
+tokens, y esto es el modo de romperla que ningún linter ve: usar la sintaxis
+correcta con un nombre inventado.
+
+Los dos chicos: los nombres de trigger son únicos **por tabla** y no por
+esquema, así que dos `auditar` sobre tablas distintas colisionaban en la misma
+clave de React y salían como un renglón repetido —y la tabla es justamente lo
+único que dice dónde ir a arreglarlo, así que ahora viaja y se muestra—; y el
+error de MariaDB se reconoce por su NÚMERO (1109) y no por su texto, porque los
+servidores traducen sus mensajes según `lc_messages` y contra uno en otro idioma
+el camino honesto de «no se puede saber» se degradaba en un error rojo.
+
+**Probado en la pantalla los tres estados**, que es donde se ve si de verdad son
+distinguibles: la vista con dos dependientes los nombra uno por uno con su
+glifo; la vista sola dice «Nada. Reemplazarlo no rompe ningún otro objeto»; y la
+misma vista en MariaDB dice «No se puede saber» con el porqué. Un test no puede
+comprobar que tres cosas se ven distintas.
 
 **Los objetos viajan con el snapshot, y por qué.** El árbol podría cargarlos al
 abrir cada grupo, y sería más barato. No se hace porque el buscador de arriba

@@ -58,6 +58,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("filtra por columna", func(t *testing.T) { filtros(t, f) })
 	t.Run("dice qué no sabe volcar", func(t *testing.T) { cobertura(t, f) })
 	t.Run("la definición de un objeto se puede volver a correr", func(t *testing.T) { definicion(t, f) })
+	t.Run("una lista de dependientes vacía no es lo mismo que no saber", func(t *testing.T) { dependientes(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
@@ -1255,5 +1256,53 @@ func definicion(t *testing.T, f Fixture) {
 	})
 	if err == nil {
 		t.Error("un tipo de objeto desconocido devolvió una definición en vez de un error")
+	}
+}
+
+// dependientes comprueba la única promesa que este método puede hacer en los
+// cuatro motores: que una lista vacía signifique «no depende nada de esto».
+//
+// Lo que cada motor SABE es distinto —Postgres tiene `pg_depend`, MySQL tiene
+// `VIEW_TABLE_USAGE` desde 8.0.13, MariaDB no tiene nada y SQLite tampoco— así
+// que exigir la lista sería exigir lo que tres de ellos no pueden dar. Lo que
+// sí se exige es que el que no puede lo DIGA: una lista vacía es lo que alguien
+// mira para apretar tranquilo un botón que borra, y devolverla sin saber es la
+// peor respuesta posible —peor que un error, porque un error se ve—.
+func dependientes(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	ctx := context.Background()
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_dep")
+
+	vista := "kn_dep_vista"
+	nombreVista := califica(c, esq, vista)
+	_ = c.Exec(ctx, "DROP VIEW IF EXISTS "+nombreVista)
+	exec(t, c, fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s", nombreVista, califica(c, esq, tabla)))
+	t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP VIEW IF EXISTS "+nombreVista) })
+
+	esqObjeto := esq
+	if esqObjeto == "" {
+		esqObjeto = "main"
+	}
+	dep, err := c.Dependents(ctx, schema.Object{Kind: schema.ObjView, Schema: esqObjeto, Name: vista})
+	if err != nil {
+		t.Fatalf("Dependents(): %v", err)
+	}
+
+	// La invariante: o hay lista, o se dice que no se puede saber. Nunca las
+	// dos vacías sin motivo.
+	if dep.Unknown {
+		if dep.Reason == "" {
+			t.Error("se dijo que no se puede saber y no se dijo por qué: en la pantalla queda un aviso sin explicación")
+		}
+		if dep.Vacio() {
+			t.Error("Vacio() devolvió true con Unknown puesto: eso es exactamente el «nada depende de esto» que este caso existe para impedir")
+		}
+		return
+	}
+
+	// Si el motor dice saber, nadie cuelga de una vista recién creada.
+	if !dep.Vacio() {
+		t.Errorf("una vista recién creada tiene dependientes: %+v", dep.Objects)
 	}
 }

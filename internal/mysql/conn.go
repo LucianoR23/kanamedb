@@ -244,3 +244,7 @@ func (c *Conn) conEsquema(o schema.Object) schema.Object {
 	o.Schema = c.base(o.Schema)
 	return o
 }
+
+func (c *Conn) Dependents(ctx context.Context, o schema.Object) (schema.Dependents, error) {
+	return Dependents(ctx, c.db, c.conEsquema(o))
+}

@@ -224,6 +224,18 @@ type Conn interface {
 	// viajan con el snapshot porque el autocompletado las necesita todas juntas.
 	ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error)
 
+	// Dependents lista lo que se rompe si este objeto deja de existir.
+	//
+	// Es la comprobación que hace seguro al editor de objetos: guardar una
+	// vista es reemplazarla, y donde el motor no sabe reemplazar hay que
+	// borrarla y volver a crearla. Un DROP arrastra —o hace fallar— todo lo que
+	// la use, y eso no está en la pantalla que uno está mirando.
+	//
+	// Un motor que no lleve el registro NO devuelve una lista vacía: devuelve
+	// `Unknown`. Ver schema.Dependents por qué esa distinción es la razón de ser
+	// del tipo.
+	Dependents(ctx context.Context, o schema.Object) (schema.Dependents, error)
+
 	// Quoting es cómo este motor cita nombres y valores. Ver Quoting.
 	Quoting() Quoting
 

@@ -530,3 +530,17 @@ func (s *Session) ObjectDefinition(ctx context.Context, o schema.Object) (schema
 	// la frase que explica algo —probando a mano se ve enseguida—.
 	return sesion.db.ObjectDefinition(ctx, o)
 }
+
+// ObjectDependents lista lo que se rompe si este objeto deja de existir.
+//
+// Va aparte de la definición y no pegado a ella porque son dos preguntas con
+// dos costos y dos públicos: la definición se lee siempre que se abre un
+// objeto, y esto solo importa cuando se está por reemplazarlo. Juntarlas
+// haría pagar el recorrido de `pg_depend` a cada clic del árbol.
+func (s *Session) ObjectDependents(ctx context.Context, o schema.Object) (schema.Dependents, error) {
+	sesion, err := s.abierta()
+	if err != nil {
+		return schema.Dependents{}, err
+	}
+	return sesion.db.Dependents(ctx, o)
+}

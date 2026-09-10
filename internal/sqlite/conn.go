@@ -384,3 +384,7 @@ func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []ch
 func (c *Conn) ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error) {
 	return Definition(ctx, c.db, o)
 }
+
+func (c *Conn) Dependents(ctx context.Context, o schema.Object) (schema.Dependents, error) {
+	return Dependents(ctx, o)
+}

@@ -364,6 +364,33 @@ func (o Object) Completo() string {
 	return nombre
 }
 
+// Dependents es lo que se rompe si un objeto deja de existir.
+//
+// Existe para poder hacer con seguridad lo que el editor de objetos hace:
+// guardar una vista implica reemplazarla, y en algunos motores eso es borrarla
+// y volver a crearla. Un DROP arrastra —o hace fallar— todo lo que la use, y
+// eso no está en la pantalla que uno está mirando.
+type Dependents struct {
+	// Objects son los objetos que dependen de este, ya nombrados.
+	Objects []Object `json:"objects"`
+
+	// Unknown dice que el motor NO PUEDE contestar la pregunta.
+	//
+	// Es el campo que hace honesta a esta estructura, y sin él sobraría: una
+	// lista vacía significa «no depende nada de esto», y eso es exactamente lo
+	// que alguien necesita saber para apretar un botón destructivo con
+	// tranquilidad. Un motor que no lleva el registro —MariaDB no tiene
+	// `VIEW_TABLE_USAGE`, SQLite no tiene catálogo de dependencias— devolvería
+	// esa misma lista vacía, y la pantalla mostraría «nada depende de esto»
+	// sobre una vista de la que cuelgan cinco. Con esto, la pantalla dice «no
+	// se puede saber», que es la verdad.
+	Unknown bool   `json:"unknown,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// Vacio dice si no hay dependientes Y se pudo comprobar.
+func (d Dependents) Vacio() bool { return !d.Unknown && len(d.Objects) == 0 }
+
 // ObjectDefinition es la definición de un objeto, lista para mostrar en un
 // editor y para volver a ejecutar.
 type ObjectDefinition struct {
