@@ -12,6 +12,7 @@ import { SqlEditor } from "../components/SqlEditor";
 import { CellViewer } from "./CellViewer";
 import { ExportDialog } from "./ExportDialog";
 import { Splitter } from "../components/Splitter";
+import { alPortapapeles, textoDeCelda } from "../lib/copiar";
 import { cx } from "../lib/cx";
 import { opcionesPorDefecto } from "../lib/exportar";
 import { nombreDeMotor, plural } from "../lib/motor";
@@ -128,6 +129,21 @@ export function SqlEditorScreen({
   // Copia el resultado separado por tabulaciones, que es lo que una planilla
   // pega en celdas. NULL va vacío: `\N` en una planilla es ruido. Lo arma Go
   // con el mismo escritor que la exportación.
+  // Ctrl+C sobre la grilla copia LA CELDA seleccionada, no el resultado entero:
+  // el resultado entero es lo que hace el botón «Copiar» de la barra. Son dos
+  // cosas distintas y la tecla es la del sistema, que en cualquier grilla copia
+  // lo que está seleccionado.
+  function tecladoResultado(e: React.KeyboardEvent) {
+    if (!seleccion || !result?.returnsRows) return;
+    if (!(e.target instanceof HTMLElement) || e.target.getAttribute("role") !== "grid") return;
+    if (!((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C"))) return;
+    e.preventDefault();
+    const valor = (result.rows ?? [])[seleccion.row]?.[seleccion.col] ?? null;
+    void alPortapapeles(textoDeCelda(valor))
+      .then(() => setCopia("ok"))
+      .catch(() => setCopia("error"));
+  }
+
   async function copiarResultado() {
     if (!result?.returnsRows) return;
     // Con try/catch: si el formateo o el portapapeles fallan, el botón lo dice.
@@ -295,7 +311,7 @@ export function SqlEditorScreen({
           </div>
         ) : null}
 
-        <div className={styles.resultsBody}>
+        <div className={styles.resultsBody} onKeyDown={tecladoResultado}>
           {estado.fase === "cancelada" ? (
             <div className={styles.sinFilas}>
               <p className={styles.sinFilasTitulo}>Consulta cancelada</p>

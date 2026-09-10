@@ -483,6 +483,31 @@ Del resto, tres que valen como regla:
   es a la vez una eñe de latin-1 y el arranque de un carácter que sigue afuera—
   y se elige no avisar: el falso aviso manda a rehacer un archivo que está bien.
 
+### Copiar desde la grilla
+
+No estaba en el plan y sale del uso: copiar es lo que más se hace con una celda
+y era lo único que no se podía sin abrir un diálogo.
+
+- ✅ **Copiar una celda** — `Ctrl+C` sobre la grilla, y «Copiar la celda» primero
+  en el menú contextual. Vale en la grilla de la tabla y en la del editor SQL.
+  Copia el valor **tal cual**, sin comillas ni encabezado: copiar una celda es
+  sacar su contenido, no exportarla. Una celda NULL copia la cadena VACÍA, que
+  es lo que significa; copiar la palabra `NULL` metería cuatro letras donde no
+  había nada. Lo que se pierde —distinguir NULL de la cadena vacía— lo dice el
+  visor con todas las letras.
+- ⏳ **Copiar filas en un formato** — botón «Copiar…» en la barra de la tabla y
+  en la del editor, con JSON, Markdown, TSV y CSV.
+
+**Copiar no exige poder editar**, y el orden de las guardas lo refleja: una
+tabla sin clave primaria o una conexión de solo lectura se leen igual, y copiar
+es leer. Es justamente donde más sirve.
+
+**`Ctrl+C` no avisa cuando sale bien.** Es un contrato del sistema y nadie
+espera un cartel al copiar; el fallo sí se dice, donde cada pantalla ya muestra
+los suyos. El `Toast` de S00 sigue sin montarse en ninguna parte: montarlo para
+esto habría sido inventar una pieza de infraestructura para una acción que no
+la necesita.
+
 ### Iteración 8 — Objetos de texto
 
 Vistas, funciones, procedures, triggers y enums como editor de definición.

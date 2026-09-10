@@ -33,6 +33,8 @@ import { DataReview } from "./DataReview";
 import { ExportDialog } from "./ExportDialog";
 import { ImportWizard } from "./ImportWizard";
 import { esCambioDeDatos } from "../lib/cambios";
+import { alPortapapeles, textoDeCelda } from "../lib/copiar";
+import { textoDe } from "../lib/dialogos";
 import { TableFilters } from "./TableFilters";
 import type { ChangeView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { TableStructure, bytes } from "./TableStructure";
@@ -137,6 +139,10 @@ export function TableDataScreen({
   const [totalFiltrado, setTotalFiltrado] = useState<number | null>(null);
   const [exportando, setExportando] = useState(false);
   const [importando, setImportando] = useState(false);
+  // Un fallo del portapapeles se dice donde la pantalla ya dice los suyos.
+  // Copiar bien NO avisa: Ctrl+C es un contrato del sistema y nadie espera
+  // un cartel al copiar una celda.
+  const [errorCopia, setErrorCopia] = useState("");
 
   // La estructura se lee al abrir la tabla, junto con la primera página de
   // datos.
@@ -515,12 +521,31 @@ export function TableDataScreen({
       }
     : undefined;
 
+  async function copiarCelda(ref: CellRef) {
+    setErrorCopia("");
+    try {
+      // Lo MOSTRADO, no lo leído: si la celda tiene una edición sin preparar,
+      // copiar el valor viejo sería copiar algo que no está en pantalla.
+      await alPortapapeles(textoDeCelda(valorMostrado(ref)));
+    } catch (err) {
+      setErrorCopia(textoDe(err));
+    }
+  }
+
   function entradasDelMenu(ref: CellRef): MenuEntry[] {
     const nueva = ref.row >= filas.length;
     const borrada = edicion.borradas.has(ref.row);
     const editada = !nueva && (edicion.celdas.get(ref.row)?.has(ref.col) ?? false);
     const cargada = nueva && (edicion.nuevas[ref.row - filas.length]?.has(ref.col) ?? false);
     const out: MenuEntry[] = [
+      // Copiar va primero porque es lo que más se hace con una celda. Vale
+      // también sobre una fila nueva: lo que se escribió también se copia.
+      {
+        id: "copiar",
+        label: "Copiar la celda",
+        hint: "Ctrl C",
+        onSelect: () => void copiarCelda(ref),
+      },
       // El visor sigue existiendo en modo edición: el doble clic ahora edita,
       // así que leer un JSON entero o un texto largo se hace desde acá. Una
       // fila nueva no tiene nada que ver todavía.
@@ -591,12 +616,17 @@ export function TableDataScreen({
   }
 
   function teclado(e: React.KeyboardEvent) {
-    if (!enDatos || !puedeEditar || editando) return;
-    if (!seleccion) return;
-    // Solo las teclas que caen en la grilla misma. Un Enter escrito en un
-    // diálogo o en el editor de una celda también burbujea hasta acá, y no
-    // tiene que abrir nada.
+    // Copiar NO exige poder editar: una tabla sin clave primaria o una conexión
+    // de solo lectura se leen igual, y copiar es leer. Por eso va antes de la
+    // guarda de edición.
+    if (!enDatos || !seleccion || editando) return;
     if (!(e.target instanceof HTMLElement) || e.target.getAttribute("role") !== "grid") return;
+    if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C")) {
+      e.preventDefault();
+      void copiarCelda(seleccion);
+      return;
+    }
+    if (!puedeEditar) return;
     if (e.key === "Enter" || e.key === "F2") {
       e.preventDefault();
       empezarEdicion(seleccion);
@@ -712,6 +742,11 @@ export function TableDataScreen({
 
       {staging.dialogo}
       {staging.error ? <p className={styles.errorStage}>{staging.error}</p> : null}
+      {errorCopia ? (
+        <p className={styles.errorStage} role="alert">
+          {errorCopia}
+        </p>
+      ) : null}
 
       {!enDatos ? (
         <TableStructure
