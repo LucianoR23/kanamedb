@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// anchoDeLinea es cuánto puede medir el texto de una línea del encabezado, sin
+// contar el `-- ` que la abre. Setenta y cinco deja el renglón entero por
+// debajo de las ochenta columnas de una terminal.
+const anchoDeLinea = 75
+
 // Info es lo que el encabezado del archivo cuenta de sí mismo.
 type Info struct {
 	// Origen es `usuario@host:puerto/base`, SIN credenciales. Nunca la DSN.
@@ -46,22 +51,46 @@ type Info struct {
 // no entra ni en el archivo ni en los logs. Ver CLAUDE.md.
 func Encabezado(w io.Writer, i Info) error {
 	var b strings.Builder
+	// Sin espacio colgando cuando la línea va vacía: un archivo con espacios al
+	// final de los renglones ensucia cualquier diff contra el volcado de ayer,
+	// que es justamente para lo que se guarda uno.
 	linea := func(f string, args ...any) {
+		texto := strings.TrimRight(fmt.Sprintf(f, args...), " \t")
+		if texto == "" {
+			b.WriteString("--\n")
+			return
+		}
 		b.WriteString("-- ")
-		fmt.Fprintf(&b, f, args...)
+		b.WriteString(texto)
 		b.WriteByte('\n')
 	}
 
-	b.WriteString("--\n")
-	linea("Volcado de %s", i.Base)
-	linea("")
-	linea("Generado por Kaname %s el %s", i.Version, i.Cuando.Format("2006-01-02 15:04:05 -0700"))
-	linea("Origen:  %s", i.Origen)
-	linea("Motor:   %s", i.Motor)
-	if len(i.Esquemas) > 0 {
-		linea("Esquema: %s", strings.Join(i.Esquemas, ", "))
+	// Cada campo se envuelve con sangría colgante: el valor puede ser largo de
+	// verdad —el `version()` de Postgres trae el compilador y la arquitectura,
+	// y una ruta de SQLite mide lo que mida— y esto se lee en una terminal de
+	// ochenta columnas.
+	campo := func(etiqueta, valor string) {
+		sangria := strings.Repeat(" ", len([]rune(etiqueta)))
+		for k, l := range envolver(valor, anchoDeLinea-len([]rune(etiqueta))) {
+			if k == 0 {
+				linea("%s%s", etiqueta, l)
+				continue
+			}
+			linea("%s%s", sangria, l)
+		}
 	}
-	linea("Lleva:   %s", queLleva(i))
+
+	b.WriteString("--\n")
+	campo("Volcado de ", i.Base)
+	linea("")
+	campo("Generado por ", fmt.Sprintf(
+		"Kaname %s el %s", i.Version, i.Cuando.Format("2006-01-02 15:04:05 -0700")))
+	campo("Origen:  ", i.Origen)
+	campo("Motor:   ", i.Motor)
+	if len(i.Esquemas) > 0 {
+		campo("Esquema: ", strings.Join(i.Esquemas, ", "))
+	}
+	campo("Lleva:   ", queLleva(i))
 	b.WriteString("--\n")
 
 	if i.Estructura {
@@ -80,7 +109,7 @@ func Encabezado(w io.Writer, i Info) error {
 			linea("que restaurar este archivo no deja la base como estaba:")
 			linea("")
 			for _, d := range i.Cobertura.Detalle() {
-				for _, l := range envolver(d, 68) {
+				for _, l := range envolver(d, anchoDeLinea-2) {
 					linea("  %s", l)
 				}
 			}
@@ -102,7 +131,7 @@ func Encabezado(w io.Writer, i Info) error {
 			for _, r := range grupo {
 				nombres = append(nombres, r.Completo())
 			}
-			for _, l := range envolver(strings.Join(nombres, " ↔ "), 68) {
+			for _, l := range envolver(strings.Join(nombres, " ↔ "), anchoDeLinea-2) {
 				linea("  %s", l)
 			}
 		}

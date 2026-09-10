@@ -224,13 +224,21 @@ export function CellViewer({
                 En los demás modos se sigue mirando: editar un array por su
                 lista de elementos, o la fila entera, es otra cosa. */}
             {edicion && esModoDeValor(modos[activo]?.id) ? (
-              <Textarea
-                className={styles.editor}
-                value={borrador ?? valor ?? ""}
-                aria-label="Valor de la celda"
-                spellCheck={false}
-                onChange={(e) => setBorrador(e.target.value)}
-              />
+              <>
+                {valor === null && borrador === null ? (
+                  <p className={styles.nullNote}>
+                    La celda no tiene valor. Lo que escribas acá lo reemplaza; para dejarla
+                    en NULL, cerrá sin tocar nada.
+                  </p>
+                ) : null}
+                <Textarea
+                  className={styles.editor}
+                  value={borrador ?? valor ?? ""}
+                  aria-label="Valor de la celda"
+                  spellCheck={false}
+                  onChange={(e) => setBorrador(e.target.value)}
+                />
+              </>
             ) : (
               (modos[activo]?.render() ?? null)
             )}
@@ -242,7 +250,14 @@ export function CellViewer({
 }
 
 /** Los modos que muestran el valor tal cual, que son los que se pueden editar. */
-const esModoDeValor = (id: string | undefined) => id === "text" || id === "raw";
+// Qué modos muestran el valor tal cual, y por lo tanto se pueden editar.
+//
+// `null` está en la lista y es el que faltaba: una celda sin valor tiene UN solo
+// modo, así que en una tabla editable se veían los botones de editar y ningún
+// campo donde escribir. Darle un valor a una celda NULL desde el visor era
+// imposible.
+const esModoDeValor = (id: string | undefined) =>
+  id === "text" || id === "raw" || id === "null";
 
 const TAG: Record<string, string> = {
   [Class.ClassNumber]: "NUM",

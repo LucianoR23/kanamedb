@@ -1,0 +1,256 @@
+/* El volcado. Misma caja que la exportación: alcance y opciones a la izquierda,
+   lo que se va a escribir a la derecha, scroll por dentro. */
+.marco {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  height: min(72vh, 640px);
+  margin: -4px -2px 0;
+  border-top: 1px solid var(--border);
+}
+.grow { flex: 1; }
+.dim {
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+.nota {
+  font: 400 11px var(--font-ui);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.ok {
+  font: 500 11.5px var(--font-ui);
+  color: var(--success);
+}
+.error {
+  font: 400 11.5px var(--font-ui);
+  color: var(--danger);
+}
+.seccion {
+  margin: 14px 0 7px;
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.seccionSegunda { margin-top: 20px; }
+
+/* ---- lateral -------------------------------------------------------------- */
+
+.lateral {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 0 12px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+.lateral .seccion { padding: 0 12px; }
+.alcance {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.alcance:hover { background: var(--bg-hover); }
+.alcanceOn { background: var(--bg-sel); box-shadow: inset 2px 0 0 var(--accent); }
+.alcanceTexto {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font: 400 12px var(--font-ui);
+  color: var(--text-1);
+}
+.radio {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+}
+.radio > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.radioOff { border-color: var(--border-strong); }
+.radioOff > span { background: transparent; }
+.opciones { padding: 0 12px; }
+.lateralNota {
+  margin: 0;
+  padding: 12px;
+  font: 400 10.5px var(--font-ui);
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+/* ---- principal ------------------------------------------------------------ */
+
+.principal {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.pestanas {
+  display: flex;
+  gap: 2px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pestana {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pestana:hover { color: var(--text-1); }
+.pestanaOn {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+.cuerpo {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 18px;
+}
+.cargando {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 10px;
+}
+
+/* ---- cobertura ------------------------------------------------------------ */
+
+.cobertura { display: flex; flex-direction: column; gap: 6px; }
+.aviso {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--r-md);
+  font: 400 11.5px var(--font-ui);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.avisoOjo {
+  background: var(--warning-quiet);
+  border: 1px solid var(--warning);
+}
+.avisoBien {
+  background: var(--success-quiet);
+  border: 1px solid var(--success);
+}
+.bang {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: var(--text-on-accent);
+  font: 700 10px var(--font-ui);
+}
+.avisoBien .bang { background: var(--success); }
+.verDetalle {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  font: 400 11.5px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.detalle {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  font: 400 11.5px var(--font-mono);
+  line-height: 1.65;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* ---- listas y textos ------------------------------------------------------ */
+
+.tablas {
+  margin: 0;
+  padding-left: 26px;
+  max-height: 168px;
+  overflow: auto;
+  font: 400 11.5px var(--font-mono);
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.pre {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  font: 400 11px var(--font-mono);
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre;
+}
+
+/* ---- pg_dump -------------------------------------------------------------- */
+
+.comandoFila {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.comando {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  font: 400 11px var(--font-mono);
+  line-height: 1.6;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.hechos {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 5px 14px;
+  margin: 0 0 12px;
+}
+.hechos dt {
+  font: 400 11px var(--font-ui);
+  color: var(--text-dim);
+}
+.hechos dd {
+  margin: 0;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

@@ -96,3 +96,15 @@ var consultasDeCobertura = []consultaDeCobertura{
 		      FROM information_schema.EVENTS WHERE EVENT_SCHEMA IN (%s)`,
 	},
 }
+
+// AutoIncrement escribe una columna que se numera sola.
+//
+// En MySQL y MariaDB `AUTO_INCREMENT` va pegado al tipo, adentro de la
+// definición de la columna, y exige que la columna sea clave — que lo es,
+// porque el volcado escribe la clave primaria adentro del mismo CREATE TABLE.
+func AutoIncrement(col schema.DetailColumn) (string, bool) {
+	if col.Identity == "" {
+		return "", false
+	}
+	return col.DataType + " AUTO_INCREMENT", true
+}

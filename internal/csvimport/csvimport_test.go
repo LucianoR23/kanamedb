@@ -1,6 +1,7 @@
 package csvimport
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -299,5 +300,49 @@ func TestUnArchivoGrandeYValidoNoSeAvisaComoNoUTF8(t *testing.T) {
 	}
 	if !j.NotUTF8 {
 		t.Error("un archivo grande con bytes que no son UTF-8 dejó de avisarse")
+	}
+}
+
+// TestLaBasuraDespuesDelPrefijoTambienSeAvisa.
+//
+// El aviso se decidía sobre los primeros 64 KiB, y `Inspect` ya recorre el
+// archivo entero para contar las filas. Un archivo grande cuya basura empieza
+// más adelante se daba por bueno y se importaba como caracteres rotos — que es
+// exactamente lo que este aviso existe para evitar.
+func TestLaBasuraDespuesDelPrefijoTambienSeAvisa(t *testing.T) {
+	ruta := filepath.Join(t.TempDir(), "tarde.csv")
+	var b []byte
+	b = append(b, []byte("id,nombre\n")...)
+	// Bastante más que el prefijo de 64 KiB, todo limpio.
+	for i := 0; i < 4000; i++ {
+		b = append(b, []byte(fmt.Sprintf("%d,%s\n", i, strings.Repeat("a", 30)))...)
+	}
+	// Y recién acá, la eñe de latin-1.
+	b = append(b, []byte("9999,se")...)
+	b = append(b, 0xF1)
+	b = append(b, []byte("al\n")...)
+	if err := os.WriteFile(ruta, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if len(b) < 64<<10 {
+		t.Fatalf("el archivo mide %d y tiene que pasar los 64 KiB para que el caso sirva", len(b))
+	}
+
+	i, err := Inspect(ruta, Options{HasHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !i.NotUTF8 {
+		t.Error("no se avisó de bytes que no son UTF-8 porque estaban después del prefijo")
+	}
+	// Y un archivo grande y limpio sigue sin avisar: el arreglo no puede
+	// volverse un aviso permanente.
+	limpio := archivo(t, "id,nombre\n"+strings.Repeat("1,áéíóú ñ\n", 8000))
+	j, err := Inspect(limpio, Options{HasHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.NotUTF8 {
+		t.Error("un archivo grande con acentos válidos se avisó como que no es UTF-8")
 	}
 }

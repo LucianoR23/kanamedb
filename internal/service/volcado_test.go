@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
 // volcadoDePrueba deja una sesión abierta con dos tablas RELACIONADAS y
@@ -195,9 +197,27 @@ func TestElEncabezadoDelArchivoDiceQueDejaAfuera(t *testing.T) {
 	if prev.Summary == "" || !strings.Contains(strings.Join(prev.Detail, " "), vista) {
 		t.Errorf("la vista previa no nombra la vista: %q %v", prev.Summary, prev.Detail)
 	}
-	if prev.Header != texto[:len(prev.Header)] {
-		t.Error("el encabezado de la vista previa no es el que se escribió")
+	// El encabezado de la vista previa tiene que ser EL QUE SE ESCRIBE, salvo
+	// la fecha: son dos llamadas distintas y cada una pone la suya, que es lo
+	// correcto —la del archivo es cuándo se escribió—. Compararlos enteros
+	// hacía que el test fallara cuando las dos caían en segundos distintos, y
+	// pasara el resto de las veces: un test intermitente es peor que ninguno.
+	if sinFecha(prev.Header) != sinFecha(texto[:len(prev.Header)]) {
+		t.Errorf("el encabezado de la vista previa no es el que se escribió:\n%s\n---\n%s",
+			prev.Header, texto[:len(prev.Header)])
 	}
+}
+
+// sinFecha saca el renglón del «Generado por», que lleva la hora.
+func sinFecha(s string) string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if strings.HasPrefix(l, "-- Generado por") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
 }
 
 // TestUnVolcadoSinEstructuraNiDatosSeRechaza: no escribiría nada, y un archivo
@@ -272,4 +292,214 @@ func recorte(s string) string {
 		return s[:1500] + "\n…"
 	}
 	return s
+}
+
+// TestElVolcadoSePuedeVolverACorrer.
+//
+// Es la prueba que importa y la única que cubre todo junto: se vuelca un
+// esquema entero, se BORRA, se corre el archivo y se comprueba que las tablas y
+// las filas volvieron. Todo lo demás —el orden, las claves al final, la clave
+// primaria adentro del CREATE— existe para que esto funcione, y comprobarlo por
+// separado con `strings.Contains` deja pasar justo lo que el archivo tiene de
+// difícil: que las piezas encajen entre sí.
+//
+// Va contra Postgres porque restaurar es distinto en cada motor y este es el
+// principal. Las piezas de abajo sí se prueban en los cuatro.
+func TestElVolcadoSePuedeVolverACorrer(t *testing.T) {
+	sesion, _ := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	abierta, _ := sesion.abierta()
+	consultas := NewQueries(sesion)
+	d := NewDumps(NewExports(consultas), consultas)
+
+	esq := "kn_ida_vuelta"
+	crearEsquema := func() {
+		if err := abierta.db.Exec(ctx, `CREATE SCHEMA `+esq); err != nil {
+			t.Fatalf("crear el esquema: %v", err)
+		}
+	}
+	_ = abierta.db.Exec(ctx, `DROP SCHEMA IF EXISTS `+esq+` CASCADE`)
+	crearEsquema()
+	t.Cleanup(func() {
+		_ = abierta.db.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+esq+` CASCADE`)
+	})
+
+	// Una madre, una hija que la referencia, y un índice: lo suficiente para
+	// que el orden y el lugar de las claves importen de verdad.
+	for _, ddl := range []string{
+		`CREATE TABLE ` + esq + `.madre (id int PRIMARY KEY, nombre text NOT NULL)`,
+		`CREATE TABLE ` + esq + `.hija (id int PRIMARY KEY, madre_id int REFERENCES ` + esq + `.madre(id), nota text)`,
+		`CREATE INDEX hija_nota ON ` + esq + `.hija (nota)`,
+		`INSERT INTO ` + esq + `.madre VALUES (1, 'Una'), (2, 'Dos')`,
+		`INSERT INTO ` + esq + `.hija VALUES (10, 1, 'a'), (11, 2, 'b'), (12, 1, NULL)`,
+	} {
+		if err := abierta.db.Exec(ctx, ddl); err != nil {
+			t.Fatalf("preparar con %q: %v", ddl, err)
+		}
+	}
+
+	ruta := filepath.Join(t.TempDir(), "ida.sql")
+	if _, err := d.Save(ctx, DumpRequest{
+		RunID: "ida", Schemas: []string{esq}, Structure: true, Data: true,
+	}, ruta); err != nil {
+		t.Fatalf("Save(): %v", err)
+	}
+	guion := leer(t, ruta)
+
+	// Se borra TODO y se vuelve a crear el esquema vacío, que es lo que hace
+	// cualquiera al restaurar. El archivo tiene que poder con el resto.
+	if err := abierta.db.Exec(ctx, `DROP SCHEMA `+esq+` CASCADE`); err != nil {
+		t.Fatalf("borrar el esquema: %v", err)
+	}
+	crearEsquema()
+
+	if err := abierta.db.Exec(ctx, guion); err != nil {
+		t.Fatalf("el volcado NO se puede volver a correr: %v\n\n%s", err, recorte(guion))
+	}
+
+	// Y volvió todo: las filas, la clave primaria, la foránea y el índice.
+	if n, _ := abierta.db.Count(ctx, esq, "madre", nil); n != 2 {
+		t.Errorf("la madre quedó con %d filas, quería 2", n)
+	}
+	if n, _ := abierta.db.Count(ctx, esq, "hija", nil); n != 3 {
+		t.Errorf("la hija quedó con %d filas, quería 3", n)
+	}
+	detalle, err := abierta.db.Detail(ctx, esq, "hija")
+	if err != nil {
+		t.Fatalf("Detail(): %v", err)
+	}
+	if len(detalle.ForeignKeys) != 1 {
+		t.Errorf("la clave foránea no volvió: %+v", detalle.ForeignKeys)
+	}
+	var conPK, conIndice bool
+	for _, ix := range detalle.Indexes {
+		if ix.Primary {
+			conPK = true
+		}
+		if ix.Name == "hija_nota" {
+			conIndice = true
+		}
+	}
+	if !conPK {
+		t.Error("la clave primaria no volvió")
+	}
+	if !conIndice {
+		t.Error("el índice no volvió")
+	}
+	// El NULL siguió siendo NULL y no la cadena «NULL», que es el error clásico
+	// de un volcado que arma los INSERT a mano.
+	nulos, fallo := abierta.db.Count(ctx, esq, "hija", []query.Condition{
+		{Column: "nota", Operator: query.OpIsNull},
+	})
+	if fallo != nil {
+		t.Fatalf("contar los nulos: %+v", fallo)
+	}
+	if nulos != 1 {
+		t.Errorf("quedaron %d filas con nota NULL, quería 1: el NULL se escribió como texto", nulos)
+	}
+}
+
+// TestUnSerialYUnaColumnaGeneradaSobrevivenAlVolcado.
+//
+// Los dos casos que hacían un archivo roto Y silencioso, que es la peor
+// combinación posible:
+//
+//   - Un `serial` llegaba como `integer DEFAULT nextval('t_id_seq')` y se
+//     escribía tal cual. El archivo apuntaba a una secuencia que nunca creaba,
+//     así que no se podía correr — y la cobertura decía que no faltaba nada.
+//   - Una columna GENERADA se saltea del CREATE TABLE (el catálogo no da la
+//     expresión) pero el INSERT la incluía igual, porque los datos se leían con
+//     `SELECT *`. El archivo fallaba con «column "total" does not exist».
+//
+// Se prueba de la única forma que cierra el caso: borrando el esquema y
+// corriendo el archivo.
+func TestUnSerialYUnaColumnaGeneradaSobrevivenAlVolcado(t *testing.T) {
+	sesion, _ := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	abierta, _ := sesion.abierta()
+	consultas := NewQueries(sesion)
+	d := NewDumps(NewExports(consultas), consultas)
+
+	esq := "kn_serial"
+	_ = abierta.db.Exec(ctx, `DROP SCHEMA IF EXISTS `+esq+` CASCADE`)
+	if err := abierta.db.Exec(ctx, `CREATE SCHEMA `+esq); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = abierta.db.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+esq+` CASCADE`) })
+	if err := abierta.db.Exec(ctx, `CREATE TABLE `+esq+`.t (
+		id serial PRIMARY KEY,
+		precio numeric(10,2),
+		cantidad int,
+		total numeric(10,2) GENERATED ALWAYS AS (precio * cantidad) STORED)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, `INSERT INTO `+esq+`.t (precio, cantidad) VALUES (10.00, 3), (2.50, 4)`); err != nil {
+		t.Fatal(err)
+	}
+
+	ruta := filepath.Join(t.TempDir(), "serial.sql")
+	if _, err := d.Save(ctx, DumpRequest{
+		RunID: "s1", Schemas: []string{esq}, Structure: true, Data: true,
+	}, ruta); err != nil {
+		t.Fatalf("Save(): %v", err)
+	}
+	guion := leer(t, ruta)
+
+	// El serial se escribe como serial, no como el nextval de una secuencia
+	// que el archivo no crea.
+	if strings.Contains(guion, "nextval(") {
+		t.Errorf("el volcado apunta a una secuencia que no crea:\n%s", recorte(guion))
+	}
+	if !strings.Contains(guion, `"id" serial`) {
+		t.Errorf("el serial no se escribió como serial:\n%s", recorte(guion))
+	}
+	// Y la generada NO está en el INSERT.
+	datos := guion[strings.Index(guion, "-- Datos"):]
+	if strings.Contains(datos, `"total"`) {
+		t.Errorf("la columna generada entró en el INSERT:\n%s", datos)
+	}
+
+	// La cobertura la nombra: el archivo no la tiene y hay que decirlo.
+	prev, err := d.Preview(ctx, DumpRequest{RunID: "s2", Schemas: []string{esq}, Structure: true})
+	if err != nil {
+		t.Fatalf("Preview(): %v", err)
+	}
+	if !strings.Contains(strings.Join(prev.Detail, " "), "t.total") {
+		t.Errorf("la columna generada no se nombra en la cobertura: %q %v", prev.Summary, prev.Detail)
+	}
+
+	// Y todo junto: se borra y se vuelve a correr.
+	if err := abierta.db.Exec(ctx, `DROP SCHEMA `+esq+` CASCADE`); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, `CREATE SCHEMA `+esq); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, guion); err != nil {
+		t.Fatalf("el volcado NO se puede volver a correr: %v\n\n%s", err, recorte(guion))
+	}
+	if n, _ := abierta.db.Count(ctx, esq, "t", nil); n != 2 {
+		t.Errorf("volvieron %d filas, quería 2", n)
+	}
+	// La columna generada volvió a existir y con su valor calculado: se
+	// perdió la definición, no los datos.
+	detalle, err := abierta.db.Detail(ctx, esq, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hayTotal, haySerial bool
+	for _, c := range detalle.Columns {
+		if c.Name == "total" {
+			hayTotal = true
+		}
+		if c.Name == "id" && strings.HasPrefix(c.Default, "nextval(") {
+			haySerial = true
+		}
+	}
+	if hayTotal {
+		t.Error("la columna generada volvió: el volcado no la escribe, así que no puede aparecer")
+	}
+	if !haySerial {
+		t.Errorf("el serial no volvió a numerar solo: %+v", detalle.Columns)
+	}
 }

@@ -158,6 +158,14 @@ func Inspect(path string, o Options) (*Inspection, error) {
 		if campos < 0 {
 			campos = len(fila)
 		}
+		// El aviso de codificación se decide sobre el archivo ENTERO, no sobre
+		// el prefijo que se muestra: `Inspect` ya lo recorre todo para contar
+		// las filas, así que mirar solo los primeros 64 KiB dejaba pasar un
+		// archivo cuya basura empieza más adelante —y lo importaba como
+		// caracteres rotos, que es justo lo que este aviso existe para evitar—.
+		if !insp.NotUTF8 && !filaEsUTF8(fila) {
+			insp.NotUTF8 = true
+		}
 		if len(fila) != campos && len(insp.Ragged) < maxRagged {
 			insp.Ragged = append(insp.Ragged, Ragged{Line: linea, Fields: len(fila)})
 		}
@@ -285,6 +293,19 @@ func sinColaPartida(b []byte) []byte {
 		}
 	}
 	return b
+}
+
+// filaEsUTF8 dice si todos los campos de la fila son UTF-8 válido.
+//
+// El lector de CSV entrega los bytes tal cual: Go no valida al construir la
+// cadena, así que un byte de latin-1 llega intacto y `utf8.ValidString` lo ve.
+func filaEsUTF8(fila []string) bool {
+	for _, c := range fila {
+		if !utf8.ValidString(c) {
+			return false
+		}
+	}
+	return true
 }
 
 func nombreDe(ruta string) string {

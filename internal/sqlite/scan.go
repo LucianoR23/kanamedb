@@ -20,7 +20,7 @@ func scan(
 	ctx context.Context, db *sql.DB, tabla string, opts engine.ScanOptions,
 ) (engine.RowStream, error) {
 	var b strings.Builder
-	b.WriteString("SELECT * FROM ")
+	b.WriteString("SELECT " + listaDeColumnas(opts.Columns) + " FROM ")
 	b.WriteString(QuoteIdent(tabla))
 	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
 	if err != nil {
@@ -119,4 +119,20 @@ func (f *flujo) Close() {
 	}
 	f.cerrado = true
 	f.rows.Close()
+}
+
+// listaDeColumnas escribe qué leer: `*`, o los nombres citados.
+//
+// Los nombres son IDENTIFICADORES y no valores: no se pueden parametrizar, así
+// que van citados por el motor. Y salen de la introspección, no de nada que
+// alguien escriba. Ver CLAUDE.md.
+func listaDeColumnas(cols []string) string {
+	if len(cols) == 0 {
+		return "*"
+	}
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		out = append(out, QuoteIdent(c))
+	}
+	return strings.Join(out, ", ")
 }

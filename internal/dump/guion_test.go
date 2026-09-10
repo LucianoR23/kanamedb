@@ -55,10 +55,15 @@ func TestElEncabezadoDiceQueNoLleva(t *testing.T) {
 		}
 	}
 	// Todo el encabezado es comentario SQL: si una línea se escapara, el
-	// archivo no correría.
+	// archivo no correría. Y ninguna termina en espacios: un volcado se guarda
+	// para compararlo con el de mañana, y los espacios colgando ensucian el
+	// diff entero.
 	for _, l := range strings.Split(strings.TrimSpace(got), "\n") {
 		if l != "" && !strings.HasPrefix(l, "--") {
 			t.Errorf("una línea del encabezado no es un comentario: %q", l)
+		}
+		if l != strings.TrimRight(l, " \t") {
+			t.Errorf("una línea termina en espacios: %q", l)
 		}
 	}
 }
@@ -179,5 +184,51 @@ func TestEnvolverNoPierdeNiInventaPalabras(t *testing.T) {
 	larga := envolver(strings.Repeat("x", 40), 20)
 	if len(larga) != 1 || larga[0] != strings.Repeat("x", 40) {
 		t.Errorf("una palabra más larga que el ancho salió como %q", larga)
+	}
+}
+
+// TestNingunaLineaDelEncabezadoDesborda.
+//
+// El encabezado se lee en una terminal de 80 columnas, y lo que desborda no es
+// la lista de objetos —esa ya se corta— sino los campos de arriba: el `Motor`
+// traía el `version()` entero de Postgres, con el sistema, el compilador y la
+// arquitectura. El test viejo miraba SOLO las líneas de la cobertura, así que
+// no lo veía.
+func TestNingunaLineaDelEncabezadoDesborda(t *testing.T) {
+	i := base()
+	// Lo peor que puede llegar de verdad: el `version()` crudo de Postgres, con
+	// el sistema, el compilador y la arquitectura.
+	i.Motor = "PostgreSQL 18.3 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit"
+	i.Esquemas = []string{"public", "ventas", "auditoria", "reportes", "historico", "staging"}
+
+	for _, l := range strings.Split(encabezado(t, i), "\n") {
+		if len([]rune(l)) > 78 {
+			t.Errorf("una línea mide %d: %q", len([]rune(l)), l)
+		}
+	}
+	// Y el valor sigue entero, repartido en varios renglones.
+	if !strings.Contains(encabezado(t, i), "aarch64-unknown-linux-musl") {
+		t.Error("al envolver se perdió parte del valor")
+	}
+}
+
+// TestUnaRutaLargaNoSePartePorLaMitad.
+//
+// Es la decisión contraria a la de arriba y va a propósito: una ruta o un
+// nombre de base sin espacios NO se corta aunque desborde. Partirlos daría una
+// línea prolija y una ruta que no se puede copiar, y copiarla es exactamente
+// para lo que está ahí. Un renglón largo en un comentario no rompe nada.
+func TestUnaRutaLargaNoSePartePorLaMitad(t *testing.T) {
+	ruta := `C:\Users\lr231\AppData\Local\Temp\claude\proyecto-con-nombre-largo\datos\produccion.db`
+	i := base()
+	i.Origen = ruta
+	i.Base = strings.Repeat("base_larga_", 6)
+
+	got := encabezado(t, i)
+	if !strings.Contains(got, ruta) {
+		t.Errorf("la ruta quedó partida y ya no se puede copiar:\n%s", got)
+	}
+	if !strings.Contains(got, i.Base) {
+		t.Errorf("el nombre de la base quedó partido:\n%s", got)
 	}
 }

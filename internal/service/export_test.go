@@ -229,3 +229,30 @@ func TestDosTablasQueSeLimpianIgualNoSePisan(t *testing.T) {
 		t.Errorf("una tabla sola quedó como %q", uno[0])
 	}
 }
+
+// TestUnaTablaLlamadaConNoRompeLaExportacion.
+//
+// `con`, `aux`, `nul` y `com1` son nombres de dispositivo de Windows y el
+// sistema se niega a crear un archivo con ellos, con extensión o sin ella. Son
+// nombres de tabla legales —`con` es corriente en castellano— y la máquina de
+// desarrollo de este proyecto es Windows: sin esto, exportar un esquema que
+// tenga una así falla a la mitad, con las anteriores ya escritas.
+func TestUnaTablaLlamadaConNoRompeLaExportacion(t *testing.T) {
+	for _, tabla := range []string{"con", "CON", "aux", "nul", "com1", "LPT9"} {
+		got := archivoDeTabla(tabla)
+		if reservadoEnWindows[strings.ToLower(got)] {
+			t.Errorf("la tabla %q quedó como %q, que Windows no acepta", tabla, got)
+		}
+		if !strings.Contains(strings.ToLower(got), strings.ToLower(tabla)) {
+			t.Errorf("la tabla %q quedó como %q y perdió su nombre", tabla, got)
+		}
+	}
+	// Y un nombre común no se toca: el desvío es para el caso raro.
+	if got := archivoDeTabla("clientes"); got != "clientes" {
+		t.Errorf("un nombre común quedó como %q", got)
+	}
+	// `contactos` empieza con «con» y NO es reservado.
+	if got := archivoDeTabla("contactos"); got != "contactos" {
+		t.Errorf("«contactos» quedó como %q: solo el nombre exacto es reservado", got)
+	}
+}

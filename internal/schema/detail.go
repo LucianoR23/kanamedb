@@ -293,6 +293,15 @@ const (
 	ObjSequence  ObjectKind = "sequence"
 	ObjExtension ObjectKind = "extension"
 	ObjEvent     ObjectKind = "event"
+
+	// ObjColumn es una COLUMNA que el volcado no pudo escribir como era: una
+	// generada —cuya expresión el catálogo no nos da— o una que se numera sola
+	// en un motor donde eso no se puede escribir junto con el resto.
+	//
+	// Es la única clase que no sale del catálogo sino del propio volcado: es lo
+	// que ÉL dejó afuera. Sin ella, un archivo que pierde el autoincremento de
+	// la clave primaria se veía idéntico a uno completo.
+	ObjColumn ObjectKind = "column"
 )
 
 // Object es un objeto del catálogo, nombrado.

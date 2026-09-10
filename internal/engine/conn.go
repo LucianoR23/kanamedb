@@ -81,6 +81,15 @@ type ScanOptions struct {
 	// Where son las condiciones del filtro, igual que en PageOptions: exportar
 	// «lo que se está mirando» es exportar la tabla con el mismo filtro puesto.
 	Where []query.Condition
+
+	// Columns acota la lectura a estas columnas, en este orden. Vacío lee la
+	// tabla entera, que es lo que quiere la exportación.
+	//
+	// Lo usa el volcado, y no por ahorrar: una columna GENERADA no se puede
+	// insertar —la calcula el motor— así que un INSERT que la incluya hace
+	// fallar el archivo al volver a correrlo. Leer de más ahí no es un lujo,
+	// es un error.
+	Columns []string
 }
 
 // RowStream entrega las filas de una lectura larga a medida que llegan.
@@ -160,6 +169,23 @@ type Conn interface {
 	ColumnTypes(ctx context.Context) ([]schema.TypeOption, error)
 	// PrimaryKeyColumns es por dónde ordenar para que el paginado sea estable.
 	PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]string, error)
+
+	// AutoIncrement dice cómo se escribe en un CREATE TABLE una columna que se
+	// numera sola, y si este motor puede.
+	//
+	// Cada motor la representa distinto y la introspección lo refleja: en
+	// Postgres un `serial` llega como `integer` con un default `nextval(…)`, y
+	// una identity como `integer` con Identity puesto; en MySQL y MariaDB
+	// llega como Identity; en SQLite también. Devolver el tipo ya escrito
+	// —`serial`, `int AUTO_INCREMENT`— es lo que deja reusar el renderizador
+	// del changeset sin agregarle vocabulario.
+	//
+	// El segundo valor en false significa «esta columna se numera sola y NO lo
+	// puedo escribir». Es el caso de SQLite, donde `AUTOINCREMENT` exige la
+	// clave primaria pegada a la columna y el volcado la escribe como
+	// restricción de tabla. Ahí el volcado la nombra en la cobertura en vez de
+	// perderla en silencio.
+	AutoIncrement(col schema.DetailColumn) (tipo string, puede bool)
 
 	// Uncovered lista lo que hay en estos esquemas y el volcado de estructura
 	// NO sabe escribir: vistas, funciones, triggers, políticas, tipos.

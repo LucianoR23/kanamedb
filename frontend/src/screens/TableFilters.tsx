@@ -4,6 +4,7 @@ import type { Column, Condition, OperatorInfo } from "../../bindings/github.com/
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import { Button, Combobox, Input } from "../components/ui";
 import { cx } from "../lib/cx";
+import { textoDe } from "../lib/dialogos";
 import { plural } from "../lib/motor";
 import styles from "./TableFilters.module.css";
 
@@ -33,12 +34,21 @@ export function TableFilters({
   const [abierto, setAbierto] = useState(false);
   const [borrador, setBorrador] = useState<Condition[]>([]);
   const [operadores, setOperadores] = useState<OperatorInfo[]>([]);
+  const [errorOperadores, setErrorOperadores] = useState("");
 
   useEffect(() => {
     let vivo = true;
-    void QueriesSvc.Operators().then((ops) => {
-      if (vivo) setOperadores(ops ?? []);
-    });
+    // Con `catch`: sin él, un fallo del puente dejaba la lista de operadores
+    // VACÍA y sin ningún aviso. Y como el desplegable es estricto, la única
+    // señal era un combo que no ofrece nada — un callejón sin salida que parece
+    // un cuelgue.
+    void QueriesSvc.Operators()
+      .then((ops) => {
+        if (vivo) setOperadores(ops ?? []);
+      })
+      .catch((err: unknown) => {
+        if (vivo) setErrorOperadores(textoDe(err));
+      });
     return () => {
       vivo = false;
     };
@@ -195,6 +205,13 @@ export function TableFilters({
               </div>
             );
           })}
+
+          {errorOperadores ? (
+            <p className={styles.errorOperadores} role="alert">
+              No se pudo leer la lista de operadores, así que el desplegable está vacío.{" "}
+              {errorOperadores}
+            </p>
+          ) : null}
 
           <div className={styles.pie}>
             <button

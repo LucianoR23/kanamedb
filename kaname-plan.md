@@ -364,8 +364,13 @@ lo que entra y sale de la grilla.
   lectura, al conteo y a la exportación, así que «exportar lo que estoy
   mirando» exporta lo que se está mirando. Probado a mano en los cuatro motores
   el 2026-09-10.
-- ⏳ **Volcado del esquema, de los datos, o los dos.** Ver abajo: es la mitad de
-  lo que la gente llama «backup», y la mitad que sí podemos hacer bien.
+- ✅ **Volcado del esquema, de los datos, o los dos** — «Volcar…» en la barra de
+  arriba, con las tres piezas del diseño: solo datos en orden de dependencias,
+  solo estructura con la cobertura declarada, y `pg_dump` manejado sin
+  empaquetarlo, en su propia pestaña. El archivo se puede volver a correr, y
+  eso está probado de la única forma que sirve: se vuelca un esquema, se borra,
+  se corre el archivo y se comprueba que las tablas, las filas, las claves y
+  los índices volvieron. Probado a mano en los cuatro motores el 2026-09-10.
 
 **Sobre el volumen.** Exportar no puede juntar la tabla en memoria: una tabla de
 dos millones de filas no pasa por un `[][]string`. Se escribe al archivo a
@@ -416,6 +421,67 @@ más barata de las tres:
 
 La palabra «backup» sigue sin ser nuestra para lo que generamos nosotros. Para
 lo que genera `pg_dump`, lo es.
+
+**Cómo salió el volcado, y las cuatro cosas que aparecieron al escribirlo.**
+
+- **El orden de dependencias NO era «el mismo del changeset».** El changeset
+  ordena por FASE —primero las tablas, después las claves— y funciona porque
+  las claves van aparte. Un volcado de datos no tiene esa salida, así que hay un
+  orden topológico de verdad en `internal/dump`. Un ciclo no se rompe: no existe
+  ningún orden que funcione, se nombra y se avisa en el archivo.
+- **El DDL sale del renderizador del changeset**, armando `change.Change` desde
+  la introspección. Un segundo generador serían dos verdades sobre cómo se
+  escribe una columna en cada motor. La consecuencia es la razón de ser de la
+  cobertura: lo que el changeset no expresa, el volcado no lo escribe.
+- **`pg_dump` no puede usar el túnel de Kaname.** El túnel es un dialer de Go y
+  `pg_dump` es otro proceso; darle un puerto en `127.0.0.1` lo dejaría
+  alcanzable por cualquier cosa de la máquina, y este proyecto no abre sockets
+  locales. Se dice, con el `ssh -L` que lo resuelve.
+- **La clave primaria va adentro del CREATE TABLE.** SQLite no tiene `ALTER
+  TABLE … ADD PRIMARY KEY`, así que la forma separada dejaba al volcado sin
+  clave en uno de los cuatro motores.
+
+**El review `high` del volcado: catorce hallazgos, y los dos peores eran del
+mismo tipo — un archivo roto Y silencioso.**
+
+- **Un `serial` se escribía como `integer DEFAULT nextval('t_id_seq')`.** El
+  archivo apuntaba a una secuencia que nunca creaba: no se podía correr. Y la
+  cobertura decía que no faltaba nada, porque la consulta del catálogo excluye
+  las secuencias de columna justamente porque «vienen con la columna». Venían
+  con la columna en la introspección y no en el archivo.
+- **Una columna GENERADA se salteaba del CREATE TABLE y entraba igual en el
+  INSERT**, porque los datos se leían con `SELECT *`. Fallaba con «column
+  "total" does not exist», y la cobertura tampoco la nombraba: el comentario
+  decía «la cobertura la nombra» y nadie la ponía ahí.
+
+Los dos se arreglan con la misma idea: **`Conn.AutoIncrement` y las columnas
+saltadas son parte de la cobertura**. La forma de una columna autoincremental
+cambia por motor y la introspección lo refleja distinto —Postgres la manda como
+`nextval` o como `Identity`, MySQL y SQLite como `Identity`— así que cada motor
+dice cómo se escribe, o que no puede. SQLite no puede: `AUTOINCREMENT` exige la
+clave pegada a la columna. Ahí se nombra en la cobertura, que ahora tiene DOS
+mitades: lo que el catálogo tiene y Kaname no renderiza, y lo que Kaname
+renderizó distinto. Sin la segunda, un archivo que pierde el autoincremento de
+la clave primaria se veía idéntico a uno completo.
+
+Del resto, tres que valen como regla:
+
+- **Una ejecución anidada no se registra encima de la de afuera.** El volcado se
+  registra una vez y llama a `volcar` por cada tabla, que se registraba otra vez
+  con el mismo identificador y borraba la clave al terminar: «Cancelar» quedaba
+  inútil desde la primera tabla, justo en el volcado largo que es el único donde
+  alguien lo aprieta. No hace falta registrarla: el context de adentro deriva
+  del de afuera.
+- **Los datos del volcado se ordenan por la clave primaria.** El encabezado se
+  limpió de espacios colgando porque «un volcado se guarda para compararlo con
+  el de mañana», y sin `ORDER BY` dos corridas de una tabla sin cambios ya
+  podían diferir: el argumento se contradecía a sí mismo.
+- **El aviso de codificación mira el archivo entero.** Se decidía sobre los
+  primeros 64 KiB aunque `Inspect` ya lo recorre todo para contar las filas, así
+  que un archivo cuya basura empieza después se importaba como caracteres rotos.
+  En el corte exacto del prefijo la pregunta no tiene respuesta —un `0xF1` ahí
+  es a la vez una eñe de latin-1 y el arranque de un carácter que sigue afuera—
+  y se elige no avisar: el falso aviso manda a rehacer un archivo que está bien.
 
 ### Iteración 8 — Objetos de texto
 

@@ -226,3 +226,7 @@ func (c *Conn) CountWhere(ctx context.Context, esquema, tabla string, where []ch
 	}
 	return n, nil
 }
+
+func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
+	return AutoIncrement(col)
+}

@@ -263,3 +263,50 @@ func TestLaFilaComoJSONSaleDelMismoEscritorQueLaExportacion(t *testing.T) {
 		t.Errorf("el visor dice:\n%s\ny la exportación:\n%s", got, deExport)
 	}
 }
+
+// TestCancelarUnVolcadoSigueFuncionandoEntreTablas.
+//
+// El volcado se registra una vez y después llama a `volcar` por cada tabla, que
+// se registra otra vez con el MISMO identificador. Registrarse encima y borrar
+// la clave al terminar dejaba el volcado entero sin registrar en cuanto la
+// primera tabla terminaba: «Cancelar» se volvía silenciosamente inútil justo
+// en el volcado largo, que es el único donde alguien lo aprieta.
+func TestCancelarUnVolcadoSigueFuncionandoEntreTablas(t *testing.T) {
+	q, _, _ := queriesDePrueba(t)
+	ctx := context.Background()
+
+	afuera, cerrarAfuera := q.registrar(ctx, "vol")
+	// Una tabla: se registra con el mismo identificador y termina.
+	adentro, cerrarAdentro := q.registrar(afuera, "vol")
+	cerrarAdentro()
+	if adentro.Err() == nil {
+		t.Error("el context de la tabla que terminó tendría que estar cerrado")
+	}
+	if n := q.Running(); n != 1 {
+		t.Fatalf("quedan %d ejecuciones registradas y el volcado sigue: se borró la de afuera", n)
+	}
+
+	// Y cancelar el volcado corta lo de afuera.
+	q.Cancel("vol")
+	if afuera.Err() == nil {
+		t.Error("cancelar el volcado no cortó nada")
+	}
+	cerrarAfuera()
+	if n := q.Running(); n != 0 {
+		t.Errorf("quedaron %d ejecuciones registradas al terminar", n)
+	}
+}
+
+// TestUnaCancelacionAnidadaNoAlcanzaALaDeAfuera comprueba lo contrario: la de
+// adentro NO puede cortar el volcado entero al terminar bien.
+func TestUnaCancelacionAnidadaNoAlcanzaALaDeAfuera(t *testing.T) {
+	q, _, _ := queriesDePrueba(t)
+	afuera, cerrarAfuera := q.registrar(context.Background(), "vol2")
+	defer cerrarAfuera()
+
+	_, cerrarAdentro := q.registrar(afuera, "vol2")
+	cerrarAdentro()
+	if afuera.Err() != nil {
+		t.Error("terminar una tabla cortó el volcado entero")
+	}
+}

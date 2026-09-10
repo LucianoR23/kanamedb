@@ -116,24 +116,36 @@ export function ImportWizard({
   const nombresDeLaTabla = columnasDeLaTabla.map((c) => c.name);
   const columnasDelArchivo = inspeccion?.columns ?? [];
 
+  // Cuál es la lectura vigente.
+  //
+  // Dos lecturas superpuestas —tocar dos veces el delimitador, o pegar la ruta
+  // y cambiar una casilla enseguida— se pisan, y la vieja puede llegar última:
+  // quedaban las columnas y el mapeo del archivo anterior mientras el plan
+  // mandaba las opciones nuevas. Con la misma cantidad de columnas eso no falla,
+  // importa los datos CRUZADOS y en silencio, que es la peor forma de fallar.
+  const pedidoArchivo = useRef(0);
+
   // Mirar el archivo con las opciones puestas. Cada cambio de delimitador o de
   // encabezado lo vuelve a leer, porque cambia qué columnas tiene.
   const mirar = async (r: string, o: Options) => {
     if (!r) return;
+    const mio = ++pedidoArchivo.current;
     setMirando(true);
     setErrorArchivo("");
     try {
       const i = await ImportsSvc.Inspect(r, o);
+      if (mio !== pedidoArchivo.current) return;
       setInspeccion(i);
       setMapeo(emparejar(i?.columns ?? [], nombresDeLaTabla));
       // Un archivo distinto invalida lo que se había probado del anterior.
       setEnsayo({ fase: "quieto" });
       setImportacion({ fase: "quieto" });
     } catch (err) {
+      if (mio !== pedidoArchivo.current) return;
       setInspeccion(null);
       setErrorArchivo(textoDe(err));
     } finally {
-      setMirando(false);
+      if (mio === pedidoArchivo.current) setMirando(false);
     }
   };
 
@@ -358,7 +370,12 @@ export function ImportWizard({
               mapeo={mapeo}
               sinMapear={sinMapear}
               faltantes={faltantes}
-              onCambiar={(i, v) =>
+              onCambiar={(i, v) => {
+                // Cambiar el mapeo invalida el ensayo, igual que cambiar la
+                // política de conflictos: el ensayo probó OTRO plan, y dejarlo
+                // en pantalla hacía que el paso 4 dijera «Ensayo: pasó» de un
+                // mapeo que nunca se probó.
+                setEnsayo({ fase: "quieto" });
                 setMapeo((m) => {
                   const out = [...m];
                   // Una columna de la tabla no puede recibir dos del archivo:
@@ -369,8 +386,8 @@ export function ImportWizard({
                   }
                   out[i] = v;
                   return out;
-                })
-              }
+                });
+              }}
             />
           ) : paso === "validacion" ? (
             <Validacion

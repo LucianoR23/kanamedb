@@ -88,6 +88,10 @@ func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Objec
 	return Uncovered(ctx, c.pool, esquemas)
 }
 
+func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
+	return AutoIncrement(col)
+}
+
 func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
 	return Run(ctx, c.pool, sql, RunOptions{RowLimit: opts.RowLimit})
 }

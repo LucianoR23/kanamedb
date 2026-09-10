@@ -183,6 +183,11 @@ type TableExport struct {
 	// Where es el filtro que está puesto en la grilla. Exportar «lo que estoy
 	// mirando» es exportar la tabla con el mismo filtro, y sin límite.
 	Where []query.Condition `json:"where"`
+
+	// Columns acota la lectura. Vacío lee la tabla entera, que es lo que quiere
+	// la exportación; el volcado lo usa para dejar afuera las columnas
+	// generadas, que no se pueden insertar.
+	Columns []string `json:"columns,omitempty"`
 }
 
 // PreviewTable devuelve el texto de las primeras filas de una tabla.
@@ -226,6 +231,7 @@ func (e *Exports) volcar(
 		OrderBy:    r.OrderBy,
 		Descending: r.Descending,
 		Where:      r.Where,
+		Columns:    r.Columns,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("leer %s: %w", nombreDeTabla(r.Schema, r.Table), err)
@@ -486,5 +492,25 @@ func archivoDeTabla(tabla string) string {
 	if len(limpio) == 0 {
 		return "tabla"
 	}
-	return string(limpio)
+	nombre := string(limpio)
+	// Windows se niega a crear un archivo llamado como uno de sus dispositivos,
+	// con extensión o sin ella. Son nombres de tabla perfectamente legales
+	// —`con` es corriente en castellano— y la máquina de desarrollo de este
+	// proyecto es Windows: sin esto, exportar un esquema que tenga una tabla
+	// así falla a la mitad, con las anteriores ya escritas.
+	if reservadoEnWindows[strings.ToLower(nombre)] {
+		nombre = "tabla-" + nombre
+	}
+	return nombre
 }
+
+// reservadoEnWindows son los nombres de dispositivo que el sistema no deja usar
+// como nombre de archivo.
+var reservadoEnWindows = func() map[string]bool {
+	m := map[string]bool{"con": true, "prn": true, "aux": true, "nul": true}
+	for i := 1; i <= 9; i++ {
+		m[fmt.Sprintf("com%d", i)] = true
+		m[fmt.Sprintf("lpt%d", i)] = true
+	}
+	return m
+}()

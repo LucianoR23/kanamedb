@@ -163,7 +163,39 @@ func (d *Dumps) Save(ctx context.Context, r DumpRequest, path string) (DumpInfo,
 // afuera.
 type plan struct {
 	tablas []dump.Ref
-	info   dump.Info
+	// detalles es la estructura de cada tabla, en el mismo orden.
+	//
+	// Se leen una sola vez y se guardan: antes se pedía el detalle DOS veces
+	// por tabla —una para el DDL y otra para las claves foráneas—, que en un
+	// esquema de doscientas tablas son cuatrocientos viajes al catálogo. Y las
+	// dos lecturas podían no coincidir si el esquema cambiaba en el medio.
+	detalles []*schema.TableDetail
+	info     dump.Info
+}
+
+// insertables son las columnas de esa tabla en las que SE PUEDE insertar.
+//
+// Una columna generada no entra: su valor lo calcula el motor y un INSERT que
+// la incluya hace fallar el archivo al volver a correrlo. Devolver nil significa
+// «todas», que es lo que quiere el caso común.
+func insertables(d *schema.TableDetail) []string {
+	generadas := false
+	for _, c := range d.Columns {
+		if c.Generated != "" {
+			generadas = true
+			break
+		}
+	}
+	if !generadas {
+		return nil
+	}
+	out := make([]string, 0, len(d.Columns))
+	for _, c := range d.Columns {
+		if c.Generated == "" {
+			out = append(out, c.Name)
+		}
+	}
+	return out
 }
 
 func (d *Dumps) planear(ctx context.Context, sesion *openSession, r DumpRequest) (plan, error) {
@@ -217,6 +249,16 @@ func (d *Dumps) planear(ctx context.Context, sesion *openSession, r DumpRequest)
 
 	orden, ciclos := dump.Orden(tablas, aristas)
 
+	// El detalle de cada tabla, UNA vez.
+	detalles := make([]*schema.TableDetail, 0, len(orden))
+	for _, ref := range orden {
+		d, err := sesion.db.Detail(ctx, ref.Schema, ref.Table)
+		if err != nil {
+			return plan{}, fmt.Errorf("leer la estructura de %s: %w", ref.Completo(), err)
+		}
+		detalles = append(detalles, d)
+	}
+
 	// La cobertura solo hace falta cuando se escribe estructura: un volcado de
 	// datos no promete tener las vistas.
 	var fuera []schema.Object
@@ -227,10 +269,24 @@ func (d *Dumps) planear(ctx context.Context, sesion *openSession, r DumpRequest)
 			// silencioso que la cobertura existe para evitar.
 			return plan{}, fmt.Errorf("averiguar qué queda afuera del volcado: %w", err)
 		}
+		// Y lo que el propio volcado no pudo escribir. Son DOS mitades y las
+		// dos hacen falta: el catálogo dice qué hay que Kaname no renderiza, y
+		// esto dice qué de lo que sí renderiza salió distinto —una columna
+		// generada, un autoincremento que este motor no sabe escribir junto al
+		// resto—. Sin esta mitad, un archivo que pierde el autoincremento de la
+		// clave primaria se veía idéntico a uno completo.
+		for _, d := range detalles {
+			_, saltadas, err := dump.DDLDeTabla(ctx, sesion.db, *d)
+			if err != nil {
+				return plan{}, fmt.Errorf("escribir la estructura de %s.%s: %w", d.Schema, d.Name, err)
+			}
+			fuera = append(fuera, saltadas...)
+		}
 	}
 
 	return plan{
-		tablas: orden,
+		tablas:   orden,
+		detalles: detalles,
 		info: dump.Info{
 			Origen:     sesion.conn.Describe(),
 			Motor:      motorDe(sesion),
@@ -260,17 +316,14 @@ func (d *Dumps) estructura(
 		return err
 	}
 	q := sesion.db.Quoting()
-	for _, ref := range p.tablas {
-		detalle, err := sesion.db.Detail(ctx, ref.Schema, ref.Table)
-		if err != nil {
-			return fmt.Errorf("leer la estructura de %s: %w", ref.Completo(), err)
-		}
+	for i, ref := range p.tablas {
+		detalle := p.detalles[i]
 		if dropFirst {
 			if _, err := fmt.Fprintf(w, "DROP TABLE IF EXISTS %s;\n", q.Table(ref.Schema, ref.Table)); err != nil {
 				return err
 			}
 		}
-		sentencias, err := dump.DDLDeTabla(ctx, sesion.db, *detalle)
+		sentencias, _, err := dump.DDLDeTabla(ctx, sesion.db, *detalle)
 		if err != nil {
 			return fmt.Errorf("escribir la estructura de %s: %w", ref.Completo(), err)
 		}
@@ -291,12 +344,8 @@ func (d *Dumps) estructura(
 	// final deja de importar incluso el ciclo, que es lo único que el orden de
 	// inserción no puede resolver.
 	var claves []string
-	for _, ref := range p.tablas {
-		detalle, err := sesion.db.Detail(ctx, ref.Schema, ref.Table)
-		if err != nil {
-			return fmt.Errorf("leer las claves de %s: %w", ref.Completo(), err)
-		}
-		fks, err := dump.ClavesForaneas(ctx, sesion.db, *detalle)
+	for i, ref := range p.tablas {
+		fks, err := dump.ClavesForaneas(ctx, sesion.db, *p.detalles[i])
 		if err != nil {
 			return fmt.Errorf("escribir las claves de %s: %w", ref.Completo(), err)
 		}
@@ -324,15 +373,25 @@ func (d *Dumps) datos(
 		return 0, err
 	}
 	total := 0
-	for _, ref := range p.tablas {
+	for i, ref := range p.tablas {
 		if _, err := fmt.Fprintf(w, "-- %s\n", ref.Completo()); err != nil {
 			return total, err
 		}
+		detalle := p.detalles[i]
 		n, err := d.exports.volcar(ctx, TableExport{
 			RunID:  runID,
 			Schema: ref.Schema,
 			Table:  ref.Table,
 			Format: export.SQL,
+			// Sin las columnas generadas: su valor lo calcula el motor, así que
+			// un INSERT que las incluya hace fallar el archivo al volver a
+			// correrlo con «column "total" does not exist».
+			Columns: insertables(detalle),
+			// Por la clave primaria cuando la hay. Un volcado se guarda para
+			// compararlo con el de mañana, y sin ORDER BY el servidor puede
+			// devolver las mismas filas en otro orden: el diff saldría lleno de
+			// diferencias que no existen.
+			OrderBy: clavePrimariaDe(detalle),
 		}, export.Options{}, w, 0)
 		if err != nil {
 			return total, err
@@ -345,10 +404,35 @@ func (d *Dumps) datos(
 	return total, nil
 }
 
-// motorDe es «PostgreSQL 18.3», para el encabezado.
-func motorDe(sesion *openSession) string {
-	if sesion.server != nil && sesion.server.Version != "" {
-		return sesion.server.Version
+// clavePrimariaDe son las columnas de la clave primaria, o nil si no tiene.
+func clavePrimariaDe(d *schema.TableDetail) []string {
+	for _, ix := range d.Indexes {
+		if ix.Primary {
+			return ix.Columns
+		}
 	}
-	return sesion.db.Kind().Label()
+	var out []string
+	for _, c := range d.Columns {
+		if c.PrimaryKey {
+			out = append(out, c.Name)
+		}
+	}
+	return out
+}
+
+// motorDe es «PostgreSQL 18.3», para el encabezado.
+//
+// El `version()` de Postgres trae el sistema, el compilador y la arquitectura
+// —«PostgreSQL 18.3 on aarch64-unknown-linux-musl, compiled by gcc…»— y eso en
+// un encabezado que se lee en una terminal desborda el renglón. Se queda el
+// producto y el número, que es lo que alguien busca ahí.
+func motorDe(sesion *openSession) string {
+	etiqueta := sesion.db.Kind().Label()
+	if sesion.server == nil || sesion.server.Version == "" {
+		return etiqueta
+	}
+	if v, ok := dump.ParseVersion(sesion.server.Version); ok {
+		return etiqueta + " " + v.String()
+	}
+	return etiqueta
 }

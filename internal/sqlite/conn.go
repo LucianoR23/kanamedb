@@ -103,6 +103,10 @@ func (c *Conn) Uncovered(ctx context.Context, esquemas []string) ([]schema.Objec
 	return Uncovered(ctx, c.db, esquemas)
 }
 
+func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
+	return AutoIncrement(col)
+}
+
 func (c *Conn) PrimaryKeyColumns(ctx context.Context, _, tabla string) ([]string, error) {
 	return primaryKeyColumns(ctx, c.db, tabla)
 }

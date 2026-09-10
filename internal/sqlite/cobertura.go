@@ -55,3 +55,18 @@ func Uncovered(ctx context.Context, db *sql.DB, _ []string) ([]schema.Object, er
 	}
 	return out, nil
 }
+
+// AutoIncrement dice que SQLite NO puede escribir esta columna.
+//
+// `AUTOINCREMENT` solo existe pegado a `INTEGER PRIMARY KEY` en la propia
+// columna, y el volcado escribe la clave primaria como restricción de tabla
+// —que es la única forma que sirve para una clave compuesta—. Las dos no se
+// pueden a la vez.
+//
+// Devolver false no pierde nada en silencio: el volcado lo nombra en la
+// cobertura. Y lo que se pierde es acotado: un `INTEGER PRIMARY KEY` de SQLite
+// sigue numerando solo, sin `AUTOINCREMENT`; lo que cambia es que los
+// identificadores de las filas borradas se pueden reusar.
+func AutoIncrement(col schema.DetailColumn) (string, bool) {
+	return "", false
+}

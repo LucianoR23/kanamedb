@@ -302,7 +302,24 @@ func (q *Queries) Running() int {
 // registrar deja la ejecución cancelable por runID y devuelve la limpieza.
 func (q *Queries) registrar(ctx context.Context, runID string) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(ctx)
+
 	q.mu.Lock()
+	// Una ejecución ANIDADA con el mismo identificador no se registra encima de
+	// la de afuera.
+	//
+	// Pasa de verdad: el volcado se registra una vez y después llama a `volcar`
+	// por cada tabla, que se registra otra vez con el mismo runID. Registrarse
+	// encima y borrar la clave al terminar dejaba el volcado ENTERO sin
+	// registrar en cuanto la primera tabla terminaba, y «Cancelar» se volvía
+	// silenciosamente inútil entre una tabla y la siguiente.
+	//
+	// No hace falta registrarla: el context de adentro deriva del de afuera, así
+	// que cancelar el de afuera la corta igual. Lo único que hace este cierre es
+	// liberar sus propios recursos.
+	if _, anidada := q.enCurso[runID]; anidada {
+		q.mu.Unlock()
+		return ctx, cancel
+	}
 	q.enCurso[runID] = cancel
 	q.mu.Unlock()
 

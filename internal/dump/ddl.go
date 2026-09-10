@@ -3,6 +3,7 @@ package dump
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/schema"
@@ -15,6 +16,9 @@ import (
 // para que el test pueda darle un renderizador de mentira.
 type Renderizador interface {
 	RenderDDL(ctx context.Context, c change.Change) (change.Statement, error)
+	// AutoIncrement dice cómo escribe este motor una columna que se numera
+	// sola, y si puede.
+	AutoIncrement(col schema.DetailColumn) (tipo string, puede bool)
 }
 
 // DDLDeTabla escribe la tabla tal como está, en sentencias.
@@ -33,8 +37,12 @@ type Renderizador interface {
 // primero la tabla con sus columnas, después lo que se le cuelga. Las claves
 // foráneas NO van acá —van al final de todo el volcado, con `ClavesForaneas`—
 // porque apuntan a tablas que pueden no existir todavía.
-func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]string, error) {
+func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]string, []schema.Object, error) {
 	var out []string
+	// Lo que esta función NO pudo escribir. Se devuelve en vez de comentarse,
+	// porque un comentario que dice «la cobertura la nombra» no la nombra: hay
+	// que devolverla para que alguien la ponga ahí.
+	var fuera []schema.Object
 	agregar := func(c change.Change) error {
 		st, err := r.RenderDDL(ctx, c)
 		if err != nil {
@@ -49,21 +57,38 @@ func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]st
 	columnas := make([]change.Column, 0, len(d.Columns))
 	for _, c := range d.Columns {
 		// Una columna generada NO se escribe como columna común: su valor lo
-		// calcula el motor y darle un tipo a secas perdería la expresión. Se
-		// saltea y la cobertura la nombra.
+		// calcula el motor y el catálogo no nos da la expresión. Se saltea, y
+		// se nombra.
 		if c.Generated != "" {
+			fuera = append(fuera, columnaFuera(d, c))
 			continue
 		}
-		columnas = append(columnas, change.Column{
+		col := change.Column{
 			Name:     c.Name,
 			DataType: c.DataType,
 			Nullable: c.Nullable,
 			Default:  c.Default,
 			Comment:  c.Comment,
-		})
+		}
+		// Una columna que se numera sola no se escribe como una común: el
+		// `nextval(…)` de un serial apunta a una secuencia que este archivo no
+		// crea, así que copiarlo tal cual daba un volcado que NO se puede
+		// correr. Cada motor dice cómo se escribe, o que no puede.
+		if seNumeraSola(c) {
+			tipo, puede := r.AutoIncrement(c)
+			if !puede {
+				fuera = append(fuera, columnaFuera(d, c))
+				col.Default = ""
+			} else {
+				col.DataType = tipo
+				col.Default = ""
+			}
+		}
+		columnas = append(columnas, col)
 	}
 	if len(columnas) == 0 {
-		return nil, fmt.Errorf("la tabla %s.%s no tiene ninguna columna que se pueda escribir", d.Schema, d.Name)
+		return nil, fuera, fmt.Errorf(
+			"la tabla %s.%s no tiene ninguna columna que se pueda escribir", d.Schema, d.Name)
 	}
 
 	// La clave primaria va ADENTRO del CREATE TABLE —`Names`—, no en un ALTER
@@ -74,7 +99,7 @@ func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]st
 		Type: change.CreateTable, Schema: d.Schema, Table: d.Name,
 		Columns: columnas, Names: clavePrimaria(d), Source: "dump",
 	}); err != nil {
-		return nil, err
+		return nil, fuera, err
 	}
 
 	for _, ix := range d.Indexes {
@@ -91,7 +116,7 @@ func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]st
 			Type: tipo, Schema: d.Schema, Table: d.Name,
 			Name: ix.Name, Names: ix.Columns, Source: "dump",
 		}); err != nil {
-			return nil, err
+			return nil, fuera, err
 		}
 	}
 
@@ -100,7 +125,7 @@ func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]st
 			Type: change.AddCheck, Schema: d.Schema, Table: d.Name,
 			Name: ck.Name, Expression: ck.Expression, Source: "dump",
 		}); err != nil {
-			return nil, err
+			return nil, fuera, err
 		}
 	}
 
@@ -109,10 +134,26 @@ func DDLDeTabla(ctx context.Context, r Renderizador, d schema.TableDetail) ([]st
 			Type: change.SetTableComment, Schema: d.Schema, Table: d.Name,
 			Comment: d.Comment, Source: "dump",
 		}); err != nil {
-			return nil, err
+			return nil, fuera, err
 		}
 	}
-	return out, nil
+	return out, fuera, nil
+}
+
+// seNumeraSola dice si la columna toma su valor de un contador del motor.
+//
+// Las dos formas: `Identity` puesto —que es como llegan la identity de
+// Postgres, el AUTO_INCREMENT de MySQL y MariaDB y el AUTOINCREMENT de
+// SQLite— y el default `nextval(` de un `serial` de Postgres.
+func seNumeraSola(c schema.DetailColumn) bool {
+	return c.Identity != "" || strings.HasPrefix(c.Default, "nextval(")
+}
+
+// columnaFuera nombra una columna que el volcado no pudo escribir como era.
+func columnaFuera(d schema.TableDetail, c schema.DetailColumn) schema.Object {
+	return schema.Object{
+		Kind: schema.ObjColumn, Schema: d.Schema, Name: d.Name + "." + c.Name,
+	}
 }
 
 // ClavesForaneas escribe las claves de una tabla, para el final del volcado.

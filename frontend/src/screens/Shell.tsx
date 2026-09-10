@@ -21,6 +21,7 @@ import { ErdScreen } from "./ErdScreen";
 import { PendingChanges } from "./PendingChanges";
 import { DevSignature } from "../components/DevSignature";
 import { cx } from "../lib/cx";
+import { DumpDialog } from "./DumpDialog";
 import styles from "./Shell.module.css";
 
 const SIDEBAR = { min: 200, max: 480, initial: 272 };
@@ -56,6 +57,10 @@ export function Shell({
   const [query, setQuery] = useState("");
 
   const [session, setSession] = useState<SessionView | null>(null);
+  const [volcando, setVolcando] = useState(false);
+  // El identificador es de ESTA apertura: cancelar tiene que cortar este
+  // volcado y no otra cosa que esté corriendo.
+  const [runIDVolcado] = useState(() => `dump:${Date.now()}`);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [schemaError, setSchemaError] = useState<string | null>(null);
@@ -219,6 +224,14 @@ export function Shell({
         </Button>
         <Button size="sm" onClick={openQuery} disabled={!session?.connected}>
           Nueva consulta
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => setVolcando(true)}
+          disabled={!session?.connected || totalTablas === 0}
+          title={totalTablas === 0 ? "No hay tablas para volcar" : "Volcar la estructura, los datos, o los dos"}
+        >
+          Volcar…
         </Button>
         <Button size="sm" onClick={() => void load(true)} loading={loading}>
           Refrescar
@@ -507,6 +520,15 @@ export function Shell({
           about
         </button>
       </footer>
+
+      {volcando ? (
+        <DumpDialog
+          open
+          schema={esquemaPrincipal()}
+          runID={runIDVolcado}
+          onClose={() => setVolcando(false)}
+        />
+      ) : null}
     </div>
   );
 }

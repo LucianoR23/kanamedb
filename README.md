@@ -22,7 +22,12 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > tabla entera con el filtro que tenga puesto, que se escribe a medida que se
 > lee y por eso no depende de que entre en memoria. Y al revés: un CSV entra en
 > una tabla con un asistente que ensaya la importación de verdad —adentro de
-> una transacción, y la revierte— antes de escribir nada.
+> una transacción, y la revierte— antes de escribir nada. El volcado escribe la
+> estructura, los datos o los dos, y **dice con nombre y apellido qué deja
+> afuera**: un export de esquema que se olvida de una vista se ve idéntico a uno
+> correcto, y esa es la diferencia entre un archivo que sirve y uno que engaña.
+> Para el volcado completo de PostgreSQL arma la línea de `pg_dump` y la corre
+> si la versión alcanza.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---

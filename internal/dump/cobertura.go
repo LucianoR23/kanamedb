@@ -82,6 +82,7 @@ var ordenDeTipos = []schema.ObjectKind{
 	schema.ObjSequence,
 	schema.ObjExtension,
 	schema.ObjEvent,
+	schema.ObjColumn,
 }
 
 // Resumen es la frase de una línea: «3 funciones, 2 vistas y 1 política».
@@ -136,6 +137,8 @@ func etiqueta(k schema.ObjectKind, n int) string {
 		singular, plural = "extensión", "extensiones"
 	case schema.ObjEvent:
 		singular, plural = "evento", "eventos"
+	case schema.ObjColumn:
+		singular, plural = "columna", "columnas"
 	}
 	if n == 1 {
 		return singular
