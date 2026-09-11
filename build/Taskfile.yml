@@ -191,17 +191,17 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts -i
 
   generate:icons:
-    summary: Generates Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms). NOTA - tambien sobreescribe windows/icon.ico, que en este proyecto viene del brand kit con los cortes hechos a mano, por lo que el build de Windows ya no depende de esta tarea. Si la corres suelta, reverti windows/icon.ico antes de commitear.
+    summary: Genera los iconos de macOS y nada mas. En un Mac con Xcode 26, actool compila appicon.icon (el documento de Icon Composer con la marca por capas) a darwin/Assets.car y darwin/icons.icns; en cualquier otra maquina, o sin actool 26, el icns sale del tile plano del brand kit, que es el mismo que esta commiteado. NUNCA toca windows/icon.ico - `-windowsfilename ""` lo apaga; sin eso el flag tiene build/windows/icon.ico por defecto y pisa los cortes a mano del kit. Los iconos de Linux tampoco se generan - son los nueve PNG de hicolor commiteados. Ver kaname-plan.md.
     run: once
     dir: build
     sources:
-      - "appicon.png"
-      - "appicon.icon"
+      - "appicon.icon/**/*"
+      - "darwin/tile-light-1024.png"
     generates:
       - "darwin/icons.icns"
-      - "windows/icon.ico"
+      - "darwin/Assets.car"
     cmds:
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
+      - wails3 generate icons -input darwin/tile-light-1024.png -macfilename darwin/icons.icns -windowsfilename "" -iconcomposerinput appicon.icon -macassetdir darwin
 
   dev:frontend:
     summary: Runs the frontend in development mode

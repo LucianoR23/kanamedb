@@ -9,7 +9,7 @@ info:
   productName: "Kaname"
   productIdentifier: "dev.kaname.app"
   description: "Gestor de bases de datos con diagrama ERD editable"
-  copyright: "(c) 2026 Kaname"
+  copyright: "© 2026 Luciano Rodriguez"
   comments: "Kaname"
   version: "0.1.0" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)

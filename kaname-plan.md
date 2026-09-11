@@ -652,14 +652,15 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   estaban bien —todo lo suyo sale de tokens— y lo que fallaba era transversal:
   dieciocho colores escritos a mano en otros componentes, con el valor del tema
   OSCURO. Ver el registro de la § 6.
-- ⏳ **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
-  (`Icon=kaname`, el nombre tiene que coincidir), y el ícono de macOS, que desde
-  macOS 26 **no es un PNG plano**: se compone por capas en Icon Composer con las
-  apariencias `default`, `dark`, `clear` y `tinted`. El brand kit ya entrega las
-  capas separadas y sin efectos horneados, que es como Apple las pide. No se
-  puede adelantar: esos builds no existen hasta esta iteración. **No hace falta
-  una Mac ni una Linux**: los builds y la firma van en CI; lo único que una
-  máquina física da es probar el resultado. Ver la § 6 (2026-09-11).
+- ✅ **Marca en Linux y macOS, y los builds.** Los 9 PNG de hicolor más el
+  SVG escalable, el `.desktop` y los `.deb`/`.rpm`/AppImage con nfpm y
+  linuxdeploy; en macOS el documento de Icon Composer con la marca por capas
+  —fondo claro y oscuro, primer plano recoloreado por apariencia— que `actool`
+  compila en el runner de macOS 26, y el `.icns` del tile como respaldo. CI
+  construye los tres sistemas y un tag `v*` deja un release en borrador con
+  los seis archivos y `SHA256SUMS`. **Sin firma**, por decisión: ver la § 6
+  (2026-09-11, «Marca en Linux y macOS, builds en CI y la licencia»). Lo que
+  falta es que alguien abra el `.app` y el AppImage en una máquina de verdad.
 - ✅ **Renombrar los tokens de color del ERD y del preview.** El kit define
   `--erd-rel-cascade`, `--erd-pk`, `--schema-drop`… y el código usa genéricos:
   hoy la línea de cascada es `--env-stage` y la clave foránea es `--accent`. Los
@@ -759,12 +760,15 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
 
 ### CI
 
-GitHub Actions. Hoy: matriz win-x64 (`windows-latest`) y win-arm64
-(`windows-11-arm`), un job de gofmt + vet + test + typecheck, y una matriz de
+GitHub Actions. Hoy: builds win-x64 (`windows-latest`), win-arm64
+(`windows-11-arm`), linux-x64 (`ubuntu-24.04`, GTK4 + WebKitGTK 6.0:
+AppImage, .deb y .rpm) y mac-universal (`macos-latest`, `.app` arm64 +
+x86_64 en un .zip); un job de gofmt + vet + test + typecheck; una matriz de
 integración contra PostgreSQL 18, 17, 16 y 14 en `ubuntu-latest` con
 `KANAME_REQUIRE_POSTGRES=1`, para que un job sin base se ponga rojo en vez de
-verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `wails3 task`, no
-`go build` a mano — ver el registro de decisiones.
+verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
+`SHA256SUMS` y crea el release **en borrador**. El build usa el pipeline de
+`wails3 task`, no `go build` a mano — ver el registro de decisiones.
 
 ---
 
@@ -853,8 +857,9 @@ verde. Linux y macOS se suman en la Iteración 9. El build usa el pipeline de `w
   del diagrama
 - Undo/redo del changeset pendiente antes de aplicar
 - Reconexión del túnel SSH y timeouts
-- Firma de código en Windows: sin firmar, SmartScreen frena el "copiar y que ande"
-- Wails en Linux/macOS necesita cgo: no vas a cross-compilar desde Windows, va por CI
+- Firma de código: sin firmar, SmartScreen frena el «copiar y que ande» en
+  Windows y Gatekeeper el `.app` en macOS. Evaluado y no decidido; ver § 6
+  (2026-09-11)
 - Tests de integración con Docker Compose de los cuatro motores desde el día uno;
   el differ se rompe en silencio
 - Exportar ERD a SQL y a imagen
@@ -1211,6 +1216,103 @@ sí, o alguien que la tenga, para probar lo que salió.
   Antes de publicar un build de macOS o Linux alguien lo tiene que abrir: una
   Mac prestada, una Mac mini usada, o una VM de Linux —esa sí se puede tener
   en esta máquina—.
+
+**Marca en Linux y macOS, builds en CI y la licencia: el repo se hace público
+sin pagar nada.** La decisión del usuario, con las opciones de arriba sobre
+la mesa: builds para los tres sistemas **sin firma**, licencia Apache 2.0, y
+el repo público cuando el checklist de pre-publicación esté en verde. Lo que
+fijó la implementación:
+
+- **Linux: nueve PNG, un SVG y un `.desktop` escritos, no generados.** Los
+  íconos van al árbol hicolor de freedesktop (`16 22 24 32 48 64 128 256
+  512` más `scalable/apps/kaname.svg`), tal cual los entrega el kit —los de
+  16, 24 y 32 son píxel por píxel los mismos cortes del `.ico` de Windows;
+  el de 22 es el corte de 16 hecho para ese tamaño—, y sin los ~6 KB de
+  metadatos C2PA que traía cada uno. El `.desktop` está commiteado porque
+  `wails3 generate .desktop` escribía `Keywords=wails` y `Name=kaname` en
+  minúscula, y `Exec=/usr/local/bin/kaname.exe` era lo que el template había
+  dejado. El `nfpm.yaml` también decía `kaname.exe`, `license: MIT` y
+  `homepage: wails.io`: ahora instala en `/usr/bin/kaname`, lleva los diez
+  íconos, el `.desktop`, el LICENSE en `/usr/share/doc/kaname/copyright`, y
+  el postinstall actualiza el caché de íconos además del de menús. Se
+  comprobó armando el `.deb`, el `.rpm` y el paquete de Arch acá, en
+  Windows, con un binario de mentira —nfpm es Go puro— y listando lo que
+  quedó adentro. El AppImage no se puede armar acá: linuxdeploy es Linux.
+- **macOS: el ícono por capas es un documento de texto.** `build/appicon.icon`
+  es una carpeta con `icon.json` y las capas; el template traía el logo de
+  Wails. El de Kaname declara el fondo del tile claro (`#f7f7f5`) con
+  especialización `dark` (`#1c1e22`), y una capa —la marca en `#4a5bd6`—
+  recoloreada a `#7c8cff` en `dark` y a un gris claro en `tinted`, a escala
+  0,6 del lienzo, que es la proporción del tile del kit. `actool`, que viene
+  con Xcode 26, lo compila a `Assets.car` **y** a un `.icns` renderizado;
+  `macos-latest` es macOS 26 con Xcode 26 desde julio de 2026, así que
+  pasa en CI. El formato se verificó contra el esquema publicado
+  (`fill-specializations` a nivel raíz para el fondo, `appearance` en
+  `base|light|dark|tinted`), no contra actool: eso recién lo dice el primer
+  build de CI. **`Assets.car` salió del repo**: era 1,6 MB del ícono de
+  Wails, y ahora se genera; lo mismo los 3,7 MB de fondo e ícono de volumen
+  del DMG del template, junto con la tarea `package:dmg`. El `.app` va en un
+  `.zip` hecho con `ditto`, que conserva los atributos del bundle; un DMG con
+  arte propio queda para cuando haya un Mac donde mirarlo. El `.icns`
+  commiteado se regeneró desde el tile claro del kit, que es lo que el kit
+  indica como respaldo para macOS anteriores a 26.
+- **`generate:icons` ya no toca `windows/icon.ico`.** El flag
+  `-windowsfilename` tiene `build/windows/icon.ico` por defecto, así que
+  omitirlo no alcanzaba —lo decía la nota del 2026-09-09—; se le pasa `""`
+  y la tarea produce solo lo de macOS. Con Xcode 26 compila el `.icon`; sin
+  él, o en otro sistema, cae al `.icns` del tile, que es idéntico al
+  commiteado. Comprobado acá: correrla deja el `.ico` intacto y el `.icns`
+  byte a byte igual.
+- **`Info.plist` decía `CFBundleExecutable = kaname.exe`.** El template lo
+  generó con el nombre del binario de Windows. Ahora `kaname`, con
+  `LSApplicationCategoryType = developer-tools` y el copyright con nombre.
+- **La versión vive en seis lugares y un test los compara.** `appinfo.Version`
+  es lo que muestra About; `config.yml`, `info.json`, los dos `Info.plist` y
+  `nfpm.yaml` son lo que lee cada empaquetador. `wails3 task
+  common:update:build-assets` los regeneraría desde `config.yml`, pero pisa
+  también lo editado a propósito —`Info.plist`, `nfpm.yaml`— así que no se
+  usa: la versión se sube a mano y `TestLaVersionEsLaMismaEnTodosLados`
+  avisa si una quedó atrás. Inyección: `nfpm.yaml` en 0.1.1 lo puso en rojo.
+- **CI: tres jobs de build y un release en borrador.** Linux instala
+  `libgtk-4-dev libwebkitgtk-6.0-dev` más lo que el plugin de GTK de
+  linuxdeploy pide (gdk-pixbuf, glib, dpkg-dev), y corre AppImage, `.deb` y
+  `.rpm` como pasos separados para que un fallo diga cuál. macOS corre
+  `darwin:package:universal`, que compila las dos arquitecturas nativas y
+  las une con `lipo`. El job `release` solo existe con un tag `v*`, es el
+  único con `contents: write`, y crea el release **en borrador**: se publica
+  a mano después de mirar las notas. En un repo público los runners son
+  gratis e ilimitados; mientras sea privado, el de macOS cuenta ×10 contra
+  los 2.000 minutos mensuales, y por eso los builds de tag son la única vez
+  que vale la pena.
+- **Sin firma, con los avisos escritos en el README.** Windows: SmartScreen y
+  «Ejecutar de todos modos». macOS 15+: Gatekeeper y «Abrir de todos modos»,
+  o `xattr -d com.apple.quarantine`. Linux: nada. Quien clona y compila no ve
+  ninguno: la cuarentena es para lo descargado. Lo que cambiaría la decisión
+  —usuarios de Mac que lo pidan, o descargas que justifiquen SignPath, que
+  firma gratis proyectos abiertos en Windows— no existe hoy.
+- **Apache 2.0, texto canónico, copyright en `NOTICE`.** El `LICENSE` es el
+  texto oficial byte a byte (SHA-256 `cfc7749b…523d30`), que es lo que
+  GitHub detecta; el titular y el año van en `NOTICE`, que la propia licencia
+  obliga a conservar en cada redistribución. El motivo de Apache sobre MIT
+  está en la iteración 0: concesión de patentes y la cláusula de marcas que
+  preserva el nombre ante un fork. `nfpm.yaml` dice `Apache-2.0` y el
+  `.deb` lleva el texto en `/usr/share/doc/kaname/copyright`.
+- **Lo que encontró el review.** `Info.plist` declaraba `CFBundleIconName =
+  appicon` siempre, y con `Assets.car` fuera del repo eso es un `.app` que
+  apunta a un catálogo que no está: macOS resuelve el ícono por ese nombre
+  ANTES que por `CFBundleIconFile`, así que en vez de caer al `.icns` se
+  queda sin ícono. La clave salió de los dos plist y la agrega
+  `create:app:bundle` con PlistBuddy solo cuando el catálogo existe —que es
+  solo en macOS, donde PlistBuddy siempre está—. El test de versiones miraba
+  una sola de las dos claves de `Info.dev.plist`; ahora las dos, y con la
+  inyección en rojo. Y el job `release` compara el tag con
+  `appinfo.Version` antes de bajar nada: un `v0.2.0` sobre binarios 0.1.0
+  salía con el título bien y todo lo de adentro mal.
+- **Lo que este commit no hace público.** La visibilidad del repo la cambia
+  el usuario, y no antes de que el checklist de pre-publicación esté en
+  verde: `gitleaks` sobre el historial completo, la revisión de logs, y los
+  tests de integración de los cuatro motores. La licencia era el último
+  ítem que se podía marcar desde el código.
 
 **Automatizar los bumps de dependencias: postergado.** Decisión del usuario:
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
@@ -4925,6 +5027,7 @@ Atlas es Apache 2.0, Wails y pgx MIT, `modernc.org/sqlite` BSD-3 — todas
 permisivas, ninguna copyleft. Cuando se decida publicar, la recomendación es
 Apache 2.0: concesión explícita de patentes (pesa en una herramienta que planifica
 migraciones) y cláusula de marcas que preserva el nombre "Kaname" ante un fork.
+*(Resuelto el 2026-09-11: Apache 2.0, ver la iteración 9.)*
 
 Consecuencia que aplica desde hoy: **si el repo se publica, se publica el
 historial completo.** Un secreto commiteado ahora sigue en el historial aunque se
@@ -4946,7 +5049,7 @@ público. Nada se marca por confianza, todo con evidencia.
 - [ ] Revisar que `known_hosts` haga TOFU real y que no exista ninguna ruta con
       `InsecureIgnoreHostKey`.
 - [ ] Tests de integración de los cuatro motores en verde.
-- [ ] Elegir y agregar la licencia.
+- [x] Elegir y agregar la licencia. Apache 2.0, 2026-09-11.
 
 ---
 

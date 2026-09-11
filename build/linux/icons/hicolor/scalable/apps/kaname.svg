@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 176 176" width="176" height="176" role="img" aria-label="Kaname">
+  <title>Kaname</title>
+  <g fill="none" stroke="#7c8cff" stroke-width="12" stroke-linecap="round">
+    <path d="M30 16 L30 160"/>
+    <path d="M30 88 L166 18"/>
+    <path d="M30 88 L166 158"/>
+    <path d="M30 88 L146 88"/>
+  </g>
+  <circle cx="30" cy="88" r="19" fill="#7c8cff"/>
+</svg>

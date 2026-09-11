@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 176 176" width="176" height="176">
+  <title>Kaname — primer plano del ícono de macOS, apariencia clara</title>
+  <g fill="none" stroke="#4a5bd6" stroke-width="12" stroke-linecap="round">
+    <path d="M30 16 L30 160"/>
+    <path d="M30 88 L166 18"/>
+    <path d="M30 88 L166 158"/>
+    <path d="M30 88 L146 88"/>
+  </g>
+  <circle cx="30" cy="88" r="19" fill="#4a5bd6"/>
+</svg>

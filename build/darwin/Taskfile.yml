@@ -127,33 +127,10 @@ tasks:
     cmds:
       - task: create:app:bundle
 
-  package:dmg:
-    summary: Packages the application into a styled `.dmg`
-    deps:
-      - task: package
-    cmds:
-      - task: create:dmg
-
-  create:dmg:
-    summary: Creates a configurable `.dmg` from the `.app` bundle
-    platforms: [darwin]
-    cmds:
-      - >-
-        wails3 tool package --format dmg --name "{{.APP_NAME}}" --out "{{.BIN_DIR}}"
-        --background "{{.DMG_BACKGROUND}}"
-        --volume-icon "{{.DMG_VOLUME_ICON}}"
-        --file-icon "{{.DMG_FILE_ICON}}"
-        --window-width "{{.DMG_WINDOW_WIDTH}}"
-        --window-height "{{.DMG_WINDOW_HEIGHT}}"
-        {{if .DMG_FILES}}--files "{{.DMG_FILES}}"{{end}}
-    vars:
-      DMG_BACKGROUND: '{{.DMG_BACKGROUND | default "build/darwin/dmg-background.png"}}'
-      DMG_VOLUME_ICON: '{{.DMG_VOLUME_ICON | default "build/darwin/icons.icns"}}'
-      DMG_FILE_ICON: '{{.DMG_FILE_ICON | default "build/darwin/dmg-file-icon.icns"}}'
-      DMG_WINDOW_WIDTH: '{{.DMG_WINDOW_WIDTH | default "540"}}'
-      DMG_WINDOW_HEIGHT: '{{.DMG_WINDOW_HEIGHT | default "380"}}'
-      DMG_FILES: '{{.DMG_FILES | default ""}}'
-
+  # Sin `package:dmg`: el fondo y el icono de volumen que traia el template
+  # eran los de Wails (3,7 MB de arte ajeno en el repo). El .app se
+  # distribuye en un .zip; un DMG con arte propio queda para cuando haya un
+  # Mac donde mirarlo. Ver kaname-plan.md.
 
   create:app:bundle:
     summary: Creates an `.app` bundle
@@ -161,12 +138,18 @@ tasks:
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
+      - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
+      # CFBundleIconName va al plist SOLO si el catalogo existe: macOS busca
+      # el icono por ese nombre antes que por CFBundleIconFile, asi que
+      # declararlo sin Assets.car deja el .app sin icono en vez de caer al
+      # .icns. Assets.car solo sale de actool, en macOS, donde PlistBuddy
+      # siempre esta.
       - |
         if [ -f build/darwin/Assets.car ]; then
           cp build/darwin/Assets.car "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string appicon" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Info.plist"
         fi
-      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
-      - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
 
   codesign:adhoc:
@@ -186,12 +169,13 @@ tasks:
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+      - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
       - |
         if [ -f build/darwin/Assets.car ]; then
           cp build/darwin/Assets.car "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string appicon" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
         fi
-      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
-      - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
       - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
       - '"{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
 

@@ -128,6 +128,48 @@ func TestTodaVariableCSSQueSeUsaEstaDefinida(t *testing.T) {
 	}
 }
 
+// versionEnArchivo es dónde dice la versión cada pieza del build. Hay una por
+// sistema porque cada empaquetador lee la suya: el syso de Windows, el
+// Info.plist del .app, el nfpm de los .deb/.rpm.
+var versionEnArchivo = []struct {
+	ruta   string
+	patron *regexp.Regexp
+}{
+	{"build/config.yml", regexp.MustCompile(`(?m)^\s*version:\s*"([^"]+)"`)},
+	{"build/windows/info.json", regexp.MustCompile(`"file_version":\s*"([^"]+)"`)},
+	{"build/windows/info.json", regexp.MustCompile(`"ProductVersion":\s*"([^"]+)"`)},
+	{"build/darwin/Info.plist", regexp.MustCompile(`<key>CFBundleVersion</key>\s*<string>([^<]+)</string>`)},
+	{"build/darwin/Info.plist", regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)},
+	{"build/darwin/Info.dev.plist", regexp.MustCompile(`<key>CFBundleVersion</key>\s*<string>([^<]+)</string>`)},
+	{"build/darwin/Info.dev.plist", regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)},
+	{"build/linux/nfpm/nfpm.yaml", regexp.MustCompile(`(?m)^version:\s*"([^"]+)"`)},
+}
+
+// TestLaVersionEsLaMismaEnTodosLados compara `appinfo.Version` —lo que muestra
+// About— con lo que declara cada empaquetador.
+//
+// Son seis lugares escritos a mano porque `wails3 task common:update:build-assets`,
+// que los regeneraría desde build/config.yml, pisa también lo que se editó a
+// propósito: el Info.plist, el nfpm.yaml, el .desktop. Así que la versión se
+// sube a mano, y esto es lo que avisa cuando quedó una atrás: un .deb que dice
+// 0.1.0 con un About que dice 0.2.0 no lo nota nadie hasta que alguien
+// pregunta cuál tiene instalado.
+func TestLaVersionEsLaMismaEnTodosLados(t *testing.T) {
+	for _, v := range versionEnArchivo {
+		datos, err := os.ReadFile(v.ruta)
+		if err != nil {
+			t.Fatalf("leer %s: %v", v.ruta, err)
+		}
+		m := v.patron.FindSubmatch(datos)
+		if m == nil {
+			t.Fatalf("%s: no se encontró la versión con %s", v.ruta, v.patron)
+		}
+		if got := string(m[1]); got != appinfo.Version {
+			t.Errorf("%s dice %q y appinfo.Version es %q", v.ruta, got, appinfo.Version)
+		}
+	}
+}
+
 // claveDelServicio traduce una instancia a la ruta con la que el frontend la
 // importa: `*service.History` es `internal/service/history`.
 func claveDelServicio(instancia any) string {

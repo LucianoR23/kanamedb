@@ -3,6 +3,9 @@
 bin/
 frontend/dist/
 build/linux/appimage/build/
+# Lo compila actool en el runner de macOS desde build/appicon.icon.
+build/darwin/Assets.car
+build/darwin/temp.plist
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 *.exe
 *.syso

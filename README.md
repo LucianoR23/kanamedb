@@ -39,7 +39,8 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > si la versión alcanza. **Compara dos conexiones** —dev contra producción—
 > y escribe la migración que alinearía la segunda: lee los dos catálogos, no
 > ejecuta nada, nunca genera un borrado, y dice con la misma claridad qué no
-> miró.
+> miró. Se construye para **Windows, Linux y macOS** desde CI, con la marca
+> de cada sistema y sin firma; ver [Releases](#releases).
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---
@@ -124,6 +125,37 @@ El binario queda en `bin/kaname.exe` (~14 MB: pgx, el cliente SSH y el keychain)
 
 > No uses `go build` directo. Se saltea el tag `production` —que deja el webview
 > en modo desarrollo— y el `.syso` con ícono, manifest de DPI y metadata de versión.
+
+En **Linux** y **macOS** el mismo `wails3 task build` compila nativo —hace falta
+un compilador de C: GTK4 y WebKitGTK en Linux, Cocoa en macOS entran por cgo—,
+y el empaquetado tiene su tarea por sistema:
+
+```sh
+# Linux (Ubuntu 24.04+ / Debian 13+; el backend es GTK4 + WebKitGTK 6.0)
+sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+wails3 task build
+wails3 task linux:create:appimage   # bin/kaname-x86_64.AppImage, se copia y anda
+wails3 task linux:create:deb        # bin/kaname.deb, con sus dependencias declaradas
+wails3 task linux:create:rpm        # bin/kaname.rpm
+
+# macOS (Xcode con las command line tools)
+wails3 task darwin:package:universal   # bin/kaname.app, arm64 + x86_64
+```
+
+Un build hecho en la propia máquina no pasa por SmartScreen ni por Gatekeeper:
+esos avisos son para lo que se **descarga**. Ver [Releases](#releases).
+
+Los íconos no se generan en el build: el `.ico` de Windows, los nueve PNG de
+hicolor de Linux y el `.icns` de macOS vienen del brand kit y están
+commiteados. La excepción es macOS 26, cuyo ícono es por capas: en un Mac con
+Xcode 26, `common:generate:icons` compila `build/appicon.icon` con `actool` a
+`Assets.car` durante el build. Sin él, queda el `.icns` plano.
+
+La **versión** se escribe a mano en seis lugares —`internal/appinfo`,
+`build/config.yml`, `build/windows/info.json`, los dos `Info.plist` y
+`build/linux/nfpm/nfpm.yaml`— y `go test ./` avisa si alguno quedó atrás. No
+uses `wails3 task common:update:build-assets` para sincronizarlos: regenera esos
+archivos desde el template y pisa lo que se editó a propósito.
 
 ### Verificaciones
 
@@ -368,8 +400,36 @@ versión del módulo Go.
 
 ## Plataformas
 
-Windows x64 y arm64 se compilan hoy. Linux y macOS necesitan cgo, así que no se
-cross-compilan desde Windows: van por CI en la Iteración 9.
+Windows x64 y arm64, Linux x64 y macOS universal (arm64 + x86_64). Linux y
+macOS necesitan cgo, así que no se cross-compilan desde Windows: los construye
+CI. Linux pide GTK4 + WebKitGTK 6.0 (Ubuntu 24.04 / Debian 13 o más nuevos);
+macOS, 12 o más nuevo.
+
+## Releases
+
+Un tag `v*` hace que CI construya los tres sistemas y deje un **release en
+borrador** con seis archivos y su `SHA256SUMS`:
+
+| Archivo | Qué es |
+|---|---|
+| `kaname-win-x64.exe`, `kaname-win-arm64.exe` | Un ejecutable suelto. Se copia y anda; WebView2 viene con Windows 11. |
+| `kaname-linux-x64.AppImage` | Se copia, se le da permiso de ejecución y anda. |
+| `kaname-linux-x64.deb`, `kaname-linux-x64.rpm` | Instalan en `/usr/bin` con el `.desktop` y los íconos, y declaran las dependencias. |
+| `kaname-mac-universal.zip` | `Kaname.app`, arm64 + x86_64. |
+
+El borrador se publica a mano después de mirar las notas. **Nada está
+firmado**, y eso tiene una consecuencia por sistema:
+
+- **Windows**: SmartScreen avisa la primera vez —*Más información → Ejecutar de
+  todos modos*—. Comprobá el `SHA256SUMS` antes.
+- **macOS**: desde macOS 15 Gatekeeper bloquea el `.app`; se abre desde
+  *Ajustes → Privacidad y seguridad → Abrir de todos modos*. O `xattr -d
+  com.apple.quarantine Kaname.app` en la terminal.
+- **Linux**: nada que pasar. No hay cadena de confianza equivalente.
+
+Quien clona el repo y compila no ve ninguno de esos avisos. Firmar —USD 99 al
+año en macOS, un certificado OV en Windows— está evaluado en `kaname-plan.md` y
+no decidido.
 
 ## Diseño
 
@@ -387,3 +447,9 @@ Reglas que salen de S00 Foundations y valen para toda la UI:
   Windows. Se usan los componentes de `components/ui`.
 - **NULL y la cadena vacía se ven distinto.** `[null]` en itálica y gris; la
   cadena vacía, una celda en blanco. Confundirlos es un bug de datos esperando.
+
+## Licencia
+
+[Apache 2.0](LICENSE). Con concesión explícita de patentes y sin que un fork
+pueda usar el nombre «Kaname» como propio. El aviso de copyright va en
+[`NOTICE`](NOTICE).

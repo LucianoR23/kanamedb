@@ -1,21 +1,18 @@
 #!/bin/sh
+# Después de instalar el .deb/.rpm: que el menú y el tema de íconos vean lo
+# nuevo sin cerrar sesión. Ninguno de los tres es obligatorio para que la
+# aplicación corra; si faltan, solo tarda más en aparecer en el menú.
 
-# Update desktop database for .desktop file changes
-# This makes the application appear in application menus and registers its capabilities.
 if command -v update-desktop-database >/dev/null 2>&1; then
-  echo "Updating desktop database..."
-  update-desktop-database -q /usr/share/applications
-else
-  echo "Warning: update-desktop-database command not found. Desktop file may not be immediately recognized." >&2
+  update-desktop-database -q /usr/share/applications || true
 fi
 
-# Update MIME database for custom URL schemes (x-scheme-handler)
-# This ensures the system knows how to handle your custom protocols.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+fi
+
 if command -v update-mime-database >/dev/null 2>&1; then
-  echo "Updating MIME database..."
-  update-mime-database -n /usr/share/mime
-else
-  echo "Warning: update-mime-database command not found. Custom URL schemes may not be immediately recognized." >&2
+  update-mime-database -n /usr/share/mime || true
 fi
 
 exit 0

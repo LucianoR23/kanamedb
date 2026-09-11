@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Kaname
+GenericName=Gestor de bases de datos
+GenericName[en]=Database manager
+Comment=Gestor de bases de datos con diagrama ERD editable
+Comment[en]=Database manager with an editable ERD diagram
+Exec=kaname
+Icon=kaname
+Terminal=false
+Categories=Development;Database;
+Keywords=sql;postgres;postgresql;mysql;mariadb;sqlite;erd;base de datos;database;
+StartupNotify=true

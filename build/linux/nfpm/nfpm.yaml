@@ -1,80 +1,63 @@
-# Feel free to remove those if you don't want/need to use them.
-# Make sure to check the documentation at https://nfpm.goreleaser.com
+# Paquetes .deb / .rpm / Arch. Los arma `wails3 tool package` con nfpm
+# embebido, desde `wails3 task linux:package`. Documentación del formato:
+# https://nfpm.goreleaser.com
 #
-# The lines below are called `modelines`. See `:help modeline`
+# El binario se llama `kaname` —no `kaname.exe`, que es lo que el template
+# escribió acá porque lo generó con el nombre del binario de Windows— y va a
+# /usr/bin, que es donde un paquete del sistema instala; /usr/local es para
+# lo que instala la persona a mano.
 
-name: "kaname.exe"
+name: "kaname"
 arch: ${GOARCH}
 platform: "linux"
 version: "0.1.0"
-section: "default"
-priority: "extra"
-maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
+section: "database"
+priority: "optional"
+maintainer: "Luciano Rodriguez <luciano.rodriguez.dev@gmail.com>"
 description: "Gestor de bases de datos con diagrama ERD editable"
 vendor: "Kaname"
-homepage: "https://wails.io"
-license: "MIT"
+homepage: "https://github.com/LucianoR23/kanamedb"
+license: "Apache-2.0"
 release: "1"
 
 contents:
-  - src: "./bin/kaname.exe"
-    dst: "/usr/local/bin/kaname.exe"
-  - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/kaname.exe.png"
-  - src: "./build/linux/kaname.exe.desktop"
-    dst: "/usr/share/applications/kaname.exe.desktop"
+  - src: "./bin/kaname"
+    dst: "/usr/bin/kaname"
+    file_info:
+      mode: 0755
+  - src: "./build/linux/kaname.desktop"
+    dst: "/usr/share/applications/kaname.desktop"
+    file_info:
+      mode: 0644
+  # Los nueve tamaños del brand kit más el SVG escalable, en el árbol hicolor
+  # de freedesktop. El nombre del archivo tiene que coincidir con `Icon=kaname`
+  # del .desktop.
+  - src: "./build/linux/icons/hicolor"
+    dst: "/usr/share/icons/hicolor"
+    type: tree
+  - src: "./LICENSE"
+    dst: "/usr/share/doc/kaname/copyright"
+    file_info:
+      mode: 0644
 
-# Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
+# GTK4 + WebKitGTK 6.0, el backend de Linux por defecto de Wails v3 beta.17.
+# Es lo que fija qué distros lo corren: Ubuntu 24.04 / Debian 13 o más nuevas.
 depends:
   - libgtk-4-1
   - libwebkitgtk-6.0-4
 
-# Distribution-specific overrides for different package formats
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
+  # Fedora / RHEL / AlmaLinux / Rocky
   rpm:
     depends:
       - gtk4
       - webkitgtk6.0
-
-  # Arch Linux packages
+  # Arch
   archlinux:
     depends:
       - gtk4
       - webkitgtk-6.0
 
-# scripts section to ensure desktop database is updated after install
 scripts:
   postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
-  # You can also add preremove, postremove if needed
-  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
-
-# If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
-# replace the depends/overrides above with these:
-#
-# depends:
-#   - libgtk-3-0
-#   - libwebkit2gtk-4.1-0
-# overrides:
-#   rpm:
-#     depends:
-#       - gtk3
-#       - webkit2gtk4.1
-#   archlinux:
-#     depends:
-#       - gtk3
-#       - webkit2gtk-4.1
-#
-# replaces:
-#   - foobar
-# provides:
-#   - bar
-# recommends:
-#   - whatever
-# suggests:
-#   - something-else
-# conflicts:
-#   - not-foo
-#   - not-bar
-# changelog: "changelog.yaml"
+  postremove: "./build/linux/nfpm/scripts/postremove.sh"

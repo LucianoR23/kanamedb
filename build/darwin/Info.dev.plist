@@ -6,7 +6,7 @@
         <key>CFBundleName</key>
             <string>Kaname</string>
         <key>CFBundleExecutable</key>
-            <string>kaname.exe</string>
+            <string>kaname</string>
         <key>CFBundleIdentifier</key>
             <string>dev.kaname.app</string>
         <key>CFBundleVersion</key>
@@ -17,14 +17,14 @@
             <string>0.1.0</string>
         <key>CFBundleIconFile</key>
             <string>icons</string>
-        <key>CFBundleIconName</key>
-            <string>appicon</string>
         <key>LSMinimumSystemVersion</key>
             <string>12.0.0</string>
         <key>NSHighResolutionCapable</key>
             <string>true</string>
         <key>NSHumanReadableCopyright</key>
-            <string>© 2026</string>
+            <string>© 2026 Luciano Rodriguez</string>
+        <key>LSApplicationCategoryType</key>
+            <string>public.app-category.developer-tools</string>
         <key>NSAppTransportSecurity</key>
         <dict>
             <key>NSAllowsLocalNetworking</key>
