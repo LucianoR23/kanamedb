@@ -885,6 +885,40 @@ operación y que ninguna operación de la comparación entera sea destructiva.
 Inyectado el `dropColumn` que uno escribiría sin pensar, falla nombrando la
 columna.
 
+**El review encontró que la comparación generaba operaciones que el resto del
+sistema rechaza, y cuatro cosas más.** Las cinco tienen la misma forma: la
+comparación parecía funcionar y producía algo que no servía.
+
+- **Un `addColumn` de una columna NOT NULL nunca podría entrar al changeset.**
+  `change.Validate` lo rechaza —una columna NOT NULL nueva necesita un valor por
+  defecto, y el catálogo dice que el origen tiene uno pero no cuál—, así que la
+  pantalla ofrecía una operación y el changeset la devolvía con un error de
+  validación, sin camino hacia adelante. El comentario decía «se genera igual con
+  el aviso»: era una promesa falsa.
+- **Un `createTable` salía sin la CLAVE PRIMARIA.** La tabla recreada quedaba sin
+  clave, y `HasPrimaryKey` es lo que habilita editar la grilla: la tabla nueva
+  nacía de solo lectura en Kaname. Y no se notaba, porque la clave tampoco se
+  comparaba — dos errores que se tapaban entre ellos.
+- **Un `addForeignKey` salía sin el NOMBRE de la restricción**, así que el motor
+  le ponía uno generado. Como las claves se comparan por nombre, la comparación
+  siguiente reportaba la misma clave como «falta en el destino» y «sobra en el
+  destino» a la vez, para siempre — y aplicar otra vez dejaba una duplicada. Una
+  comparación que no converge no es una comparación.
+- **La clave primaria no se comparaba, y la lista de «no comparado» lo excusaba
+  mal**: decía que las restricciones viven en el detalle por tabla, y la clave
+  primaria SÍ está en el catálogo.
+- **`MismoMotor` suprimía la comparación de tipos pero no el COPIADO de tipos.**
+  El `createTable` y el `addColumn` seguían llevando el tipo escrito por el motor
+  de origen: un `jsonb` o un `timestamp with time zone` adentro de un CREATE
+  TABLE de MySQL. Media corrección es peor que ninguna, porque parece que anda.
+
+Lo que faltaba no era un caso más sino **un test de otra clase**: correr TODA
+operación generada por `change.Validate()`. El que había comprobaba que el campo
+no fuera nil, no que sirviera. Y la primera versión de ese test nuevo tampoco
+falló al inyectarle el error — el fixture no tenía ninguna columna NOT NULL
+faltante, así que no cubría lo que decía cubrir. Lo descubrió la inyección, no la
+lectura.
+
 **Entre motores distintos los tipos NO se comparan.** `character varying(255)`
 contra `varchar(255)` es el mismo tipo escrito por dos motores, y hay uno así por
 columna: comparar Postgres contra MySQL daría cientos de «el tipo difiere» que no

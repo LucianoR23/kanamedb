@@ -167,8 +167,9 @@ func Comparar(origen, destino schema.Snapshot, opts Opciones) Resultado {
 		"El cuerpo de las vistas, funciones, triggers y tipos: el catálogo los "+
 			"trae por nombre y la definición se pide de a una. Dos objetos con el "+
 			"mismo nombre y distinto contenido se ven iguales desde acá.",
-		"Los índices y las restricciones: viven en el detalle de cada tabla, que "+
-			"es una consulta por tabla.",
+		"Los índices y las restricciones, salvo la CLAVE PRIMARIA: el resto vive en "+
+			"el detalle de cada tabla, que es una consulta por tabla. La clave primaria "+
+			"sí está en el catálogo y sí se compara.",
 		"Los datos. Esta pantalla no lee una sola fila de ninguna de las dos bases.",
 	)
 	if !opts.MismoMotor {
@@ -239,7 +240,7 @@ func compararEsquema(origen, destino schema.Schema, opts Opciones) []Diferencia 
 
 		switch {
 		case hayOrigen && !hayDestino:
-			out = append(out, tablaSoloEnOrigen(origen.Name, o))
+			out = append(out, tablaSoloEnOrigen(origen.Name, o, opts))
 		case !hayOrigen && hayDestino:
 			out = append(out, Diferencia{
 				ID:           idDe("table", origen.Name, nombre),
@@ -263,16 +264,7 @@ func compararEsquema(origen, destino schema.Schema, opts Opciones) []Diferencia 
 }
 
 // tablaSoloEnOrigen arma el CREATE TABLE completo para una tabla que falta.
-func tablaSoloEnOrigen(esquema string, t schema.Table) Diferencia {
-	cols := make([]change.Column, 0, len(t.Columns))
-	for _, c := range t.Columns {
-		cols = append(cols, change.Column{
-			Name:     c.Name,
-			DataType: c.DataType,
-			Nullable: c.Nullable,
-		})
-	}
-
+func tablaSoloEnOrigen(esquema string, t schema.Table, opts Opciones) Diferencia {
 	d := Diferencia{
 		ID:      idDe("table", esquema, t.Name),
 		Lado:    SoloEnOrigen,
@@ -283,13 +275,47 @@ func tablaSoloEnOrigen(esquema string, t schema.Table) Diferencia {
 		Origen:  resumenDeTabla(t),
 		Riesgo:  RiesgoBajo,
 		Nota:    "Tabla nueva: crearla no puede romper nada de lo que ya está.",
-		Cambio: &change.Change{
-			Type:    change.CreateTable,
-			Schema:  esquema,
-			Table:   t.Name,
-			Columns: cols,
-			Source:  "drift",
-		},
+	}
+
+	// Entre motores distintos NO se genera el CREATE TABLE.
+	//
+	// Los tipos se copiarían tal cual los escribió el motor de origen, y el
+	// destino los rendea con su sintaxis: un `timestamp with time zone` o un
+	// `jsonb` de Postgres dentro de un CREATE TABLE de MySQL es una sentencia
+	// que no corre. Suprimir la comparación de tipos sin suprimir esto dejaba la
+	// mitad del problema, que es peor que ninguna: parece que funciona.
+	if !opts.MismoMotor {
+		d.Nota = "Los dos lados son motores distintos, así que los tipos de las columnas " +
+			"no se pueden copiar de uno al otro tal cual."
+		d.SinSentencia = "Entre motores distintos, la definición de la tabla se escribe a mano."
+		return d
+	}
+
+	cols := make([]change.Column, 0, len(t.Columns))
+	var clave []string
+	for _, c := range t.Columns {
+		cols = append(cols, change.Column{
+			Name:     c.Name,
+			DataType: c.DataType,
+			Nullable: c.Nullable,
+		})
+		// La clave primaria viaja en `Names`, que es lo que el renderizador
+		// convierte en `PRIMARY KEY (…)`. Sin esto la tabla se creaba SIN clave
+		// —y `HasPrimaryKey` es lo que habilita editar la grilla, así que la
+		// tabla nueva quedaba de solo lectura— y la comparación siguiente no lo
+		// notaba, porque la clave no se comparaba.
+		if c.PrimaryKey {
+			clave = append(clave, c.Name)
+		}
+	}
+
+	d.Cambio = &change.Change{
+		Type:    change.CreateTable,
+		Schema:  esquema,
+		Table:   t.Name,
+		Columns: cols,
+		Names:   clave,
+		Source:  "drift",
 	}
 
 	// Los DEFAULT no viajan en el snapshot —solo si la columna tiene uno— así
@@ -328,7 +354,33 @@ func compararTabla(esquema string, origen, destino schema.Table, opts Opciones) 
 				Origen:  resumenDeColumna(o),
 				Riesgo:  RiesgoBajo,
 				Nota:    "Agregar una columna que acepta NULL es solo metadatos: no reescribe la tabla.",
-				Cambio: &change.Change{
+			}
+
+			switch {
+			case !opts.MismoMotor:
+				// Mismo motivo que el CREATE TABLE: el tipo lo escribió el otro
+				// motor y no se puede copiar tal cual.
+				dif.Nota = "Los dos lados son motores distintos y el tipo está escrito con la " +
+					"sintaxis del origen."
+				dif.SinSentencia = "Entre motores distintos, la columna se agrega a mano con el tipo que corresponda."
+
+			case !o.Nullable:
+				// Una columna NOT NULL nueva NECESITA un valor por defecto, y el
+				// catálogo no dice cuál es: solo dice que hay uno.
+				//
+				// Antes se generaba igual «con el aviso», y eso era una promesa
+				// falsa: `change.Validate` rechaza ese addColumn, así que quien
+				// lo mandaba al changeset recibía un error de validación y no
+				// tenía por dónde seguir. Una operación que el resto del sistema
+				// va a rechazar no es una operación.
+				dif.Riesgo = RiesgoMedio
+				dif.Nota = "La columna es NOT NULL, así que hace falta un valor por defecto para " +
+					"las filas que ya están — y el catálogo dice que el origen tiene uno, no cuál es."
+				dif.SinSentencia = "Falta el valor por defecto: agregala desde el editor de estructura, " +
+					"que te deja escribirlo."
+
+			default:
+				dif.Cambio = &change.Change{
 					Type:   change.AddColumn,
 					Schema: esquema,
 					Table:  origen.Name,
@@ -338,15 +390,7 @@ func compararTabla(esquema string, origen, destino schema.Table, opts Opciones) 
 						Nullable: o.Nullable,
 					},
 					Source: "drift",
-				},
-			}
-			if !o.Nullable {
-				// Agregar NOT NULL sin default falla si la tabla tiene filas, y
-				// el default no está en el snapshot. Se genera igual porque es
-				// lo que pidió el origen, pero con el aviso.
-				dif.Riesgo = RiesgoMedio
-				dif.Nota = "La columna es NOT NULL y el catálogo no dice cuál es su valor por defecto. " +
-					"Si la tabla del destino tiene filas, la sentencia va a fallar hasta que le des uno."
+				}
 			}
 			out = append(out, dif)
 
@@ -435,6 +479,41 @@ func compararColumna(esquema, tabla string, origen, destino schema.Column, opts 
 		out = append(out, d)
 	}
 
+	// La clave primaria SÍ se compara: el flag está en el snapshot.
+	//
+	// El resto de las restricciones no —viven en el detalle de cada tabla— y
+	// eso está dicho en NoComparado, pero meter la clave primaria en esa misma
+	// bolsa era inexacto y caro: una tabla que perdió su clave es una tabla que
+	// Kaname no deja editar en la grilla, y la comparación decía «alineadas».
+	if origen.PrimaryKey != destino.PrimaryKey {
+		d := Diferencia{
+			ID:      idDe("columnPK", esquema, objeto),
+			Lado:    Distinto,
+			Clase:   ClaseColumna,
+			Schema:  esquema,
+			Objeto:  objeto,
+			Origen:  esClave(origen.PrimaryKey),
+			Destino: esClave(destino.PrimaryKey),
+			Riesgo:  RiesgoMedio,
+		}
+		if origen.PrimaryKey {
+			d.Resumen = "es clave primaria en el origen y no en el destino"
+			d.Nota = "Crear la clave exige que no haya repetidos ni NULL, y el servidor construye " +
+				"un índice único mientras tanto. Una tabla sin clave primaria además no se puede " +
+				"editar desde la grilla."
+			d.Cambio = &change.Change{
+				Type: change.AddPrimaryKey, Schema: esquema, Table: tabla,
+				Names: []string{origen.Name}, Source: "drift",
+			}
+		} else {
+			d.Resumen = "es clave primaria en el destino y no en el origen"
+			d.Nota = "Soltar una clave primaria es borrar una restricción, y puede haber cosas " +
+				"que dependan de ella."
+			d.SinSentencia = "Borrar no se genera nunca."
+		}
+		out = append(out, d)
+	}
+
 	// El DEFAULT se compara por PRESENCIA y no por valor: el snapshot dice si
 	// hay uno, no cuál. Con eso alcanza para avisar que difieren, y no alcanza
 	// para escribir la sentencia — así que no se escribe.
@@ -492,9 +571,16 @@ func compararForaneas(esquema string, origen, destino schema.Table) []Diferencia
 				Nota: "El servidor verifica las filas existentes al crearla, y falla si alguna " +
 					"apunta a algo que no está.",
 				Cambio: &change.Change{
-					Type:      change.AddForeignKey,
-					Schema:    esquema,
-					Table:     origen.Name,
+					Type:   change.AddForeignKey,
+					Schema: esquema,
+					Table:  origen.Name,
+					// El NOMBRE de la restricción viaja, y no es cosmético: sin
+					// él el motor le pone uno generado, y como las claves se
+					// comparan por nombre, la comparación siguiente reportaría
+					// la MISMA clave como «falta en el destino» y «sobra en el
+					// destino» a la vez, para siempre. Aplicar dos veces dejaba
+					// además una clave duplicada.
+					Name:      o.Name,
 					Names:     append([]string(nil), o.Columns...),
 					RefSchema: o.RefSchema,
 					RefTable:  o.RefTable,
@@ -685,6 +771,13 @@ func nulabilidad(nullable bool) string {
 		return "acepta NULL"
 	}
 	return "NOT NULL"
+}
+
+func esClave(pk bool) string {
+	if pk {
+		return "clave primaria"
+	}
+	return "no es clave primaria"
 }
 
 func conDefault(tiene bool) string {

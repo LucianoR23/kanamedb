@@ -99,6 +99,71 @@ func TestLaComparacionNoGeneraNingunBorrado(t *testing.T) {
 	}
 }
 
+// Toda operación que sale de acá tiene que PODER entrar al changeset.
+//
+// Es el test que faltaba, y su ausencia costó una promesa falsa: el `addColumn`
+// de una columna NOT NULL se generaba «con el aviso», y `change.Validate` lo
+// rechaza —una columna NOT NULL nueva necesita un valor por defecto, que el
+// catálogo no trae—. O sea que la pantalla ofrecía una operación y el changeset
+// la devolvía con un error de validación, sin ningún camino hacia adelante.
+//
+// El caso anterior no lo agarraba porque comprobaba que el campo no fuera nil,
+// no que sirviera. Una operación que el resto del sistema va a rechazar no es
+// una operación.
+func TestTodaOperacionGeneradaEsValida(t *testing.T) {
+	conDefault := col("con_default", "text", true)
+	conDefault.HasDefault = true
+	pk := col("id", "bigint", false)
+	pk.PrimaryKey = true
+
+	fk := schema.ForeignKey{
+		Name: "libros_autor_fk", Schema: "public", Table: "libros",
+		Columns: []string{"autor_id"}, RefSchema: "public", RefTable: "autores",
+		RefColumns: []string{"id"}, OnDelete: schema.Cascade,
+	}
+
+	// Una comparación con todas las formas que generan algo a la vez.
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		{Name: "libros",
+			Columns: []schema.Column{
+				pk,
+				col("autor_id", "bigint", false),
+				col("nota", "text", true),
+				// Una columna NOT NULL que falta del otro lado: es el caso que
+				// generaba un addColumn que el changeset rechaza, y sin él en
+				// el fixture este test no cubría lo que decía cubrir. Lo
+				// descubrió la inyección, no la lectura.
+				col("moneda", "char(3)", false),
+				conDefault,
+			},
+			ForeignKeys: []schema.ForeignKey{fk}, RowEstimate: -1},
+		tabla("tabla_nueva", pk, col("texto", "text", true)),
+		tabla("tipos", col("precio", "numeric(10,2)", false), col("nulable", "text", false)),
+	}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("libros", col("id", "bigint", false), col("autor_id", "bigint", false), col("con_default", "text", true)),
+		tabla("tipos", col("precio", "numeric(8,2)", false), col("nulable", "text", true)),
+	}})
+
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+
+	generadas := 0
+	for _, d := range r.Diferencias {
+		if d.Cambio == nil {
+			continue
+		}
+		generadas++
+		if err := d.Cambio.Validate(); err != nil {
+			t.Errorf("%s generó un %s que el changeset rechaza: %v", d.Objeto, d.Cambio.Type, err)
+		}
+	}
+	// Sin esta cuenta, una comparación que dejara de generar cualquier cosa
+	// pasaría el caso en verde sin haber validado nada.
+	if generadas < 5 {
+		t.Errorf("solo se generaron %d operaciones: el caso dejó de cubrir lo que decía cubrir", generadas)
+	}
+}
+
 // Una operación y un motivo son excluyentes: o se sabe escribir o se dice por
 // qué no. Tener las dos cosas, o ninguna, deja a la pantalla eligiendo a cuál
 // creerle.
@@ -223,10 +288,14 @@ func TestUnaColumnaQueFaltaSeAgrega(t *testing.T) {
 	}
 }
 
-// Una columna NOT NULL sin default falla contra una tabla con filas, y el
-// default no está en el snapshot. Se genera igual —es lo que pide el origen—
-// pero tiene que decirlo.
-func TestUnaColumnaNotNullQueFaltaAvisaQuePuedeFallar(t *testing.T) {
+// Una columna NOT NULL nueva necesita un valor por defecto para las filas que
+// ya están, y el catálogo no dice cuál es: solo dice que el origen tiene uno.
+//
+// Antes se generaba el `addColumn` igual, «con el aviso». Era una promesa falsa:
+// `change.Validate` lo rechaza, así que mandarlo al changeset devolvía un error
+// de validación sin camino hacia adelante. Se reporta la diferencia y se dice
+// dónde sí se puede hacer.
+func TestUnaColumnaNotNullQueFaltaNoSeGeneraSinSuDefault(t *testing.T) {
 	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{
 		tabla("orders", col("id", "bigint", false), col("moneda", "char(3)", false)),
 	}})
@@ -238,8 +307,11 @@ func TestUnaColumnaNotNullQueFaltaAvisaQuePuedeFallar(t *testing.T) {
 	if d.Riesgo != RiesgoMedio {
 		t.Errorf("Riesgo = %q, se esperaba medio", d.Riesgo)
 	}
-	if !strings.Contains(strings.ToLower(d.Nota), "fallar") {
-		t.Errorf("la nota no dice que puede fallar: %q", d.Nota)
+	if d.Cambio != nil {
+		t.Fatalf("se generó una operación que el changeset rechaza: %+v", d.Cambio)
+	}
+	if !strings.Contains(strings.ToLower(d.SinSentencia), "editor") {
+		t.Errorf("no se dice dónde sí se puede hacer: %q", d.SinSentencia)
 	}
 }
 
@@ -350,6 +422,135 @@ func TestUnaForaneaQueFaltaSeCreaConSusAcciones(t *testing.T) {
 	// otra sin él se comportan distinto ante un borrado, y eso es datos.
 	if d.Cambio.OnDelete != string(schema.Cascade) {
 		t.Errorf("OnDelete = %q, se esperaba cascade", d.Cambio.OnDelete)
+	}
+}
+
+// Una tabla que se recrea SIN su clave primaria no es la misma tabla.
+//
+// Y el daño no se ve enseguida: `HasPrimaryKey` es lo que habilita editar la
+// grilla, así que la tabla nueva queda de solo lectura en Kaname — y la
+// comparación siguiente diría que están alineadas, porque la clave tampoco se
+// comparaba. Dos errores que se tapaban entre ellos.
+func TestUnaTablaQueFaltaSeCreaConSuClavePrimaria(t *testing.T) {
+	pk := col("id", "bigint", false)
+	pk.PrimaryKey = true
+
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("reviews", pk, col("body", "text", true)),
+	}})
+	d := buscar(t, Comparar(origen, snap(schema.Schema{Name: "public"}), Opciones{MismoMotor: true}), "reviews")
+
+	if d.Cambio == nil {
+		t.Fatal("no se generó el createTable")
+	}
+	if len(d.Cambio.Names) != 1 || d.Cambio.Names[0] != "id" {
+		t.Errorf("la clave primaria quedó en %q: la tabla se crearía sin clave", d.Cambio.Names)
+	}
+}
+
+// Y la clave primaria se compara, que es la otra mitad del mismo problema.
+func TestUnaClavePrimariaQueFaltaSeReporta(t *testing.T) {
+	pk := col("id", "bigint", false)
+	pk.PrimaryKey = true
+
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{tabla("orders", pk)}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("orders", col("id", "bigint", false)),
+	}})
+
+	d := buscar(t, Comparar(origen, destino, Opciones{MismoMotor: true}), "orders.id")
+	if d.Lado != Distinto {
+		t.Fatalf("lado = %q", d.Lado)
+	}
+	if d.Cambio == nil || d.Cambio.Type != change.AddPrimaryKey {
+		t.Fatalf("no se generó un addPrimaryKey: %+v", d.Cambio)
+	}
+
+	// Al revés NO se genera: soltar una clave primaria es borrar.
+	alReves := buscar(t, Comparar(destino, origen, Opciones{MismoMotor: true}), "orders.id")
+	if alReves.Cambio != nil {
+		t.Errorf("se generó el borrado de una clave primaria: %+v", alReves.Cambio)
+	}
+}
+
+// El NOMBRE de la clave foránea viaja, y sin él la comparación NUNCA converge.
+//
+// Las claves se comparan por nombre. Si se crea con el nombre que le pone el
+// motor, la comparación siguiente ve la del origen como «falta en el destino» y
+// la recién creada como «sobra en el destino», las dos a la vez y para siempre —
+// y aplicar otra vez deja una clave duplicada.
+func TestLaForaneaSeCreaConSuNombre(t *testing.T) {
+	fk := schema.ForeignKey{
+		Name: "fk_elegido_a_mano", Schema: "public", Table: "libros",
+		Columns: []string{"autor_id"}, RefSchema: "public", RefTable: "autores",
+		RefColumns: []string{"id"},
+	}
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		{Name: "libros", Columns: []schema.Column{col("autor_id", "bigint", false)},
+			ForeignKeys: []schema.ForeignKey{fk}, RowEstimate: -1},
+	}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("libros", col("autor_id", "bigint", false)),
+	}})
+
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	for _, d := range r.Diferencias {
+		if d.Clase != ClaseForanea || d.Cambio == nil {
+			continue
+		}
+		if d.Cambio.Name != "fk_elegido_a_mano" {
+			t.Errorf("la clave se crearía con el nombre %q en vez del del origen", d.Cambio.Name)
+		}
+		return
+	}
+	t.Fatal("no se generó ninguna clave foránea")
+}
+
+// Entre motores distintos tampoco se copian los tipos DENTRO de un CREATE TABLE
+// o de un ADD COLUMN.
+//
+// Suprimir la comparación de tipos sin suprimir esto dejaba la mitad del
+// problema, que es peor que ninguna: un `jsonb` o un `timestamp with time zone`
+// de Postgres adentro de un CREATE TABLE de MySQL es una sentencia que no corre,
+// y la pantalla la ofrecía como si sí.
+func TestEntreMotoresDistintosNoSeCopiaNingunTipo(t *testing.T) {
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("nueva", col("payload", "jsonb", true)),
+		tabla("vieja", col("id", "bigint", false), col("creado", "timestamp with time zone", true)),
+	}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("vieja", col("id", "bigint", false)),
+	}})
+
+	r := Comparar(origen, destino, Opciones{MismoMotor: false})
+	vistas := 0
+	for _, d := range r.Diferencias {
+		if d.Lado != SoloEnOrigen || d.Clase == ClaseObjeto {
+			continue
+		}
+		vistas++
+		if d.Cambio != nil {
+			t.Errorf("%s llevaría el tipo del otro motor adentro: %+v", d.Objeto, d.Cambio)
+		}
+		if d.SinSentencia == "" {
+			t.Errorf("%s no explica por qué no hay sentencia", d.Objeto)
+		}
+	}
+	if vistas != 2 {
+		t.Errorf("se miraron %d diferencias, se esperaban 2 (la tabla y la columna)", vistas)
+	}
+
+	// Con el mismo motor esas dos SÍ se generan. Sin este medio caso, dejar de
+	// generarlas del todo pasaría el test de arriba.
+	conMismo := Comparar(origen, destino, Opciones{MismoMotor: true})
+	generadas := 0
+	for _, d := range conMismo.Diferencias {
+		if d.Cambio != nil {
+			generadas++
+		}
+	}
+	if generadas != 2 {
+		t.Errorf("con el mismo motor se generaron %d operaciones, se esperaban 2", generadas)
 	}
 }
 
