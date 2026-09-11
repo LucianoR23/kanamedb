@@ -108,9 +108,16 @@ export default function App() {
   }
 
   // Un aviso de algo que salió bien: «exportadas en…», «se agregaron…». Es un
-  // toast y no el banner rojo porque no es un error, y no se va solo: quien lo
-  // lee decide cuándo.
+  // toast y no el banner rojo porque no es un error. Se va solo a los ocho
+  // segundos: es una confirmación, y una confirmación que se queda hasta que
+  // alguien la cierre se vuelve un cartel. Los de error no se van solos —ver
+  // Toast—, por eso el temporizador mira el tono.
   const [aviso, setAviso] = useState<ToastItem | null>(null);
+  useEffect(() => {
+    if (!aviso || aviso.tone !== "success") return;
+    const t = setTimeout(() => setAviso(null), 8000);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
   // La vista previa de un archivo compartido, esperando decisión.
   const [importacion, setImportacion] = useState<{

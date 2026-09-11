@@ -1149,6 +1149,16 @@ implementación, además de la decisión de arriba:
   importaría lo mismo otra vez—, el diálogo no se cierra mientras importa, y
   «Exportar carpeta…» exporta lo que la carpeta muestra, con el mismo número
   que su cabecera.
+- **Dos cosas que el usuario vio al probar**, arregladas aparte (`fix(s00)`):
+  el toast de «Se agregó 1 conexión» no se iba nunca —los de éxito ahora se
+  van solos a los ocho segundos; los de error siguen quedándose, porque un
+  error que desaparece antes de leerlo es peor— y el velo de los diálogos
+  era un rectángulo oscuro alrededor del diálogo en vez de tapar la
+  pantalla. Lo segundo venía desde S00: el `<dialog>` nativo se dibuja del
+  tamaño de su contenido (`fit-content`, `margin: auto`, máximo `100% -
+  2em`) y `inset: 0` solo no lo cambia; el elemento, que es el que lleva el
+  color del velo, nunca había llenado la ventana. `width`/`height: 100%`,
+  sin máximos ni márgenes, y `box-sizing: border-box` por el padding.
 - **Los selectores nativos son la prueba manual del usuario.** El resto se
   probó por CDP con un gancho temporal en `App.tsx`, quitado antes del
   commit, que llamaba a los bindings con una ruta fija: vista previa con
