@@ -862,6 +862,23 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
 
+**«Explain» estaba en inglés, y al lado había un botón muerto.** Lo vio el
+usuario. La etiqueta era el nombre de la sentencia de Postgres puesto como texto
+de botón, entre «Guardar…» y «Formatear»; lo que uno quiere no es escribir
+EXPLAIN, es ver el plan, así que ahora dice eso.
+
+Lo de al lado era peor: **«Guardar consulta», deshabilitado, prometiendo «llega
+en la Iteración 9»** — en la iteración 9, y con el botón «Guardar…» que HACE eso
+dos lugares a la izquierda, funcionando desde S21. Quedó de cuando se hizo S21 y
+nadie lo sacó: la barra tenía dos botones para guardar, uno bueno y uno que
+prometía lo que el otro ya hacía.
+
+Y el título de los dos que quedan dejó de prometer una fecha. El plan los nombra
+UNA vez —«sin Explain, Format… son de iteraciones posteriores»— y nunca los
+agendó, así que «llega en una iteración posterior» era el mismo cartel vacío que
+el chip «Ctrl K» tuvo durante ocho iteraciones. Ahora dicen «Todavía no está»,
+que es verdad.
+
 **S20 no era lo que decía el ítem del plan.** «Drift check — reutiliza S15 para
 la SQL de reconciliación» sonaba a revisar una base contra algo. El artboard es
 otra cosa y bastante más grande: **comparar dos conexiones**, dev contra

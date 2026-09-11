@@ -237,10 +237,20 @@ export function SqlEditorScreen({
           Guardar…
         </Button>
         <span className={styles.divider} />
-        <button type="button" className={styles.link} disabled title="Llega en una iteración posterior">
-          Explain
+        {/* Los dos dicen en castellano lo que hacen. «Explain» era el nombre de
+            la sentencia de Postgres puesto como etiqueta, en inglés y entre dos
+            botones que no lo están; lo que la persona quiere no es escribir
+            EXPLAIN, es ver el plan.
+
+            Siguen deshabilitados y el título ya no promete una fecha: el plan
+            los nombra una sola vez —«sin Explain, Format… son de iteraciones
+            posteriores»— y nunca los agendó. Prometer «la próxima iteración»
+            sin que nadie lo haya agendado es el mismo cartel vacío que el chip
+            «Ctrl K» tuvo durante ocho iteraciones. */}
+        <button type="button" className={styles.link} disabled title="Ver el plan de ejecución. Todavía no está.">
+          Plan de ejecución
         </button>
-        <button type="button" className={styles.link} disabled title="Llega en una iteración posterior">
+        <button type="button" className={styles.link} disabled title="Ordenar la consulta. Todavía no está.">
           Formatear
         </button>
         <span className={styles.divider} />
@@ -250,9 +260,6 @@ export function SqlEditorScreen({
           se traen hasta {rowLimit.toLocaleString("es", { useGrouping: true })}{" "}
           {plural(rowLimit, "fila", "filas")}
         </span>
-        <button type="button" className={styles.link} disabled title="Llega en la Iteración 9">
-          Guardar consulta
-        </button>
       </div>
 
       <div className={styles.top}>
