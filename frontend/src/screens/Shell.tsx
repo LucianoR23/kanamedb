@@ -6,6 +6,7 @@ import { Splitter } from "../components/Splitter";
 import {
   Badge,
   Button,
+  ConfirmDialog,
   EnvBadge,
   PillTabs,
   SearchInput,
@@ -135,6 +136,38 @@ export function Shell({
   // no se puede refrescar solo: el registro lo hace Go cuando corre la
   // consulta, y acá no hay forma de enterarse sin que alguien avise.
   const [recargaHistorial, setRecargaHistorial] = useState(0);
+
+  // Qué pestañas tienen trabajo sin guardar.
+  //
+  // Lo reportan ELLAS: el Shell no puede saber si un editor tiene texto que no
+  // está en ningún lado, y deducirlo desde afuera sería adivinar. Cerrar una
+  // pestaña así es de lo único que esta aplicación hace que no tiene deshacer:
+  // el texto no está en la base ni en el historial —que guarda lo que CORRIÓ, no
+  // lo que se está escribiendo— y no hay de dónde recuperarlo.
+  const [sucias, setSucias] = useState<ReadonlySet<string>>(new Set());
+  const [cerrando, setCerrando] = useState<string | null>(null);
+
+  function marcarSucia(id: string, sucia: boolean) {
+    setSucias((prev) => {
+      if (prev.has(id) === sucia) return prev;
+      const next = new Set(prev);
+      if (sucia) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function cerrarTab(id: string) {
+    setTabs((prev) => prev.filter((t) => t.id !== id));
+    setActiveTab((prev) => (prev === id ? null : prev));
+    marcarSucia(id, false);
+    setObjetos((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
 
   // Ctrl+K abre y cierra la paleta. Va en `window` y en la fase de CAPTURA
   // porque el foco casi siempre está adentro de algo que ya escucha teclas —la
@@ -468,8 +501,11 @@ export function Shell({
             onSelect={setActiveTab}
             onNew={openQuery}
             onClose={(id) => {
-              setTabs((prev) => prev.filter((t) => t.id !== id));
-              setActiveTab((prev) => (prev === id ? null : prev));
+              // Con trabajo sin guardar se pregunta. Sin él no: un diálogo en
+              // cada cierre entrena a apretar «sí» sin leer, y entonces no
+              // protege del único caso en que hacía falta.
+              if (sucias.has(id)) setCerrando(id);
+              else cerrarTab(id);
             }}
           />
           {/* Se montan TODAS las pestañas y se esconden las inactivas.
@@ -526,6 +562,7 @@ export function Shell({
                       onStaged={() => {
                         void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
                       }}
+                      onSucio={(v) => marcarSucia(t.id, v)}
                     />
                   ) : t.id === ID_CAMBIOS ? (
                     <PendingChanges
@@ -563,6 +600,7 @@ export function Shell({
                       engine={session?.server?.engine ?? ""}
                       sqlInicial={sqlInicial[t.id] ?? ""}
                       onHistorial={() => setRecargaHistorial((n) => n + 1)}
+                      onSucio={(v) => marcarSucia(t.id, v)}
                     />
                   )}
                 </div>
@@ -671,6 +709,22 @@ export function Shell({
           onClose={() => setVolcando(false)}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={cerrando !== null}
+        severidad="aviso"
+        title="Hay cambios sin guardar"
+        etiqueta="Cerrar y descartar"
+        onClose={() => setCerrando(null)}
+        onConfirm={() => {
+          if (cerrando) cerrarTab(cerrando);
+          setCerrando(null);
+        }}
+      >
+        Esta pestaña tiene trabajo que no está en ningún lado: ni en la base, ni en el
+        changeset, ni en el historial —que guarda lo que se corrió, no lo que se está
+        escribiendo—. Cerrarla lo pierde y no hay forma de recuperarlo.
+      </ConfirmDialog>
 
       <CommandPalette
         abierta={paleta}

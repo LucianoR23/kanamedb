@@ -607,7 +607,9 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   la tabla, que ahora está en el pie de la pantalla de estructura. Con eso se
   puede comprobar el citado desde la aplicación: un comentario con una comilla
   simple adentro sale como `O''Brien` y vuelve del catálogo como `O'Brien`.
-- **S24** — variante "unsaved changes on tab close".
+- ✅ **S24** — variante «unsaved changes on tab close». Solo pregunta cuando hay
+  algo que perder: un diálogo en cada cierre entrena a apretar «sí» sin leer, y
+  entonces no protege del único caso en que hacía falta.
 - Tema claro de S05, S06, S12 y S15 — al final, no al principio.
 - **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
   (`Icon=kaname`, el nombre tiene que coincidir), y el ícono de macOS, que desde
@@ -833,6 +835,21 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**Cerrar una pestaña con trabajo sin guardar es de lo único que esta aplicación
+hace sin deshacer.** El texto de un editor no está en la base, ni en el
+changeset, ni en el historial —que guarda lo que CORRIÓ, no lo que se está
+escribiendo—: no hay de dónde recuperarlo. Por eso S24 pregunta.
+
+Y pregunta **solo cuando hay algo que perder**. Un diálogo en cada cierre
+entrena a apretar «sí» sin leer, y entonces no protege del único caso en que
+hacía falta —que es exactamente el modo en que un cartel de confirmación deja de
+ser una protección y pasa a ser un trámite—.
+
+Quién sabe si hay algo que perder es la pestaña, no el Shell: deducirlo desde
+afuera sería adivinar. Cada editor lo reporta, y correr la consulta NO lo limpia
+—el historial guarda lo que se corrió, pero la versión que quedó escrita
+después, la que se estaba afinando, no está en ningún lado—.
 
 **El comentario de una TABLA no existía, y el del ítem del plan tampoco era
 cierto.** El plan decía que faltaban los dos —tabla y columna— y el de columna

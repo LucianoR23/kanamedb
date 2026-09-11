@@ -51,6 +51,7 @@ export function SqlEditorScreen({
   engine,
   sqlInicial = "",
   onHistorial,
+  onSucio,
 }: {
   tabId: string;
   /** La pestaña está a la vista. CodeMirror necesita saberlo para volver a
@@ -69,12 +70,21 @@ export function SqlEditorScreen({
   sqlInicial?: string;
   /** Avisar que el historial cambió, para que el panel del sidebar se relea. */
   onHistorial?: () => void;
+  /** Avisar si hay texto que se perdería al cerrar la pestaña. */
+  onSucio?: (sucio: boolean) => void;
 }) {
   // El texto inicial lo elige quien abre la pestaña —el historial, las
   // guardadas— y de ahí en adelante el dueño es este editor. Por eso va como
   // estado inicial y no como prop controlada: una prop que siguiera mandando
   // pisaría lo que se esté escribiendo en cada render del Shell.
   const [sql, setSql] = useState(sqlInicial);
+  // Una pestaña está «sucia» si tiene texto distinto del que trajo. Correrla no
+  // la limpia: el historial guarda lo que CORRIÓ, pero lo que quedó escrito
+  // después —la versión que se estaba afinando— no está en ningún lado.
+  useEffect(() => {
+    onSucio?.(sql.trim() !== "" && sql !== sqlInicial);
+  }, [sql, sqlInicial, onSucio]);
+
   const [guardando, setGuardando] = useState(false);
   const [nombre, setNombre] = useState("");
   const [errorGuardar, setErrorGuardar] = useState("");

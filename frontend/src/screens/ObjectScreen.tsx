@@ -30,6 +30,7 @@ export function ObjectScreen({
   motor,
   soloLectura,
   onStaged,
+  onSucio,
 }: {
   objeto: DBObject;
   recarga: number;
@@ -37,6 +38,8 @@ export function ObjectScreen({
   motor: string;
   soloLectura: boolean;
   onStaged: () => void;
+  /** Avisar si hay una edición que se perdería al cerrar la pestaña. */
+  onSucio?: (sucio: boolean) => void;
 }) {
   // El texto del editor y el que vino del motor, por separado. La comparación
   // entre los dos es lo único que decide si hay algo para guardar: un botón
@@ -162,6 +165,9 @@ export function ObjectScreen({
   // escribir y deshacer deja el texto igual, y un «sucio» pegajoso habilitaría
   // preparar un cambio que no cambia nada.
   const sucio = def !== null && texto !== def.sql;
+  useEffect(() => {
+    onSucio?.(sucio);
+  }, [sucio, onSucio]);
 
   async function guardar() {
     if (!def || !sucio) return;
