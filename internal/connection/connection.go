@@ -157,6 +157,56 @@ type TLS struct {
 	ClientKeyPath  string `toml:"client_key_path,omitempty" json:"clientKeyPath"`
 }
 
+// Advanced son los ajustes de la pestaña del mismo nombre de S03.
+//
+// Todos tienen un cero que significa «lo de siempre», así que una libreta
+// vieja, o una a la que le falta el bloque, se comporta igual que antes.
+type Advanced struct {
+	// SearchPath es el de Postgres, tal como se escribiría en un SET:
+	// `public, extensions`. Viaja en el paquete de arranque de cada conexión
+	// del pool, no como un SET después: un SET vale para UNA conexión y la
+	// consulta siguiente puede salir por otra. Los otros motores lo ignoran.
+	SearchPath string `toml:"search_path,omitempty" json:"searchPath"`
+
+	// ApplicationName es cómo se ve esta aplicación desde el servidor:
+	// `application_name` en pg_stat_activity, `program_name` en los atributos
+	// de sesión de MySQL. Vacío es `kaname`. Sirve para que quien administra
+	// distinga dos personas con el mismo usuario, o un script de una persona.
+	ApplicationName string `toml:"application_name,omitempty" json:"applicationName"`
+
+	// PoolSize es cuántas conexiones abre el pool. Cero es el default —cuatro,
+	// dos en solo lectura—. El mínimo es dos: cancelar una consulta necesita
+	// otra conexión.
+	PoolSize int `toml:"pool_size,omitempty" json:"poolSize"`
+
+	// SessionSQL corre en cada conexión que el pool abre, antes que nada:
+	// `SET lock_timeout = '3s'`, `SET NAMES utf8mb4`, `PRAGMA cache_size`.
+	// Las protecciones de Safety se aplican DESPUÉS, así que no se pueden
+	// apagar desde acá. Es SQL escrita por la persona y corre sin vista previa
+	// ni confirmación: Warnings avisa si tiene algo que no sea configurar.
+	SessionSQL string `toml:"session_sql,omitempty" json:"sessionSql"`
+}
+
+// DefaultApplicationName es cómo se presenta Kaname si no se dice otra cosa.
+const DefaultApplicationName = "kaname"
+
+// EffectiveApplicationName es el nombre que se manda de verdad.
+func (a Advanced) EffectiveApplicationName() string {
+	if a.ApplicationName == "" {
+		return DefaultApplicationName
+	}
+	return a.ApplicationName
+}
+
+// Normalize limpia espacios. El search_path se deja como se escribió salvo
+// por los bordes: es una lista de identificadores y el servidor la interpreta.
+func (a Advanced) Normalize() Advanced {
+	a.SearchPath = strings.TrimSpace(a.SearchPath)
+	a.ApplicationName = strings.TrimSpace(a.ApplicationName)
+	a.SessionSQL = strings.TrimSpace(a.SessionSQL)
+	return a
+}
+
 // Normalize limpia las rutas como las del túnel: espacios y comillas afuera.
 func (t TLS) Normalize() TLS {
 	t.RootCertPath = tunnel.CleanPath(t.RootCertPath)
@@ -216,6 +266,11 @@ type Connection struct {
 	// TLS son los certificados del cifrado, por ruta. Vacío en los tres es lo
 	// habitual: el modo alcanza para un servidor con certificado comprado.
 	TLS TLS `toml:"tls,omitempty" json:"tls"`
+
+	// Advanced es lo que casi nadie toca y alguien necesita: el search_path,
+	// cómo se llama la aplicación para el servidor, cuántas conexiones abre
+	// el pool y qué SQL corre en cada una al abrirla.
+	Advanced Advanced `toml:"advanced,omitempty" json:"advanced"`
 
 	Safety Safety `toml:"safety" json:"safety"`
 
@@ -412,8 +467,15 @@ func (c Connection) dsnPostgres(password string) string {
 	q := url.Values{
 		"sslmode": {string(c.EffectiveSSLMode())},
 		// Identifica la app en pg_stat_activity, para que un DBA sepa de dónde
-		// vino una query. No lleva ningún dato del usuario.
-		"application_name": {"kaname"},
+		// vino una query. Por defecto `kaname`; la persona puede poner el suyo
+		// en Advanced, y no lleva ningún otro dato de ella.
+		"application_name": {c.Advanced.EffectiveApplicationName()},
+	}
+	// Un parámetro que libpq no conoce, pgx lo manda como parámetro de
+	// arranque, igual que application_name: así el search_path llega a CADA
+	// conexión del pool sin un SET que valdría para una sola.
+	if c.Advanced.SearchPath != "" {
+		q.Set("search_path", c.Advanced.SearchPath)
 	}
 	// Los certificados van en el DSN porque es donde pgx los lee, con los
 	// nombres de libpq. Las rutas llegan resueltas: pgx abre el archivo tal
@@ -433,7 +495,12 @@ func (c Connection) dsnPostgres(password string) string {
 		}
 		q.Set(param, ruta)
 	}
-	u.RawQuery = q.Encode()
+	// Los espacios van como %20 y no como +: pgx decodifica la cadena como
+	// libpq, que solo entiende %XX, y con el + de url.Values un
+	// application_name «lemy en dev» llegaba al servidor como «lemy+en+dev»
+	// —comprobado con SHOW application_name—. Encode escapa los + de verdad
+	// como %2B, así que los que quedan son todos espacios.
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
 	return u.String()
 }
 
@@ -460,6 +527,12 @@ func (c Connection) dsnMySQL(password string) string {
 		// error a su sentencia, que es justo lo que la pantalla de apply
 		// necesita para decir cuál falló.
 		"multiStatements": {"false"},
+		// Cómo se ve Kaname en performance_schema.session_connect_attrs. El
+		// driver ya manda `_client_name`; `program_name` es la clave que usan
+		// el cliente de línea de comandos y Workbench, y la que mira quien
+		// administra. Los dos puntos y las comas son separadores del formato,
+		// y el nombre no puede llevarlos: lo rechaza Validate.
+		"connectionAttributes": {"program_name:" + c.Advanced.EffectiveApplicationName()},
 		// Sin `tls=`, a propósito. El driver no tiene «verify-ca» ni lee
 		// archivos de la cadena: el cifrado se arma como *tls.Config en
 		// internal/mysql a partir de engine.TLSOptions, que es por donde el
@@ -535,6 +608,7 @@ func (c Connection) Normalize() Connection {
 
 	c.SSH = c.SSH.Normalize()
 	c.TLS = c.TLS.Normalize()
+	c.Advanced = c.Advanced.Normalize()
 
 	// Los enums también se limpian porque el archivo se edita a mano. Sin esto,
 	// `engine = " Postgres"` da "Motor desconocido" y el motivo —un espacio de
@@ -545,6 +619,11 @@ func (c Connection) Normalize() Connection {
 	if c.Engine == SQLite {
 		c.Host, c.User, c.Port, c.SSLMode = "", "", 0, ""
 		c.TLS = TLS{}
+		// Un archivo no tiene search_path ni se presenta ante nadie.
+		c.Advanced.SearchPath, c.Advanced.ApplicationName = "", ""
+	}
+	if c.Engine == MySQL || c.Engine == MariaDB {
+		c.Advanced.SearchPath = ""
 	}
 	c.Environment = Environment(strings.ToLower(strings.TrimSpace(string(c.Environment))))
 	c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(string(c.SSLMode))))

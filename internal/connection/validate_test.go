@@ -405,3 +405,92 @@ func tieneAviso(c Connection, campo string) bool {
 	}
 	return false
 }
+
+func TestValidaLaPestanaAdvanced(t *testing.T) {
+	casos := []struct {
+		nombre string
+		tocar  func(*Advanced)
+		campo  string
+	}{
+		{"nombre con dos puntos", func(a *Advanced) { a.ApplicationName = "app:x" }, "advanced.applicationName"},
+		{"nombre con coma", func(a *Advanced) { a.ApplicationName = "app,x" }, "advanced.applicationName"},
+		{"nombre largo", func(a *Advanced) { a.ApplicationName = strings.Repeat("n", 64) }, "advanced.applicationName"},
+		{"search_path en dos líneas", func(a *Advanced) { a.SearchPath = "a,\nb" }, "advanced.searchPath"},
+		{"pool de uno", func(a *Advanced) { a.PoolSize = 1 }, "advanced.poolSize"},
+		{"pool negativo", func(a *Advanced) { a.PoolSize = -1 }, "advanced.poolSize"},
+		{"pool enorme", func(a *Advanced) { a.PoolSize = 33 }, "advanced.poolSize"},
+		{"sesión gigante", func(a *Advanced) { a.SessionSQL = strings.Repeat("SET x = 1;\n", 7000) }, "advanced.sessionSql"},
+	}
+	for _, c := range casos {
+		con := valid()
+		c.tocar(&con.Advanced)
+		if _, ok := fieldErrors(t, con)[c.campo]; !ok {
+			t.Errorf("%s: se esperaba un error en %s, hay %v", c.nombre, c.campo, fieldErrors(t, con))
+		}
+	}
+
+	// Lo válido: 63 caracteres, un pool de 2 o de 32, cero como default.
+	con := valid()
+	con.Advanced = Advanced{ApplicationName: strings.Repeat("n", 63), PoolSize: 32, SearchPath: "a, b", SessionSQL: "SET lock_timeout = '3s'"}
+	if err := con.Validate(); err != nil {
+		t.Errorf("una pestaña Advanced válida dio error: %v", err)
+	}
+	con.Advanced.PoolSize = 2
+	if err := con.Validate(); err != nil {
+		t.Errorf("pool de 2: %v", err)
+	}
+}
+
+// La SQL de sesión corre sin vista previa ni confirmación: si tiene algo que
+// no sea configurar, se avisa, y contra producción se dice más fuerte.
+func TestAvisaSiLaSQLDeSesionHaceAlgoQueNoEsConfigurar(t *testing.T) {
+	c := valid()
+	c.Advanced.SessionSQL = "SET lock_timeout = '3s';\n-- comentario\nRESET search_path;"
+	if tieneAviso(c, "advanced.sessionSql") {
+		t.Errorf("SET y RESET son configurar y no tienen que avisar: %v", c.Warnings())
+	}
+
+	c.Advanced.SessionSQL = "SET lock_timeout = '3s';\nDELETE FROM auditoria;\nINSERT INTO log VALUES (1);\nDELETE FROM otra;"
+	var aviso *Warning
+	for i, w := range c.Warnings() {
+		if w.Field == "advanced.sessionSql" {
+			aviso = &c.Warnings()[i]
+		}
+	}
+	if aviso == nil {
+		t.Fatalf("un DELETE en la SQL de sesión tiene que avisar: %v", c.Warnings())
+	}
+	if !strings.Contains(aviso.Message, "DELETE, INSERT") {
+		t.Errorf("el aviso tiene que nombrar los comandos, sin repetir: %q", aviso.Message)
+	}
+	if strings.Contains(aviso.Message, "producción") {
+		t.Errorf("en dev no corresponde la frase de producción: %q", aviso.Message)
+	}
+	c.Environment = Production
+	if !strings.Contains(warningDe(c, "advanced.sessionSql"), "producción") {
+		t.Errorf("contra producción el aviso tiene que decirlo: %q", warningDe(c, "advanced.sessionSql"))
+	}
+	// Con solo lectura, la escritura no corre: la conexión no abre, y el
+	// aviso dice eso y no «escritura automática».
+	c.Safety.ReadOnly = true
+	if aviso := warningDe(c, "advanced.sessionSql"); !strings.Contains(aviso, "no va a abrir") || strings.Contains(aviso, "automática") {
+		t.Errorf("con solo lectura el aviso tiene que decir que la conexión no abre: %q", aviso)
+	}
+
+	// En MySQL el comentario es con # y se saltea igual.
+	c = valid()
+	c.Engine = MySQL
+	c.Advanced.SessionSQL = "# arranque\nSET NAMES utf8mb4;"
+	if tieneAviso(c, "advanced.sessionSql") {
+		t.Errorf("un SET con un comentario # arriba no tiene que avisar: %v", c.Warnings())
+	}
+}
+
+func warningDe(c Connection, campo string) string {
+	for _, w := range c.Warnings() {
+		if w.Field == campo {
+			return w.Message
+		}
+	}
+	return ""
+}

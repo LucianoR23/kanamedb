@@ -1,0 +1,33 @@
+/* Pestaña Advanced de S03. Comparte la grilla de campos del editor
+   (ConnectionEditor.module.css); acá va solo lo suyo. */
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  max-width: 640px;
+}
+
+.mono { font-family: var(--font-mono); }
+/* El tamaño del pool es un número de dos cifras: un campo de ancho completo
+   lo haría parecer un texto. */
+.corto { width: 92px; }
+
+.sesion { display: flex; flex-direction: column; gap: 2px; }
+.sql {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  font: 400 12px/1.6 var(--font-mono);
+  tab-size: 2;
+}
+
+.avisos {
+  margin: 0;
+  padding: 9px 12px 9px 26px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-md);
+  background: var(--warning-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-2);
+}

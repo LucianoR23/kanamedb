@@ -43,6 +43,12 @@ type OpenOptions struct {
 	// TLS es cómo cifrar el canal. Lo lee MySQL; Postgres lo recibe por el
 	// DSN y SQLite no tiene canal que cifrar. Ver TLSOptions.
 	TLS TLSOptions
+
+	// SessionSQL corre en CADA conexión que el pool abre, antes que nada.
+	// Vacía es «nada». Las protecciones —solo lectura, límite de tiempo— se
+	// aplican DESPUÉS, así que una SQL de sesión que las toque no las gana:
+	// lo último que se dice es lo que queda. Ver SessionStatements.
+	SessionSQL string
 }
 
 // RunOptions son las opciones de ejecutar SQL escrita por el usuario.

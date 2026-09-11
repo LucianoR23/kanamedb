@@ -145,6 +145,9 @@ type ConnectOptions struct {
 	//
 	// Nil usa el discado normal de pgx.
 	DialFunc pgconn.DialFunc
+
+	// SessionSQL corre en cada conexión que el pool abre, antes que nada.
+	SessionSQL string
 }
 
 func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpool.Pool, *ServerInfo, *Failure) {
@@ -164,6 +167,31 @@ func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpo
 	if opts.StatementTimeout > 0 {
 		cfg.ConnConfig.RuntimeParams["statement_timeout"] =
 			strconv.FormatInt(opts.StatementTimeout.Milliseconds(), 10)
+	}
+	// La SQL de sesión va en AfterConnect, que corre en cada conexión que el
+	// pool abre. Las protecciones ya viajaron en el paquete de arranque; se
+	// vuelven a pedir DESPUÉS de la SQL de sesión, por si esta las tocó: un
+	// `SET default_transaction_read_only = off` escrito ahí no puede ganarle
+	// a la casilla de solo lectura. Lo último que se dice es lo que queda.
+	if sesion := engine.SessionStatements(opts.SessionSQL, engine.Postgres); len(sesion) > 0 {
+		cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			for _, st := range sesion {
+				if _, err := conn.Exec(ctx, st.SQL); err != nil {
+					return &engine.SessionSQLError{Line: st.Line, Err: err}
+				}
+			}
+			for k, v := range cfg.ConnConfig.RuntimeParams {
+				if k != "default_transaction_read_only" && k != "statement_timeout" {
+					continue
+				}
+				// Como literal, que vale para el booleano y para el número. El
+				// valor lo escribió Connect, no la persona, pero se escapa igual.
+				if _, err := conn.Exec(ctx, "SET "+k+" = '"+strings.ReplaceAll(v, "'", "''")+"'"); err != nil {
+					return fmt.Errorf("reponer %s después de la SQL de sesión: %w", k, err)
+				}
+			}
+			return nil
+		}
 	}
 	if opts.DialFunc != nil {
 		cfg.ConnConfig.DialFunc = opts.DialFunc
@@ -206,6 +234,12 @@ func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpo
 	conn, err := pool.Acquire(abrir)
 	if err != nil {
 		pool.Close()
+		// Una sentencia de la SQL de sesión que el servidor rechazó no es «no
+		// se pudo conectar»: es un error de sentencia, con su línea.
+		var es *engine.SessionSQLError
+		if errors.As(err, &es) {
+			return nil, nil, engine.SessionSQLFailure(es, ClassifyStatement(es.Err, desc))
+		}
 		return nil, nil, Classify(err, desc)
 	}
 	info, err := readServerInfo(abrir, conn.Conn())

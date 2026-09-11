@@ -47,6 +47,7 @@ func Open(
 		ReadOnly:         opts.ReadOnly,
 		StatementTimeout: opts.StatementTimeout,
 		DialFunc:         dial,
+		SessionSQL:       opts.SessionSQL,
 	})
 	if f != nil {
 		return nil, f

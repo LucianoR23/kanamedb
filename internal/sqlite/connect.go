@@ -3,13 +3,15 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // registra el driver "sqlite"
+	modernc "modernc.org/sqlite"
 
 	"github.com/LucianoR23/kanamedb/internal/engine"
 )
@@ -48,10 +50,27 @@ func Open(
 		dsn = conPragma(dsn, "query_only(1)")
 	}
 
-	db, err := sql.Open("sqlite", dsn)
+	base, err := modernc.NewConnector(dsn)
 	if err != nil {
 		return nil, Classify(err, desc)
 	}
+	// La SQL de sesión va por el conector, como en MySQL y por lo mismo que
+	// los pragmas van en el DSN: tiene que llegar a CADA conexión del pool.
+	// Después de ella se vuelve a pedir query_only si la conexión es de solo
+	// lectura: el DSN ya lo puso, pero una SQL de sesión que lo apague no
+	// puede ganar. Lo último que se dice es lo que queda.
+	sesion := engine.SessionStatements(opts.SessionSQL, engine.SQLite)
+	db := sql.OpenDB(engine.WithInit(base, func(ctx context.Context, ex driver.ExecerContext) error {
+		if err := engine.RunSessionSQL(ctx, ex, sesion); err != nil {
+			return err
+		}
+		if opts.ReadOnly {
+			if _, err := ex.ExecContext(ctx, "PRAGMA query_only = 1", nil); err != nil {
+				return fmt.Errorf("configurar la sesión: %w", err)
+			}
+		}
+		return nil
+	}))
 
 	max := int(opts.MaxConns)
 	if max <= 0 {
@@ -64,6 +83,10 @@ func Open(
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
+		var es *engine.SessionSQLError
+		if errors.As(err, &es) {
+			return nil, engine.SessionSQLFailure(es, ClassifyStatement(es.Err, desc))
+		}
 		return nil, Classify(err, desc)
 	}
 

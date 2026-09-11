@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -84,8 +85,7 @@ func Open(
 	// La configuración de sesión va en el CONECTOR y no en un Exec después de
 	// abrir. Un `SET SESSION` vale para una sola conexión, y el pool abre
 	// varias: puesto después, la conexión siguiente no lo tiene. Ver sesion.go.
-	init, exigeUna := sesionDe(opts.ReadOnly, opts.StatementTimeout)
-	db := sql.OpenDB(&conector{base: base, init: init, alMenosUna: exigeUna})
+	db := sql.OpenDB(engine.WithInit(base, initDe(opts)))
 
 	max := int(opts.MaxConns)
 	if max <= 0 {
@@ -98,9 +98,14 @@ func Open(
 	// error que no explica nada.
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	if err := db.PingContext(ctx); err != nil {
+	// Con tope, como en Postgres: cfg.Timeout acota solo el discado, y la
+	// configuración de sesión —la SQL de la persona incluida— corre adentro
+	// del Ping. Un `DO SLEEP(100000)` ahí dejaba «Conectando…» para siempre.
+	abrir, cancelar := context.WithTimeout(ctx, DefaultConnectTimeout)
+	defer cancelar()
+	if err := db.PingContext(abrir); err != nil {
 		db.Close()
-		return nil, Classify(err, desc)
+		return nil, fallaDeApertura(err, desc)
 	}
 
 	info, sinEscapes, err := leerServerInfo(ctx, db)
@@ -117,6 +122,18 @@ func Open(
 	info.TLS = canal.leer()
 
 	return &Conn{db: db, server: info, desc: desc, dialer: red, sinEscapes: sinEscapes}, nil
+}
+
+// fallaDeApertura clasifica lo que falló al abrir la primera conexión.
+//
+// Una sentencia de la SQL de sesión que el servidor rechazó no es «no se pudo
+// conectar»: es un error de sentencia, con su línea, y se dice así.
+func fallaDeApertura(err error, desc string) *engine.Failure {
+	var es *engine.SessionSQLError
+	if errors.As(err, &es) {
+		return engine.SessionSQLFailure(es, ClassifyStatement(es.Err, desc))
+	}
+	return Classify(err, desc)
 }
 
 // hostDe saca el host de un `host:puerto`, para el nombre que verify-full

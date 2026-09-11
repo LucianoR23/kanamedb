@@ -163,10 +163,6 @@
 .warnList { margin: 0; padding-left: 16px; font: 400 11px/1.5 var(--font-ui); color: var(--text-2); }
 .warnList li + li { margin-top: 5px; }
 
-.placeholder { padding: 40px 20px; display: grid; place-items: center; gap: 6px; text-align: center; }
-.placeholderTitle { margin: 0; font: 500 13px var(--font-ui); color: var(--text-2); }
-.placeholderText { margin: 0; font: 400 12px var(--font-ui); color: var(--text-dim); }
-
 .testBar {
   flex: none;
   display: flex;

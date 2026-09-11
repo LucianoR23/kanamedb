@@ -107,6 +107,15 @@ export function ImportConnectionsDialog({
                     entrada.
                   </p>
                 ) : null}
+                {c.sessionSql ? (
+                  /* SQL escrita por otra persona que va a correr con las
+                     credenciales de esta, en cada conexión y sin preguntar.
+                     Se muestra entera: es lo que hay que leer antes de tildar. */
+                  <div className={styles.sesion}>
+                    <p className={styles.nota}>Al conectar corre esta SQL, en cada conexión:</p>
+                    <pre className={styles.sesionSql}>{c.sessionSql}</pre>
+                  </div>
+                ) : null}
                 {rota ? (
                   <ul className={styles.problemas}>
                     {(c.problems ?? []).map((p) => (

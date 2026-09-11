@@ -110,6 +110,12 @@ type ImportCandidate struct {
 	// mismo archivo no tiene por qué duplicar la libreta sin avisar.
 	Existing string `json:"existing"`
 
+	// SessionSQL es lo que la entrada corre en cada conexión al abrirla, tal
+	// cual viene en el archivo. Se muestra ANTES de importar y no después: es
+	// SQL escrita por otra persona que va a correr con las credenciales de
+	// esta, sin vista previa ni confirmación, y lo mínimo es verla.
+	SessionSQL string `json:"sessionSql"`
+
 	// Problems son los errores de validación. Una entrada rota se muestra
 	// igual, con sus problemas, y no se puede incluir.
 	Problems []connection.FieldError `json:"problems"`
@@ -150,6 +156,7 @@ func (s *Connections) PreviewImport(path string) (ImportPreview, error) {
 			Folder:      c.Folder,
 			SSH:         c.SSH.Enabled,
 			Existing:    mismoDestino(propias, c),
+			SessionSQL:  c.Advanced.SessionSQL,
 			Problems:    []connection.FieldError{},
 		}
 		// El ID del archivo no cuenta —al importar se reemplaza—, así que la

@@ -268,6 +268,31 @@ func TestConnectOptionsLlevaLasProteccionesAlPool(t *testing.T) {
 	}
 }
 
+// Lo de Advanced también viaja: el tamaño del pool manda sobre el default, y
+// la SQL de sesión llega tal cual.
+func TestConnectOptionsLlevaLoAvanzadoAlPool(t *testing.T) {
+	c := connection.Connection{
+		Engine:   connection.Postgres,
+		Safety:   connection.Safety{ReadOnly: true},
+		Advanced: connection.Advanced{PoolSize: 7, SessionSQL: "SET lock_timeout = '3s'"},
+	}
+	opts, f := connectOptions(c)
+	if f != nil {
+		t.Fatalf("connectOptions() falló: %+v", f)
+	}
+	if opts.MaxConns != 7 {
+		t.Errorf("MaxConns = %d: el tamaño de Advanced tiene que mandar sobre el de solo lectura", opts.MaxConns)
+	}
+	if opts.SessionSQL != "SET lock_timeout = '3s'" {
+		t.Errorf("SessionSQL = %q", opts.SessionSQL)
+	}
+	c.Advanced.PoolSize = 0
+	opts, _ = connectOptions(c)
+	if opts.MaxConns != 2 {
+		t.Errorf("sin tamaño, solo lectura abre 2: MaxConns = %d", opts.MaxConns)
+	}
+}
+
 // El cifrado viaja por las mismas opciones que las protecciones, y con el
 // modo EFECTIVO: un campo vacío llega como prefer, no como vacío, para que
 // el motor de MySQL no tenga que repetir el default de libpq.

@@ -40,3 +40,19 @@
 
 .grow { flex: 1; }
 .error { font: 400 11.5px/1.4 var(--font-ui); color: var(--danger); max-width: 60%; }
+
+/* La SQL de sesión de una entrada, entera y en mono: es lo que va a correr
+   con las credenciales de quien importa. */
+.sesion { display: flex; flex-direction: column; gap: 4px; }
+.sesionSql {
+  margin: 0 0 0 19px;
+  padding: 7px 9px;
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-sm);
+  background: var(--warning-quiet);
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+}

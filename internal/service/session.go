@@ -473,6 +473,7 @@ func connectOptions(c connection.Connection) (engine.OpenOptions, *engine.Failur
 		ReadOnly:         c.Safety.ReadOnly,
 		StatementTimeout: c.Safety.StatementTimeout(),
 		TLS:              tls,
+		SessionSQL:       c.Advanced.SessionSQL,
 	}, nil
 }
 
@@ -491,7 +492,12 @@ func (s *Session) abierta() (*openSession, error) {
 // Cancelar una consulta necesita una segunda conexión, así que el mínimo útil
 // es dos. Cuatro deja margen para el árbol y una pestaña consultando a la vez
 // sin sorprender a quien administra el servidor con una avalancha de sesiones.
+// La pestaña Advanced puede fijarlo; Validate ya se ocupó de que no baje de
+// dos.
 func poolSize(c connection.Connection) int32 {
+	if c.Advanced.PoolSize > 0 {
+		return int32(c.Advanced.PoolSize)
+	}
 	if c.Safety.ReadOnly {
 		return 2
 	}

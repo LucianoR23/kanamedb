@@ -526,3 +526,71 @@ func TestNormalizeBorraLosCertificadosDeSQLite(t *testing.T) {
 		t.Errorf("TLS de SQLite = %+v, se esperaba vacío", got)
 	}
 }
+
+// El nombre de la aplicación y el search_path van en el DSN de Postgres como
+// parámetros de arranque, así llegan a cada conexión del pool. Sin nombre,
+// `kaname`; sin search_path, nada —el servidor usa el suyo—.
+func TestElDSNDePostgresLlevaLoAvanzado(t *testing.T) {
+	con := valid()
+	con.Advanced = Advanced{SearchPath: "kn_app, public", ApplicationName: "lemy en dev"}
+	dsn, err := con.DSN("secreta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(dsn)
+	if got := u.Query().Get("search_path"); got != "kn_app, public" {
+		t.Errorf("search_path = %q", got)
+	}
+	if got := u.Query().Get("application_name"); got != "lemy en dev" {
+		t.Errorf("application_name = %q", got)
+	}
+	// Y los espacios van como %20: pgx decodifica como libpq, que no entiende
+	// el + de url.Values, y el nombre llegaba al servidor como «lemy+en+dev».
+	if strings.Contains(u.RawQuery, "+") || !strings.Contains(u.RawQuery, "lemy%20en%20dev") {
+		t.Errorf("la cadena lleva + por espacio: %s", u.RawQuery)
+	}
+
+	dsn, _ = valid().DSN("secreta")
+	u, _ = url.Parse(dsn)
+	if got := u.Query().Get("application_name"); got != "kaname" {
+		t.Errorf("sin nombre, application_name = %q, se esperaba kaname", got)
+	}
+	if u.Query().Has("search_path") {
+		t.Errorf("sin search_path no tiene que viajar ninguno: %s", dsn)
+	}
+}
+
+// En MySQL el nombre va como atributo de sesión, con la clave que miran el
+// cliente de línea de comandos y Workbench. El search_path no existe y no
+// sobrevive a Normalize.
+func TestElDSNDeMySQLLlevaElNombreComoAtributo(t *testing.T) {
+	con := valid()
+	con.Engine, con.Port = MySQL, 0
+	con.Advanced = Advanced{ApplicationName: "lemy", SearchPath: "public"}
+	dsn, err := con.DSN("secreta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dsn, "connectionAttributes=program_name%3Alemy") {
+		t.Errorf("el DSN no lleva el atributo program_name: %s", dsn)
+	}
+	if strings.Contains(dsn, "search_path") {
+		t.Errorf("MySQL no tiene search_path y el DSN lo lleva: %s", dsn)
+	}
+	if got := con.Normalize().Advanced.SearchPath; got != "" {
+		t.Errorf("Normalize dejó search_path=%q en una conexión de MySQL", got)
+	}
+}
+
+// SQLite no se presenta ante nadie ni tiene search_path; la SQL de sesión y
+// el tamaño del pool sí valen.
+func TestNormalizeDejaEnSQLiteSoloLoQueAplica(t *testing.T) {
+	con := valid()
+	con.Engine, con.Database = SQLite, "C:/tmp/x.db"
+	con.Advanced = Advanced{SearchPath: "main", ApplicationName: "x", PoolSize: 2, SessionSQL: " PRAGMA cache_size = -2000; "}
+	got := con.Normalize().Advanced
+	want := Advanced{PoolSize: 2, SessionSQL: "PRAGMA cache_size = -2000;"}
+	if got != want {
+		t.Errorf("Advanced = %+v, se esperaba %+v", got, want)
+	}
+}

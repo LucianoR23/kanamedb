@@ -278,6 +278,12 @@ func TestIdaYVueltaPorDiscoPreservaTodosLosCampos(t *testing.T) {
 			ClientCertPath: `C:\certs\app.crt`,
 			ClientKeyPath:  `C:\certs\app.key`,
 		},
+		Advanced: connection.Advanced{
+			SearchPath:      "shop, public",
+			ApplicationName: "lemy",
+			PoolSize:        6,
+			SessionSQL:      "SET lock_timeout = '3s';\nSET statement_timeout = '30s';",
+		},
 	}
 	if err := s.Add(want); err != nil {
 		t.Fatalf("Add() error: %v", err)

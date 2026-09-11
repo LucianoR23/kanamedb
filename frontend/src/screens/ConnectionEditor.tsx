@@ -22,18 +22,19 @@ import {
 } from "../components/ui";
 import type { PasswordState } from "../components/ui";
 import { cx } from "../lib/cx";
+import { AdvancedTab } from "./AdvancedTab";
 import { Field } from "./ConnectionField";
 import { SafetyTab } from "./SafetyTab";
 import { TlsTab } from "./TlsTab";
 import styles from "./ConnectionEditor.module.css";
 
-/** Las tabs de S03. Advanced es la única que falta. */
+/** Las cinco pestañas de S03. */
 const TABS = [
-  { id: "general", label: "General", ready: true, since: "" },
-  { id: "tunnel", label: "Túnel SSH", ready: true, since: "" },
-  { id: "tls", label: "TLS", ready: true, since: "" },
-  { id: "safety", label: "Safety", ready: true, since: "" },
-  { id: "advanced", label: "Advanced", ready: false, since: "Iteración 9" },
+  { id: "general", label: "General" },
+  { id: "tunnel", label: "Túnel SSH" },
+  { id: "tls", label: "TLS" },
+  { id: "safety", label: "Safety" },
+  { id: "advanced", label: "Advanced" },
 ] as const;
 
 /** Los nombres se escriben como los escribe cada proyecto, no como salen del
@@ -157,10 +158,15 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
   // Los problemas que se MUESTRAN: los de campos ya tocados, y todos una vez
   // que se intentó guardar o probar. En ese momento sí corresponde señalar lo
   // que falta, porque la persona dijo "listo".
+  // Un campo cuenta como tocado también por su pestaña: las de TLS y Advanced
+  // guardan su bloque entero con `set("tls", …)`, así que lo tocado es el
+  // bloque y los problemas vienen por campo —`advanced.poolSize`—. Sin esto,
+  // escribir un 1 en «Conexiones» no mostraba nada hasta apretar Guardar.
+  const tocado = (campo: string) =>
+    intentado || tocados.has(campo) || tocados.has(campo.split(".")[0] ?? campo);
   const problems = {
-    get: (campo: string) =>
-      intentado || tocados.has(campo) ? todosLosProblemas.get(campo) : undefined,
-    has: (campo: string) => (intentado || tocados.has(campo)) && todosLosProblemas.has(campo),
+    get: (campo: string) => (tocado(campo) ? todosLosProblemas.get(campo) : undefined),
+    has: (campo: string) => tocado(campo) && todosLosProblemas.has(campo),
   };
 
   // A qué pestaña pertenece cada campo, para poder señalarla y para saltar a
@@ -169,6 +175,7 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
     if (campo.startsWith("ssh.")) return "tunnel";
     if (campo.startsWith("safety.")) return "safety";
     if (campo === "sslMode" || campo.startsWith("tls.")) return "tls";
+    if (campo.startsWith("advanced.")) return "advanced";
     return "general";
   }
 
@@ -199,6 +206,7 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
   // Los avisos de TLS se muestran también en su pestaña, al lado de lo que
   // los provoca: la tarjeta de avisos vive en General y desde TLS no se ve.
   const avisosTLS = warnings.filter((w) => tabDelCampo(w.field) === "tls");
+  const avisosAdvanced = warnings.filter((w) => tabDelCampo(w.field) === "advanced");
   const envInfo = ENVIRONMENTS.find((e) => e.value === conn.environment) ?? ENVIRONMENTS[0]!;
 
   // El túnel vive en un struct anidado, así que tiene su propio setter. Sin
@@ -375,8 +383,6 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
               type="button"
               role="tab"
               aria-selected={t.id === tab}
-              disabled={!t.ready}
-              title={t.ready ? undefined : `Llega en la ${t.since}`}
               className={cx(styles.tab, t.id === tab && styles.tabActive)}
               onClick={() => setTab(t.id)}
             >
@@ -584,6 +590,15 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
               safety={conn.safety}
               onChange={(v) => set("safety", v)}
             />
+          ) : tab === "advanced" ? (
+            <AdvancedTab
+              engine={conn.engine}
+              advanced={conn.advanced}
+              readOnly={conn.safety.readOnly}
+              problems={problems}
+              avisos={avisosAdvanced}
+              onChange={(a) => set("advanced", a)}
+            />
           ) : tab === "tls" ? (
             <TlsTab
               esArchivo={esArchivo}
@@ -747,16 +762,7 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
                 </p>
               )}
             </div>
-          ) : (
-            <div className={styles.placeholder}>
-              <p className={styles.placeholderTitle}>
-                {TABS.find((t) => t.id === tab)?.label}
-              </p>
-              <p className={styles.placeholderText}>
-                Llega en la {TABS.find((t) => t.id === tab)?.since}.
-              </p>
-            </div>
-          )}
+          ) : null}
         </div>
 
         {test ? (

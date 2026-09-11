@@ -38,8 +38,8 @@ Manager de conexiones, keychain, conectar a Postgres, árbol de esquema.
 - ✅ **S01 Welcome** — sin la opción "Open SQLite file", que llega en la
   Iteración 6.
 - ✅ **S02 Connection manager** — completa.
-- ✅ **S03 Connection editor** — solo tab General. SSH, TLS, Safety y Advanced
-  quedan como placeholders deshabilitados.
+- ✅ **S03 Connection editor** — en la Iteración 1 solo la tab General; SSH
+  llegó en la 3 y TLS, Safety y Advanced en la 9. Hoy están las cinco.
 - ✅ **S24 Confirmation dialogs** — variante "connection error", que lleva al
   campo que hay que arreglar según la causa del fallo.
 - ✅ **S05** — árbol de esquema con tablas de Postgres únicamente.
@@ -625,16 +625,20 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   que nadie escribía nunca. Se guarda sola, y no tiene ni un control que no haga
   algo. De paso, About dejó de mentir: decía que la aplicación todavía no se
   conectaba a ninguna base.
-- ⏳ **S03** — **Safety** ✅, **TLS** ✅, Advanced pendiente. Los tres límites
-  de Safety se eligen entre «por defecto», «un valor» y «sin límite» en vez de
-  editar el número crudo, porque en el archivo el cero significa «usá el
-  default» y no «ninguno». TLS: el modo se mudó de General a su pestaña, con
-  la raíz y el par de cliente **por ruta** —como la clave del túnel— y una
-  tarjeta con el certificado que el servidor presentó al probar: sujeto,
-  emisor, para qué nombres vale, vigencia, huella SHA-256 y canal. Un botón
-  guarda ese certificado como raíz de confianza, que es el camino para un
-  servidor propio. MySQL y MariaDB ganan `verify-ca` de verdad y los
-  certificados, que su driver no sabía leer de la cadena. Ver la § 6.
+- ✅ **S03** — **Safety**, **TLS** y **Advanced**: las cinco pestañas del
+  editor están. Los tres límites de Safety se eligen entre «por defecto», «un
+  valor» y «sin límite» en vez de editar el número crudo, porque en el archivo
+  el cero significa «usá el default» y no «ninguno». TLS: el modo se mudó de
+  General a su pestaña, con la raíz y el par de cliente **por ruta** —como la
+  clave del túnel— y una tarjeta con el certificado que el servidor presentó
+  al probar: sujeto, emisor, para qué nombres vale, vigencia, huella SHA-256 y
+  canal. Un botón guarda ese certificado como raíz de confianza, que es el
+  camino para un servidor propio. MySQL y MariaDB ganan `verify-ca` de verdad
+  y los certificados, que su driver no sabía leer de la cadena. Advanced:
+  search_path (Postgres), nombre de aplicación, tamaño del pool y **SQL de
+  sesión**, que corre en cada conexión del pool antes que nada y **no puede
+  apagar las protecciones**, porque estas se aplican después. Sin «Default
+  schema», que el artboard tenía: ver la § 6.
 - ✅ **Poner un comentario a una tabla o a una columna.** El de columna ya
   estaba desde la iteración 6 —este ítem quedó desactualizado—; faltaba el de
   la tabla, que ahora está en el pie de la pantalla de estructura. Con eso se
@@ -1001,6 +1005,89 @@ implementación:
   negocia solo cuando el servidor lo ofrece, y con un modo que verifica el
   certificado da lo mismo, que es lo que la pestaña ahora deja configurar
   bien. Una clave de cliente cifrada, ídem: espera a que alguien la tenga.
+
+**S03 Advanced, hecha: search_path, nombre de aplicación, pool y SQL de
+sesión — y la SQL de sesión no le gana a Safety.** Lo que fijó la
+implementación:
+
+- **Sin «Default schema».** El artboard lo tenía al lado de «Search path». No
+  está, y no es un recorte: en Postgres el esquema por defecto ES el primer
+  nombre del search_path, en MySQL es la base de la pestaña General y en
+  SQLite es `main`. Un campo aparte sería una segunda forma de decir lo mismo,
+  y dos formas de decir lo mismo se separan.
+- **El search_path viaja en el paquete de arranque**, no como un `SET` después
+  de abrir. pgx manda como parámetro de arranque cualquier clave de la cadena
+  que libpq no conozca —es lo que ya hacía `application_name`—, así que va en
+  el DSN y llega a CADA conexión del pool. Un `SET` en el editor vale para una
+  sola conexión, y la consulta siguiente puede salir por otra: es la misma
+  trampa que ya había costado el modo solo lectura. Solo Postgres; Normalize
+  lo borra en los otros motores, que no tienen la noción.
+- **El nombre de aplicación va donde cada motor lo mira**: `application_name`
+  en Postgres —`pg_stat_activity`— y `program_name` en los atributos de sesión
+  de MySQL —`performance_schema.session_connect_attrs`, la clave que usan el
+  cliente de línea de comandos y Workbench—. Vacío es `kaname`, que es lo que
+  se mandaba escrito a mano desde la iteración 1. Sin dos puntos ni comas,
+  que son los separadores del formato de MySQL, y de 63 caracteres como
+  máximo, que es donde Postgres trunca en silencio.
+- **Los espacios van como `%20` en el DSN de Postgres, no como `+`.** pgx 5.11
+  decodifica la cadena como libpq, que solo entiende `%XX`: con el `+` de
+  `url.Values` un nombre de aplicación «lemy en dev» llegaba al servidor como
+  «lemy+en+dev», comprobado con `SHOW application_name` desde la interfaz.
+  Aplica también a las rutas de certificados con espacios.
+- **El tamaño del pool tiene piso en dos**: cancelar una consulta necesita otra
+  conexión. Cero es el default de siempre —cuatro, dos en solo lectura—; el
+  tope de 32 es para que un error de tipeo no abra trescientas sesiones.
+- **La SQL de sesión corre en cada conexión del pool, antes que nada, y las
+  protecciones se aplican DESPUÉS.** Es la decisión importante de la pestaña.
+  Sin ella, `SET default_transaction_read_only = off` en la SQL de sesión de
+  una conexión de solo lectura apagaba la protección en silencio —y lo mismo
+  `SET SESSION TRANSACTION READ WRITE` en MySQL y `PRAGMA query_only = 0` en
+  SQLite—. Así que Postgres vuelve a pedir en `AfterConnect` lo que ya mandó
+  en el arranque, MySQL corre primero la SQL de la persona y después las
+  suyas, y SQLite vuelve a poner `query_only` después. Lo último que se dice
+  es lo que queda, y los tres tests lo prueban con una SQL de sesión que
+  intenta apagarlas: el INSERT sigue fallando y el `pg_sleep(10)` sigue
+  cortándose. Para eso los dos motores de database/sql pasaron a compartir un
+  conector con inicialización —`engine.WithInit`—, que antes solo tenía MySQL.
+  **Y en MySQL las protecciones van también ANTES**, lo encontró el review:
+  en Postgres y SQLite el modo solo lectura viaja en el arranque, así que la
+  SQL de sesión ya corre protegida; en MySQL es un SET, y con las protecciones
+  solo después, un `DELETE` en la SQL de sesión de una entrada importada
+  corría con escritura en cada conexión del pool de una conexión marcada
+  solo lectura. Ahora los tres motores fallan al abrir si la SQL de sesión
+  escribe bajo solo lectura, y los tres tests lo prueban.
+- **Una sentencia que falla dice que es la SQL de sesión y en qué línea**, con
+  el código del motor, y la conexión no se abre. Antes de esta pestaña un
+  error así habría sido «no se pudo conectar». Las sentencias se corren de a
+  una —el driver de MySQL no acepta varias por viaje, a propósito— y por eso
+  la línea se sabe.
+- **Es SQL escrita por la persona y corre sin vista previa ni confirmación.**
+  Por eso Warnings avisa si tiene algo que no sea configurar la sesión —todo
+  lo que no sea SET, RESET, PRAGMA, USE o SHOW, nombrado sin repetir— y contra
+  producción lo dice más fuerte. SELECT no está en la lista blanca a
+  propósito: `SELECT set_config(…)` es configurar y `SELECT
+  pg_terminate_backend(…)` no, y no hay forma de distinguirlos sin interpretar
+  la función. Y **la vista previa de importación la muestra entera**: es SQL de
+  otra persona que va a correr con las credenciales de esta, y lo mínimo es
+  verla antes de tildar. Se importa —es configuración, no un secreto— pero se
+  ve.
+- **Encontrado de paso:** el panel de protecciones de S02 seguía diciendo que
+  las otras tres «se editan por ahora en connections.toml y van a tener su tab
+  en el editor», con la pestaña Safety hecha hace dos días. Y el comentario de
+  `main.tsx` decía que el tema claro «llega en la Iteración 9».
+- **Lo demás que encontró el review `high`, arreglado.** El Ping de MySQL
+  corre la configuración de sesión —la SQL de la persona incluida— y no
+  tenía tope: `cfg.Timeout` acota solo el discado, y un `DO SLEEP(100000)`
+  dejaba «Conectando…» para siempre; ahora tiene el mismo tope que Postgres.
+  Las pestañas TLS y Advanced guardan su bloque entero con `set("tls", …)`,
+  así que lo tocado era el bloque y los problemas vienen por campo: escribir
+  un 1 en «Conexiones» no mostraba nada hasta apretar Guardar; un campo
+  cuenta como tocado también por su pestaña. Y el aviso de producción decía
+  «escritura automática» aunque la conexión fuera de solo lectura, donde la
+  escritura no corre: la conexión no abre, y ahora lo dice así.
+- **Inyecciones en rojo:** Postgres sin reponer las protecciones después de la
+  SQL de sesión, MySQL con el orden al revés, MySQL sin protegerla antes. Las
+  tres fallaron y se revirtieron.
 
 **Builds de Linux y macOS, y firma: qué hace falta y qué no.** La pregunta era
 si había que conseguir una Mac y una Linux. No para construir ni para firmar;

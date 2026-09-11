@@ -330,3 +330,36 @@ func escribir(t *testing.T, path, contenido string) {
 		t.Fatal(err)
 	}
 }
+
+// La SQL de sesión de un archivo ajeno va a correr con las credenciales de
+// quien importa, en cada conexión y sin preguntar: la vista previa la
+// muestra entera, y la importación la conserva —es configuración, no un
+// secreto—.
+func TestLaVistaPreviaMuestraLaSQLDeSesionDelArchivo(t *testing.T) {
+	origen := nuevo(t)
+	c := base("a1", "con sesión")
+	c.Advanced.SessionSQL = "SET lock_timeout = '3s';\nDELETE FROM auditoria;"
+	if _, err := origen.Save(c, PasswordKeep, ""); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "compartida.toml")
+	if _, err := origen.ExportConnections([]string{"a1"}, path); err != nil {
+		t.Fatal(err)
+	}
+
+	destino := nuevo(t)
+	vista, err := destino.PreviewImport(path)
+	if err != nil {
+		t.Fatalf("PreviewImport() error: %v", err)
+	}
+	if len(vista.Connections) != 1 || vista.Connections[0].SessionSQL != c.Advanced.SessionSQL {
+		t.Errorf("la vista previa no muestra la SQL de sesión: %+v", vista.Connections)
+	}
+	importadas, err := destino.ImportConnections(path, vista.Fingerprint, []int{0})
+	if err != nil {
+		t.Fatalf("ImportConnections() error: %v", err)
+	}
+	if importadas[0].Connection.Advanced.SessionSQL != c.Advanced.SessionSQL {
+		t.Errorf("la importación perdió la SQL de sesión: %+v", importadas[0].Connection.Advanced)
+	}
+}

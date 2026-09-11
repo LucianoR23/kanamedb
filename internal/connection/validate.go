@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/LucianoR23/kanamedb/internal/engine"
+	"github.com/LucianoR23/kanamedb/internal/query"
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
 )
 
@@ -53,7 +55,53 @@ func (c Connection) Validate() error {
 	errs = append(errs, c.safetyErrors()...)
 	errs = append(errs, c.sshErrors()...)
 	errs = append(errs, c.tlsErrors()...)
+	errs = append(errs, c.advancedErrors()...)
 	return wrap(errs)
+}
+
+// Límites de la pestaña Advanced.
+const (
+	// MaxApplicationNameLength es NAMEDATALEN-1 de Postgres: más largo, el
+	// servidor lo trunca en silencio.
+	MaxApplicationNameLength = 63
+	MinPoolSize              = 2
+	MaxPoolSize              = 32
+	// MaxSessionSQLBytes es un tope generoso para algo que son unos SET: una
+	// SQL de sesión de un megabyte es un archivo pegado por error.
+	MaxSessionSQLBytes = 64 * 1024
+)
+
+// advancedErrors valida la pestaña Advanced. Prefijo `advanced.`, como las
+// otras pestañas.
+func (c Connection) advancedErrors() []FieldError {
+	c = c.Normalize()
+	var errs []FieldError
+	add := func(field, msg string) {
+		errs = append(errs, FieldError{Field: "advanced." + field, Message: msg})
+	}
+	a := c.Advanced
+
+	switch {
+	case utf8.RuneCountInString(a.ApplicationName) > MaxApplicationNameLength:
+		add("applicationName", fmt.Sprintf("El nombre de la aplicación no puede pasar de %d caracteres.", MaxApplicationNameLength))
+	case strings.ContainsAny(a.ApplicationName, ":,\n\r\t"):
+		// Los dos puntos y la coma separan los atributos de sesión de MySQL,
+		// y un salto de línea no es un nombre en ningún motor.
+		add("applicationName", "El nombre de la aplicación no puede llevar dos puntos, comas ni saltos de línea.")
+	}
+
+	if strings.ContainsAny(a.SearchPath, "\n\r") {
+		add("searchPath", "El search_path va en una sola línea, como en un SET: public, extensions.")
+	}
+
+	if a.PoolSize != 0 && (a.PoolSize < MinPoolSize || a.PoolSize > MaxPoolSize) {
+		add("poolSize", fmt.Sprintf("El pool tiene que tener entre %d y %d conexiones; %d como mínimo porque cancelar una consulta necesita otra conexión. Vacío usa el default.", MinPoolSize, MaxPoolSize, MinPoolSize))
+	}
+
+	if len(a.SessionSQL) > MaxSessionSQLBytes {
+		add("sessionSql", "La SQL de sesión es demasiado larga: son unos SET, no un archivo.")
+	}
+	return errs
 }
 
 // tlsErrors valida los archivos del cifrado.
@@ -331,5 +379,44 @@ func (c Connection) Warnings() []Warning {
 		})
 	}
 
+	// La SQL de sesión corre en cada conexión, sin vista previa ni
+	// confirmación. Configurar —SET, PRAGMA— es para lo que existe; cualquier
+	// otra cosa se dice, y contra producción se dice más fuerte.
+	if raros := c.sesionFueraDeLugar(); len(raros) > 0 {
+		msg := "La SQL de sesión tiene " + strings.Join(raros, ", ") + ": corre en cada conexión que se abre, sin vista previa ni confirmación."
+		switch {
+		case c.Safety.ReadOnly:
+			// La SQL de sesión corre protegida en los tres motores: una
+			// escritura ahí no escribe, hace que la conexión no abra.
+			msg += " Con solo lectura, si escribe, la conexión no va a abrir: el servidor la rechaza."
+		case c.Environment == Production:
+			msg += " Contra producción, eso es una escritura automática."
+		}
+		w = append(w, Warning{Field: "advanced.sessionSql", Message: msg})
+	}
+
 	return w
+}
+
+// sesionFueraDeLugar devuelve los comandos de la SQL de sesión que no son
+// configurar una sesión: todo lo que no sea SET, RESET, PRAGMA, USE o SHOW.
+//
+// SELECT no está en la lista a propósito: `SELECT set_config(…)` es
+// configurar, pero también lo es `SELECT pg_terminate_backend(…)`, y no hay
+// forma de distinguirlos sin interpretar la función. Se avisa y se sigue.
+func (c Connection) sesionFueraDeLugar() []string {
+	var out []string
+	vistos := map[string]bool{}
+	for _, st := range engine.SessionStatements(c.Advanced.SessionSQL, c.Engine) {
+		cmd := query.Command(st.SQL, engine.DialectOf(c.Engine))
+		switch cmd {
+		case "SET", "RESET", "PRAGMA", "USE", "SHOW":
+			continue
+		}
+		if !vistos[cmd] {
+			vistos[cmd] = true
+			out = append(out, cmd)
+		}
+	}
+	return out
 }

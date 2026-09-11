@@ -10,7 +10,9 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > con verificación de la clave del host y sin abrir ningún puerto local, y con
 > TLS con la semántica de libpq en los tres de servidor: modo, raíz y
 > certificado de cliente por ruta, y el certificado que presentó el servidor a
-> la vista después de probar. Guarda
+> la vista después de probar. Cada conexión tiene además su search_path, su
+> nombre de aplicación, el tamaño del pool y una SQL de sesión que corre en
+> cada conexión al abrirla. Guarda
 > la libreta de conexiones con los secretos en el keychain del sistema
 > operativo —agrupadas por carpeta: un proyecto, con su local, su dev y su
 > producción adentro— y las exporta e importa en ese mismo formato, sin
