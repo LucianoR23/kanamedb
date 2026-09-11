@@ -142,7 +142,7 @@
 /* Producción late. Es el único lugar de la app con animación permanente, y
    está ahí para que no se pueda olvidar contra qué estás trabajando. */
 .env_production .statusDot { animation: kn-pulse 2.4s ease-in-out infinite; }
-.env_production.statusbar { background: rgba(240,85,75,.08); }
+.env_production.statusbar { background: var(--prod-wash); }
 .statusLink { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
 .statusLink:hover { color: var(--accent-hover); text-decoration: underline; }
 

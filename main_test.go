@@ -57,6 +57,77 @@ func TestTodoServicioQueLaInterfazLlamaEstaRegistrado(t *testing.T) {
 	}
 }
 
+var (
+	usaVariable   = regexp.MustCompile(`var\(\s*(--[a-z0-9-]+)`)
+	defineEnCSS   = regexp.MustCompile(`(--[a-z0-9-]+)\s*:`)
+	defineDesdeJS = regexp.MustCompile(`"(--[a-z0-9-]+)"`)
+)
+
+// TestTodaVariableCSSQueSeUsaEstaDefinida recorre los estilos y exige que cada
+// `var(--algo)` tenga de dónde salir.
+//
+// Es el test que faltaba cuando el panel de dependientes se pintó con cuatro
+// tokens inventados —`--surface`, `--surface-2`, `--text`, `--text-faint`—. Un
+// `var()` que no resuelve NO es un error: la propiedad simplemente no se aplica.
+// Así que los tres estados del panel se dibujaban idénticos mientras el
+// comentario de al lado decía que estaban distinguidos por color, y nada falló:
+// ni el build, ni `tsc`, ni la pantalla, que se veía bien.
+//
+// Vale también para lo que se define desde JavaScript —`--env-color` sale de un
+// `style` en línea— y por eso los nombres se buscan también en el TSX, en vez de
+// mantener una lista de excepciones que se desactualiza.
+func TestTodaVariableCSSQueSeUsaEstaDefinida(t *testing.T) {
+	definidas := map[string]bool{}
+	usadas := map[string]string{}
+
+	raiz := filepath.Join("frontend", "src")
+	err := filepath.WalkDir(raiz, func(ruta string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		ext := filepath.Ext(ruta)
+		if ext != ".css" && ext != ".ts" && ext != ".tsx" {
+			return nil
+		}
+		datos, err := os.ReadFile(ruta)
+		if err != nil {
+			return err
+		}
+		texto := string(datos)
+
+		if ext == ".css" {
+			for _, m := range defineEnCSS.FindAllStringSubmatch(texto, -1) {
+				definidas[m[1]] = true
+			}
+			for _, m := range usaVariable.FindAllStringSubmatch(texto, -1) {
+				if _, ya := usadas[m[1]]; !ya {
+					usadas[m[1]] = filepath.ToSlash(ruta)
+				}
+			}
+			return nil
+		}
+		// Desde el TSX solo interesa qué se DEFINE: `style={{ "--env-color": … }}`
+		// y `setProperty("--sql-font-size", …)`.
+		for _, m := range defineDesdeJS.FindAllStringSubmatch(texto, -1) {
+			definidas[m[1]] = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("recorrer %s: %v", raiz, err)
+	}
+
+	if len(usadas) < 50 {
+		t.Fatalf("solo se encontraron %d variables usadas: el test dejó de mirar algo", len(usadas))
+	}
+	for nombre, donde := range usadas {
+		if !definidas[nombre] {
+			t.Errorf("%s usa %s y no está definida en ningún lado.\n"+
+				"Un var() que no resuelve no falla: no pinta.", donde, nombre)
+		}
+	}
+}
+
 // claveDelServicio traduce una instancia a la ruta con la que el frontend la
 // importa: `*service.History` es `internal/service/history`.
 func claveDelServicio(instancia any) string {

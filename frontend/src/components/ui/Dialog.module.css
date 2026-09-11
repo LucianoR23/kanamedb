@@ -33,7 +33,7 @@
 
 /* Variante de escritura en producción: franja roja arriba, encabezado teñido.
    Tiene que ser imposible confundirla con un diálogo cualquiera. */
-.production { border-color: rgba(240,85,75,.5); }
+.production { border-color: var(--env-prod-border); }
 .prodStripe { flex: none; height: 3px; background: var(--env-prod); }
 
 .header {
@@ -44,7 +44,7 @@
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
 }
-.production .header { background: rgba(240,85,75,.09); }
+.production .header { background: var(--prod-wash); }
 .title { font: 600 13.5px var(--font-ui); }
 .spacer { flex: 1; }
 .close {

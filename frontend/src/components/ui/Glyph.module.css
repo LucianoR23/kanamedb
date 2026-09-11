@@ -12,9 +12,9 @@
 
 /* Familias de color por tipo de objeto. S00 § Object glyphs. */
 .relation  { background: var(--accent-quiet);          color: var(--accent); }
-.view      { background: rgba(79,195,217,.16);         color: var(--env-local); }
-.routine   { background: rgba(226,163,60,.16);         color: var(--env-stage); }
-.trigger   { background: rgba(240,85,75,.16);          color: var(--env-prod); }
-.type      { background: rgba(88,201,138,.16);         color: var(--env-dev); }
+.view      { background: var(--env-local-quiet);         color: var(--env-local); }
+.routine   { background: var(--env-stage-quiet);         color: var(--env-stage); }
+.trigger   { background: var(--env-prod-quiet);          color: var(--env-prod); }
+.type      { background: var(--env-dev-quiet);         color: var(--env-dev); }
 .neutral   { background: var(--bg-active);             color: var(--text-2); }
 .muted     { background: var(--bg-active);             color: var(--text-dim); }

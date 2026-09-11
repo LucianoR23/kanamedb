@@ -30,7 +30,7 @@
 .envLocal      { --env-color: var(--env-local); }
 .envDev        { --env-color: var(--env-dev); }
 .envStaging    { --env-color: var(--env-stage); }
-.envProduction { --env-color: var(--env-prod); border-color: rgba(240,85,75,.5); }
+.envProduction { --env-color: var(--env-prod); border-color: var(--env-prod-border); }
 
 .header {
   flex: none;
@@ -40,7 +40,7 @@
   padding: 13px 18px;
   border-bottom: 1px solid var(--border);
 }
-.envProduction .header { background: rgba(240,85,75,.09); }
+.envProduction .header { background: var(--prod-wash); }
 .title { font: 600 15px var(--font-ui); }
 .spacer { flex: 1; }
 .storedAt { white-space: nowrap; font: 400 11px var(--font-mono); color: var(--text-dim); }
@@ -133,7 +133,7 @@
 
 .side { display: flex; flex-direction: column; gap: 12px; }
 .card { padding: 11px 13px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); }
-.cardWarn { border-color: rgba(226,163,60,.4); background: var(--warning-quiet); }
+.cardWarn { border-color: var(--warning-border); background: var(--warning-quiet); }
 .cardLabel {
   font: 600 10.5px var(--font-ui);
   letter-spacing: .09em;

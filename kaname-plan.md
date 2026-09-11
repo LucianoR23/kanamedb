@@ -614,7 +614,11 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 - ✅ **S24** — variante «unsaved changes on tab close». Solo pregunta cuando hay
   algo que perder: un diálogo en cada cierre entrena a apretar «sí» sin leer, y
   entonces no protege del único caso en que hacía falta.
-- Tema claro de S05, S06, S12 y S15 — al final, no al principio.
+- ✅ **Tema claro de S05, S06, S12 y S15** — al final y no al principio, como
+  decía el plan: recién con S23 hay forma de prenderlo. Las cuatro pantallas
+  estaban bien —todo lo suyo sale de tokens— y lo que fallaba era transversal:
+  dieciocho colores escritos a mano en otros componentes, con el valor del tema
+  OSCURO. Ver el registro de la § 6.
 - **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
   (`Icon=kaname`, el nombre tiene que coincidir), y el ícono de macOS, que desde
   macOS 26 **no es un PNG plano**: se compone por capas en Icon Composer con las
@@ -839,6 +843,48 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**El tema claro pintaba con los colores del oscuro, y las cuatro pantallas que
+el plan señalaba no tenían nada que ver.** S05, S06, S12 y S15 estaban bien: todo
+lo suyo sale de tokens, y los alias del ERD —`--erd-pk`, `--erd-fk`— siguen al
+tema solos porque son `var()` de otro token. Lo que fallaba era transversal:
+**dieciocho colores escritos a mano** en botones, insignias, diálogos y la
+paleta, todos con el valor del tema oscuro y alfa encima. Un color con alfa
+sigue siendo un color.
+
+Lo peor no se veía, se medía. El botón de peligro llevaba texto casi negro con
+un comentario que explicaba que en tema claro el blanco «no llega a 4.5:1» sobre
+el rojo. Calculado: sobre el `#c72c22` del tema claro, el **blanco da 5.5:1 y
+ese casi negro da 3.5:1** — el literal fallaba justo en el tema para el que se
+lo había elegido. En oscuro los números se dan vuelta (5.6 contra 3.4), que es
+por lo que nadie lo notó: el valor era correcto para el único tema que existía.
+`--text-on-accent` ya hacía exactamente eso —casi negro en oscuro, blanco en
+claro— y alcanzaba con usarlo.
+
+La paleta de comandos tenía su propio velo negro al 45 % y su propia sombra,
+teniendo `--scrim` y `--shadow-dialog` al lado, los dos redefinidos para el tema
+claro. En claro oscurecía la pantalla como si fuera de noche.
+
+Los tokens nuevos son tres niveles y nada más: `-quiet` para un fondo apenas
+teñido, `-border` para un borde que se tiene que ver, y `--prod-wash` para el
+lavado de las cabeceras de producción — que estaba escrito con **tres alfas
+distintas (.05, .08 y .09)** que nadie puede distinguir. En el tema claro los
+alfas son un poco más bajos: sobre un fondo claro, el mismo porcentaje de un
+color oscuro pesa bastante más.
+
+**Y ahora hay un test que exige que cada `var(--algo)` tenga de dónde salir.**
+Es el que faltaba cuando el panel de dependientes se pintó con cuatro tokens
+inventados: un `var()` que no resuelve NO es un error, la propiedad simplemente
+no se aplica, así que los tres estados se dibujaban idénticos mientras el
+comentario decía que estaban distinguidos por color — y ni el build, ni `tsc`,
+ni la pantalla tenían nada que objetar. Busca los nombres definidos también en
+el TSX, porque `--env-color` sale de un `style` en línea, en vez de mantener una
+lista de excepciones que se desactualiza.
+
+De paso cayó un selector muerto que sí molestaba: `About.module.css` definía
+`.shortcut` **dos veces** —quedaba la lista de atajos de un diseño anterior que
+ninguna clase usaba— y la segunda ganaba por estar más abajo, así que la grilla
+de dos columnas nueva se dibujaba como una fila con borde.
 
 **S23: el archivo de preferencias existía como promesa.** `config.toml` era una
 ruta que About mostraba, y nada la escribía nunca. Ahora es `internal/config`,

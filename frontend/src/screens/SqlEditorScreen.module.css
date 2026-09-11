@@ -252,7 +252,7 @@
 }
 .errorCard {
   max-width: 760px;
-  border: 1px solid var(--danger-border, rgba(240, 85, 75, 0.4));
+  border: 1px solid var(--danger-border);
   border-radius: var(--r-md);
   overflow: hidden;
 }

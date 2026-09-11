@@ -28,9 +28,16 @@
 .ghost     { background: transparent;       color: var(--text-2); }
 .ghost:hover:not(:disabled)     { background: var(--bg-hover); color: var(--text-1); }
 
-/* El texto sobre --danger es casi negro y no --text-on-accent: en tema claro
-   --text-on-accent es blanco, que sobre el rojo no llega a 4.5:1. */
-.danger    { background: var(--danger);     color: #180a09; }
+/* El texto sobre --danger sale de --text-on-accent, que es lo que ya cambia con
+   el tema: casi negro en oscuro, blanco en claro.
+ *
+ * Estaba escrito como el literal casi negro, con un comentario que decía que en
+ * tema claro el blanco «no llega a 4.5:1» sobre el rojo. Medido, es al revés:
+ * sobre el #c72c22 del tema claro, el blanco da 5.5:1 y ese casi negro da 3.5:1
+ * — o sea que el literal fallaba justo en el tema para el que se lo eligió. En
+ * oscuro los números se dan vuelta (5.6 contra 3.4), que es por lo que nadie lo
+ * notó: el valor era correcto para el único tema que existía. */
+.danger    { background: var(--danger);     color: var(--text-on-accent); }
 .danger:hover:not(:disabled)    { background: var(--danger-hover); }
 
 .dangerOutline { background: transparent;   color: var(--danger); border-color: var(--danger); }
@@ -50,7 +57,7 @@
   animation: kn-spin .8s linear infinite;
 }
 .primary .spinner,
-.danger .spinner { border-color: rgba(0,0,0,.3); border-top-color: currentColor; }
+.danger .spinner { border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; }
 
 /* Ficha de atajo de teclado, del mismo alto que un botón */
 .shortcut {
