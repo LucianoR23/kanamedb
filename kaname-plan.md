@@ -597,11 +597,10 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 - **S20 Drift check** — reutiliza S15 para la SQL de reconciliación.
 - **S23 Settings** — completa, incluido el panel de seguridad y el check de
   updates manual.
-- **S03** — tabs TLS, **Safety** y Advanced. Safety quedó huérfana: la
-  Iteración 1 la difirió a la 5, la 5 no la hizo, y hasta ahora esta lista
-  nombraba solo TLS y Advanced —así que el cartel «Llega en la Iteración 5»
-  iba a quedar ahí para siempre—. Mientras no esté, el límite de tiempo por
-  sentencia y las otras dos protecciones se editan en `connections.toml`.
+- ⏳ **S03** — **Safety** ✅, TLS y Advanced pendientes. Los tres límites se
+  eligen entre «por defecto», «un valor» y «sin límite» en vez de editar el
+  número crudo, porque en el archivo el cero significa «usá el default» y no
+  «ninguno».
 - ✅ **Poner un comentario a una tabla o a una columna.** El de columna ya
   estaba desde la iteración 6 —este ítem quedó desactualizado—; faltaba el de
   la tabla, que ahora está en el pie de la pantalla de estructura. Con eso se
@@ -835,6 +834,26 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**La pestaña Safety no edita el número crudo, y esa es toda la pantalla.** Los
+tres límites —tiempo por sentencia, filas por consulta, desconexión por
+inactividad— comparten una convención en el archivo que NO es la que parece:
+cero significa «usá el default» y para sacar el límite hay que pedir −1. La
+razón está en el modelo y es buena —un archivo al que le falta la clave tiene
+que quedar PROTEGIDO, y el valor ausente de un entero es cero— pero convierte el
+campo en una trampa: un 0 en una casilla de segundos se lee como «ninguno» y
+significa treinta. Es la clase de detalle que nadie adivina y que se descubre
+cuando una consulta se corta sola. Por eso se elige entre tres opciones que
+dicen lo que son, y el número aparece solo cuando se eligió poner uno.
+
+Las dos protecciones que se APAGAN van en su propio grupo —«Qué se saltea»— y se
+describen por lo que se pierde. Puestas entre las otras con el mismo aspecto, un
+tilde de más se lee como «más seguro».
+
+Y un detalle que salió de mirar la pantalla: el `Toggle` del design system pone
+el rótulo solo en `aria-label`, así que la primera versión mostraba las
+explicaciones sin ninguna etiqueta arriba. El texto visible va al lado, adentro
+del mismo `<label>`, así que clickear la palabra también conmuta.
 
 **Cerrar una pestaña con trabajo sin guardar es de lo único que esta aplicación
 hace sin deshacer.** El texto de un editor no está en la base, ni en el

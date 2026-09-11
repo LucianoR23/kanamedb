@@ -25,6 +25,7 @@ import {
 } from "../components/ui";
 import type { PasswordState } from "../components/ui";
 import { cx } from "../lib/cx";
+import { SafetyTab } from "./SafetyTab";
 import styles from "./ConnectionEditor.module.css";
 
 /** Las tabs de S03. En la Iteración 1 solo General está viva. */
@@ -32,7 +33,7 @@ const TABS = [
   { id: "general", label: "General", ready: true, since: "" },
   { id: "tunnel", label: "Túnel SSH", ready: true, since: "" },
   { id: "tls", label: "TLS", ready: false, since: "Iteración 9" },
-  { id: "safety", label: "Safety", ready: false, since: "Iteración 9" },
+  { id: "safety", label: "Safety", ready: true, since: "" },
   { id: "advanced", label: "Advanced", ready: false, since: "Iteración 9" },
 ] as const;
 
@@ -574,6 +575,11 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                 ) : null}
               </aside>
             </div>
+          ) : tab === "safety" ? (
+            <SafetyTab
+              safety={conn.safety}
+              onChange={(v) => set("safety", v)}
+            />
           ) : tab === "tunnel" ? (
             <div className={styles.tunnel}>
               <div className={styles.tunnelSwitch}>
