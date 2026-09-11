@@ -132,43 +132,70 @@ func (s *Session) Connect(ctx context.Context, id string) ConnectResult {
 // servicio para que no exista la posibilidad de que una aceptación temporal
 // quede activa para la próxima conexión sin que nadie la haya pedido.
 func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) ConnectResult {
+	abierta, failure := s.abrirConexion(ctx, id, acceptOnce)
+	if failure != nil {
+		return failed(failure)
+	}
+
+	s.mu.Lock()
+	anterior := s.current
+	s.current = abierta
+	vista := s.viewLocked()
+	s.mu.Unlock()
+
+	// El cierre va fuera del lock: puede tardar y no hay razón para bloquear a
+	// quien pregunte el estado mientras tanto.
+	if anterior != nil {
+		anterior.cerrar()
+	}
+	return ConnectResult{OK: true, Session: vista}
+}
+
+// abrirConexion abre una conexión y NO la instala como la sesión en curso.
+//
+// Está separada de ConnectAccepting porque hay dos usos, y solo uno de los dos
+// es «esta es ahora tu conexión»: la comparación de esquemas de S20 necesita
+// abrir una SEGUNDA base un rato, leerle el catálogo y cerrarla, sin tocar la
+// que está abierta ni el changeset que le cuelga. Quien llama es el dueño de lo
+// que devuelve: si no lo instala, lo cierra.
+//
+// Todo lo sensible vive acá adentro y en un solo lugar: la contraseña sale del
+// keychain, el DSN se arma con ella, el túnel se abre ANTES que la base —si el
+// salto no se puede establecer no tiene sentido intentar la conexión de abajo, y
+// el error del túnel es el que explica qué pasó— y si la base falla, el túnel se
+// cierra para no dejar una sesión colgada en el bastión por cada intento.
+func (s *Session) abrirConexion(ctx context.Context, id, acceptOnce string) (*openSession, *engine.Failure) {
 	c, err := s.store.Get(id)
 	if err != nil {
-		return failed(&engine.Failure{
-			Kind:    engine.FailureOther,
-			Message: err.Error(),
-		})
+		return nil, &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
 	}
 
 	password, err := s.keyring.Get(id)
 	if err != nil && !errors.Is(err, secrets.ErrNotFound) {
-		return failed(&engine.Failure{
+		return nil, &engine.Failure{
 			Kind:    engine.FailureOther,
 			Message: "No se pudo leer la contraseña del keychain.",
-		})
+		}
 	}
 
 	dsn, err := c.DSN(password)
 	if err != nil {
-		return failed(&engine.Failure{
+		return nil, &engine.Failure{
 			Kind:    engine.FailureOther,
 			Message: err.Error(),
-		})
+		}
 	}
 
 	opciones := connectOptions(c)
 
-	// El túnel se abre ANTES que la base: si el salto no se puede establecer,
-	// no tiene sentido intentar la conexión de abajo, y el error del túnel es
-	// el que explica qué pasó.
 	var tunelAbierto *tunnel.Client
 	if c.SSH.Enabled {
 		secreto, err := s.keyring.Get(SSHSecretID(id))
 		if err != nil && !errors.Is(err, secrets.ErrNotFound) {
-			return failed(&engine.Failure{
+			return nil, &engine.Failure{
 				Kind:    engine.FailureOther,
 				Message: "No se pudo leer el secreto del bastión del keychain.",
-			})
+			}
 		}
 		sec := tunnel.Secrets{}
 		switch c.SSH.Auth {
@@ -180,12 +207,12 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 
 		cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{AcceptOnce: acceptOnce})
 		if err != nil {
-			return failed(&engine.Failure{
+			return nil, &engine.Failure{
 				Kind:    engine.FailureOther,
 				Message: "No se pudo abrir el túnel SSH.",
 				Detail:  engine.Redact(err.Error()),
 				Hint:    "Revisá el bastión, el usuario y el método de autenticación en la pestaña SSH.",
-			})
+			}
 		}
 		tunelAbierto = cli
 		opciones.DialFunc = cli.DialContext
@@ -198,28 +225,17 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 		if tunelAbierto != nil {
 			tunelAbierto.Close()
 		}
-		return failed(failure)
+		return nil, failure
 	}
 
-	s.mu.Lock()
-	anterior := s.current
-	s.current = &openSession{
+	return &openSession{
 		conn:     c,
 		tunel:    tunelAbierto,
 		db:       db,
 		server:   db.Server(),
 		openedAt: time.Now(),
 		cambios:  &change.Set{},
-	}
-	vista := s.viewLocked()
-	s.mu.Unlock()
-
-	// El cierre va fuera del lock: puede tardar y no hay razón para bloquear a
-	// quien pregunte el estado mientras tanto.
-	if anterior != nil {
-		anterior.cerrar()
-	}
-	return ConnectResult{OK: true, Session: vista}
+	}, nil
 }
 
 func failed(f *engine.Failure) ConnectResult {

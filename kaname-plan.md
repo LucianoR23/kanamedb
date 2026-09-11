@@ -599,7 +599,22 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   dos guarda una sentencia con una contraseña escrita. El servicio quedó sin
   registrar en `main.go` y no se anotaba nada; ahora hay un test que compara la
   lista de servicios contra lo que el frontend importa. Ver el registro § 6.
-- **S20 Drift check** — reutiliza S15 para la SQL de reconciliación.
+- ⏳ **S20 Schema drift** — **el contrato de Go está**, la pantalla no. El
+  artboard lo dice mejor que el nombre del ítem: no es «revisar una base», es
+  **comparar dos conexiones** —dev contra producción— y generar la SQL que
+  alinearía a la segunda. Hecho: `internal/drift` (la comparación, pura y
+  probada), `Session.Compare` (abre las dos, lee los catálogos y las cierra sin
+  tocar la que está abierta) y la extracción de `abrirConexion`, que es lo que
+  hace posible una segunda conexión. Falta la pantalla, el archivo `.sql` y
+  comparar índices y restricciones, que viven en el detalle por tabla.
+
+  **Atlas no hace falta acá tampoco**, y por el mismo motivo que en la
+  iteración 5: la comparación emite `change.Change`, o sea las mismas diecisiete
+  operaciones que la interfaz ya sabe escribir y renderizar en los cuatro
+  motores. Lo que no entra en ese vocabulario se reporta como diferencia **sin**
+  sentencia, que es justo lo que el diseño pide para la columna que solo está en
+  producción. Un differ externo agregaría un modelo intermedio para producir
+  algo que ya se produce.
 - ✅ **S23 Settings** — completa, con el panel de seguridad y el check de
   updates manual. `config.toml` era hasta ahora una ruta que About mostraba y
   que nadie escribía nunca. Se guarda sola, y no tiene ni un control que no haga
@@ -846,6 +861,61 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**S20 no era lo que decía el ítem del plan.** «Drift check — reutiliza S15 para
+la SQL de reconciliación» sonaba a revisar una base contra algo. El artboard es
+otra cosa y bastante más grande: **comparar dos conexiones**, dev contra
+producción, y generar la SQL que alinearía a la segunda. Se bajó el diseño antes
+de escribir nada, que es para lo que está.
+
+**La comparación tiene dirección, y las cuatro reglas del paquete son de
+seguridad.** Origen → destino, no simétrica. Lo que está solo en el origen se
+crea; **lo que está solo en el destino NO se borra, nunca** —puede tener datos y
+desde ahí no hay forma de saber cuántos—, se reporta con el motivo escrito. Una
+diferencia que no se sabe escribir sigue siendo una diferencia, con su motivo. Y
+lo que no se comparó se dice: el catálogo trae las vistas y las funciones por
+NOMBRE, así que dos homónimas con cuerpos distintos se ven iguales desde acá, y
+un «no hay diferencias» que incluya eso es una mentira. Es la misma lección del
+panel de dependientes: una lista vacía y un «no sé» son la misma lista y
+significan lo contrario.
+
+El test central recorre una comparación con las cuatro formas de «esto sobra del
+otro lado» —esquema, tabla, columna y objeto— y exige que ninguna traiga
+operación y que ninguna operación de la comparación entera sea destructiva.
+Inyectado el `dropColumn` que uno escribiría sin pensar, falla nombrando la
+columna.
+
+**Entre motores distintos los tipos NO se comparan.** `character varying(255)`
+contra `varchar(255)` es el mismo tipo escrito por dos motores, y hay uno así por
+columna: comparar Postgres contra MySQL daría cientos de «el tipo difiere» que no
+son diferencias, cada uno con una sentencia que además estaría mal. Ruido con esa
+forma no molesta, **esconde las diferencias de verdad**. Lo que sí se compara
+igual es qué tablas y qué columnas hay de cada lado, que es lo que uno mira
+cuando está migrando de un motor al otro — y que los tipos quedaron afuera se
+dice, como todo lo demás que no se miró.
+
+**Atlas no hace falta, y es la tercera vez que se evalúa.** La comparación emite
+`change.Change`: las mismas diecisiete operaciones que la interfaz ya sabe
+escribir y que cada motor ya sabe renderizar. Lo que no entra en ese vocabulario
+se reporta sin sentencia, que es exactamente lo que el diseño pide para la
+columna que solo existe en producción. Un differ externo agregaría un modelo
+intermedio para producir algo que ya se produce, y volvería a traer el problema
+de la iteración 5: aceptar su interpretación del esquema de vuelta.
+
+**Comparar necesitaba una segunda conexión, y ahí estaba el trabajo real.** Todo
+el camino sensible —contraseña del keychain, DSN, túnel antes que la base, cerrar
+el túnel si la base falla— vivía adentro de `ConnectAccepting`, que además
+INSTALA la conexión como la sesión en curso. Se extrajo `abrirConexion`, que abre
+y no instala: quien llama es el dueño de lo que recibe. La comparación abre las
+dos, les lee el catálogo y las cierra en un `defer` —una conexión que queda
+abierta tras una comparación fallida es una sesión colgada en el servidor y en el
+bastión—, y el workspace no se entera.
+
+El test que lo protege no mira los campos de la vista: **usa** la conexión
+abierta después de comparar. Inyectada la versión ingenua —que instala la
+conexión de la comparación como la actual— el fallo es `closed pool`: la
+comparación le cerró el pool al workspace. Mirando solo la vista habría pasado,
+porque es un struct en memoria que sigue diciendo «conectado».
 
 **El botón de desborde esperó a tener algo adentro.** El plan lo agendaba junto
 con S22 y se difirió a propósito: en ese momento solo habría repetido
