@@ -593,7 +593,9 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
 - ✅ **S21 Query history / saved queries** — las dos pestañas del sidebar. El
   historial va al directorio de estado —es de esta máquina— y las guardadas al
   lado de la libreta de conexiones, que es la que se sincroniza. Ninguno de los
-  dos guarda una sentencia con una contraseña escrita.
+  dos guarda una sentencia con una contraseña escrita. El servicio quedó sin
+  registrar en `main.go` y no se anotaba nada; ahora hay un test que compara la
+  lista de servicios contra lo que el frontend importa. Ver el registro § 6.
 - **S20 Drift check** — reutiliza S15 para la SQL de reconciliación.
 - **S23 Settings** — completa, incluido el panel de seguridad y el check de
   updates manual.
@@ -834,6 +836,46 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**El historial estaba entero y no estaba enchufado.** `internal/history` con sus
+tests, el servicio, la pantalla, el filtro de secretos — y `main.go` nunca
+registró el servicio ni construyó el store. Consecuencia: `UsarHistorial` jamás
+se llamaba, así que `anotar` salía por el `if q.historial == nil` y no se
+guardaba una sola consulta; y la pestaña, al pedir la lista, llamaba a un
+servicio que no existía.
+
+Lo grave no es el olvido sino **por qué nada lo detectó**. El generador de
+bindings de Wails no lee la lista de servicios: recorre el código. Así que
+`service.History` tuvo su `history.ts` generado igual, con sus tipos, y el
+frontend lo importó y lo llamó con `tsc` en verde. `go vet` tampoco tiene nada
+que decir sobre una lista a la que le falta un elemento. Compila, typechequea,
+pasa los tests — y falla al apretar el botón.
+
+La causa más probable del olvido es el procedimiento de la build de depuración:
+se edita `main.go` para agregar el puerto de CDP, se compila, y se **restaura
+`main.go`**. Si el cableado nuevo estaba ahí sin commitear, el restore se lo
+lleva. Pasó otra vez mientras se arreglaba esto —un `git checkout -- main.go`
+para revertir una inyección de fallo borró el arreglo entero—, así que la
+lección es doble: ese archivo se commitea antes de tocarlo para depurar.
+
+El test que faltaba compara `servicios()` contra **lo que el frontend importa de
+verdad**: recorre `frontend/src` buscando imports de la forma
+`bindings/…/internal/<paquete>/<servicio>` y exige que cada uno esté registrado.
+Lee el código commiteado y no `frontend/bindings/`, que está en `.gitignore` y
+existiría o no según quién corrió la tarea de Wails. Inyectada la falla —sacar
+la línea del historial— el test nombra el archivo y el servicio.
+
+De paso, `Paths` ganó `History` y `SavedQueries`: las ubicaciones son de
+`appinfo`, que es el contrato de dónde vive cada cosa, y no de `main.go`.
+Y el test que prohíbe rutas de secretos pasó a recorrer la estructura **por
+reflexión** en vez de una lista escrita a mano — con la lista, agregar un campo
+lo dejaba sin mirar y el test seguía afirmando que había revisado todo.
+
+El reparto —historial al estado local, guardadas al lado de la libreta— se
+prueba contra una función pura con dos raíces distintas. Con las rutas reales no
+se puede: **en Windows el directorio de estado ES el de configuración**, así que
+los dos lados de la afirmación coinciden y el caso pasa diga lo que diga el
+código. Y Windows es donde se desarrolla.
 
 **La pestaña Safety no edita el número crudo, y esa es toda la pantalla.** Los
 tres límites —tiempo por sentencia, filas por consulta, desconexión por

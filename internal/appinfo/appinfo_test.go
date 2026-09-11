@@ -2,6 +2,7 @@ package appinfo
 
 import (
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -67,15 +68,46 @@ func TestPathsNoExponeNingunaRutaDeSecretos(t *testing.T) {
 		t.Fatalf("Get() devolvió error: %v", err)
 	}
 
+	// Las rutas se recorren POR REFLEXIÓN y no con una lista escrita a mano.
+	// Con la lista, agregar un campo a Paths lo dejaba sin mirar y el test
+	// seguía en verde diciendo que había revisado todo — que es la forma exacta
+	// en que una ruta de secretos entraría sin que nadie se entere.
+	v := reflect.ValueOf(got.Paths)
 	prohibidas := []string{"password", "secret", "credential", "keychain", "token"}
-	rutas := []string{got.Paths.Connections, got.Paths.Config, got.Paths.State, got.Paths.Logs}
-	for _, ruta := range rutas {
-		bajo := strings.ToLower(ruta)
+	for i := 0; i < v.NumField(); i++ {
+		campo := v.Type().Field(i)
+		if campo.Type.Kind() != reflect.String {
+			t.Fatalf("Paths.%s no es un string: este test dejó de cubrir el tipo", campo.Name)
+		}
+		bajo := strings.ToLower(v.Field(i).String())
 		for _, p := range prohibidas {
 			if strings.Contains(bajo, p) {
-				t.Errorf("la ruta %q contiene %q: los secretos no van al disco", ruta, p)
+				t.Errorf("Paths.%s (%q) contiene %q: los secretos no van al disco",
+					campo.Name, v.Field(i).String(), p)
 			}
 		}
+	}
+}
+
+// El historial y las consultas guardadas están de lados opuestos de la línea
+// que separa "esta máquina" de "lo que se sincroniza", y ésa es toda la razón
+// por la que son dos archivos. Si alguna vez caen en el mismo directorio, el
+// historial de lo que corriste empieza a viajar a la otra máquina.
+// Se prueba contra `rutasDe` con dos raíces distintas, no contra las rutas
+// reales: en Windows el directorio de estado ES el de configuración, así que
+// con las reales los dos lados de la afirmación coinciden y el caso pasa diga
+// lo que diga el código.
+func TestElHistorialEsLocalYLasGuardadasViajanConLaLibreta(t *testing.T) {
+	const base, state = "/libreta", "/estado"
+	p := rutasDe(base, state)
+
+	if dir := filepath.Dir(p.History); dir != filepath.Clean(state) {
+		t.Errorf("Paths.History está en %q y el estado local es %q: "+
+			"el historial es de esta máquina y no se sincroniza", dir, state)
+	}
+	if dir := filepath.Dir(p.SavedQueries); dir != filepath.Dir(p.Connections) {
+		t.Errorf("Paths.SavedQueries está en %q y la libreta en %q: "+
+			"las guardadas viajan con las conexiones", dir, filepath.Dir(p.Connections))
 	}
 }
 

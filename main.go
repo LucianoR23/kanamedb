@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/LucianoR23/kanamedb/internal/appinfo"
+	"github.com/LucianoR23/kanamedb/internal/history"
 	"github.com/LucianoR23/kanamedb/internal/layout"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/service"
@@ -32,30 +33,11 @@ func main() {
 		log.Fatalf("no se pudo ubicar el directorio de la aplicación: %v", err)
 	}
 
-	connections := store.New(info.Paths.Connections)
-	keyring := secrets.New()
-	known := tunnel.NewKnownHosts(info.Paths.KnownHosts)
-	diagramas := layout.New(info.Paths.Layouts)
-	sesion := service.NewSession(connections, keyring, known, diagramas)
-	// Las exportaciones se registran en el mismo lugar que las consultas, para
-	// que «Cancelar» corte cualquiera de las dos con el mismo identificador.
-	consultas := service.NewQueries(sesion)
-	exportaciones := service.NewExports(consultas)
-
 	app := application.New(application.Options{
 		Name:        "Kaname",
 		Description: "Gestor de bases de datos con diagrama ERD editable",
 
-		Services: []application.Service{
-			application.NewService(appinfo.New()),
-			application.NewService(service.NewConnections(connections, keyring, known)),
-			application.NewService(sesion),
-			application.NewService(consultas),
-			application.NewService(service.NewHosts(known)),
-			application.NewService(exportaciones),
-			application.NewService(service.NewImports(consultas)),
-			application.NewService(service.NewDumps(exportaciones, consultas)),
-		},
+		Services: servicios(info.Paths),
 
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -76,5 +58,44 @@ func main() {
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// servicios arma todo lo que el frontend puede llamar.
+//
+// Está aparte de main() por una razón concreta: un servicio que falte en esta
+// lista NO rompe nada visible. Compila, el generador de bindings lo encuentra
+// igual —recorre el código, no esta lista— y el frontend lo importa y lo llama
+// con tipos correctos. Recién falla al apretar el botón, en tiempo de
+// ejecución. Le pasó al historial, que estuvo escrito, testeado y con su
+// pantalla hecha mientras el servicio no estaba registrado y el store nunca se
+// construía: no se anotaba una sola consulta. Ver `main_test.go`, que compara
+// esta lista contra lo que el frontend importa de verdad.
+func servicios(rutas appinfo.Paths) []application.Service {
+	connections := store.New(rutas.Connections)
+	keyring := secrets.New()
+	known := tunnel.NewKnownHosts(rutas.KnownHosts)
+	diagramas := layout.New(rutas.Layouts)
+	sesion := service.NewSession(connections, keyring, known, diagramas)
+	// Las exportaciones se registran en el mismo lugar que las consultas, para
+	// que «Cancelar» corte cualquiera de las dos con el mismo identificador.
+	consultas := service.NewQueries(sesion)
+	exportaciones := service.NewExports(consultas)
+
+	// Dos archivos y dos dueños: el historial es de esta máquina, las
+	// guardadas viajan con la libreta de conexiones. Ver internal/history.
+	historial := history.New(rutas.History, rutas.SavedQueries)
+	consultas.UsarHistorial(historial)
+
+	return []application.Service{
+		application.NewService(appinfo.New()),
+		application.NewService(service.NewConnections(connections, keyring, known)),
+		application.NewService(sesion),
+		application.NewService(consultas),
+		application.NewService(service.NewHosts(known)),
+		application.NewService(exportaciones),
+		application.NewService(service.NewImports(consultas)),
+		application.NewService(service.NewDumps(exportaciones, consultas)),
+		application.NewService(service.NewHistory(historial, sesion)),
 	}
 }

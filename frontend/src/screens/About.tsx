@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Service as AppInfo } from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
+import * as AppInfo from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo/service";
 import type { Info } from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
 import { Button } from "../components/ui";
 import { DevSignature } from "../components/DevSignature";

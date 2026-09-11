@@ -56,6 +56,22 @@ type Paths struct {
 
 	// State es el historial y el resto del estado local. Sin secretos.
 	State string `json:"state"`
+
+	// History es el registro de qué consultas se corrieron en ESTA máquina.
+	//
+	// Va al estado local y no al lado de la libreta: que hayas corrido un
+	// DELETE el martes a la tarde es de esta máquina, y replicarlo a la
+	// notebook del trabajo no le sirve a nadie. Nunca guarda una sentencia con
+	// una contraseña escrita ni un valor de fila.
+	History string `json:"history"`
+
+	// SavedQueries son las consultas guardadas con nombre.
+	//
+	// Éstas sí van al lado de la libreta de conexiones, al revés que el
+	// historial: escribir una consulta de veinte líneas es trabajo, y quien
+	// sincroniza sus conexiones entre máquinas no quiere volver a escribirla
+	// del otro lado.
+	SavedQueries string `json:"savedQueries"`
 	// Logs es donde van los diagnósticos. Nunca contienen credenciales,
 	// connection strings ni valores de filas.
 	Logs string `json:"logs"`
@@ -133,12 +149,26 @@ func resolvePaths() (Paths, error) {
 		}
 	}
 
+	return rutasDe(base, state), nil
+}
+
+// rutasDe reparte los archivos entre los dos directorios raíz.
+//
+// Está separada de resolvePaths —que es la mitad que depende del sistema— para
+// que se pueda probar con dos raíces DISTINTAS. En Windows las dos son la misma
+// carpeta, así que un test que use las rutas reales no puede distinguir "esto
+// va al estado local" de "esto se sincroniza": las dos ubicaciones coinciden y
+// cualquier afirmación sobre el reparto pasa sola. Y Windows es justamente la
+// plataforma donde se desarrolla y donde corre el test.
+func rutasDe(base, state string) Paths {
 	return Paths{
-		Connections: filepath.Join(base, "connections.toml"),
-		Layouts:     filepath.Join(base, "layouts"),
-		Config:      filepath.Join(base, "config.toml"),
-		State:       state,
-		Logs:        filepath.Join(state, "logs"),
-		KnownHosts:  filepath.Join(base, "known_hosts"),
-	}, nil
+		Connections:  filepath.Join(base, "connections.toml"),
+		Layouts:      filepath.Join(base, "layouts"),
+		Config:       filepath.Join(base, "config.toml"),
+		State:        state,
+		Logs:         filepath.Join(state, "logs"),
+		KnownHosts:   filepath.Join(base, "known_hosts"),
+		History:      filepath.Join(state, "historial.json"),
+		SavedQueries: filepath.Join(base, "consultas.json"),
+	}
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Service as AppInfo } from "../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
+import * as AppInfo from "../bindings/github.com/LucianoR23/kanamedb/internal/appinfo/service";
 import * as Connections from "../bindings/github.com/LucianoR23/kanamedb/internal/service/connections";
 import * as SessionSvc from "../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { PasswordAction } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
