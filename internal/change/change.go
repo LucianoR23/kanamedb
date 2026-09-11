@@ -106,6 +106,18 @@ const (
 	// changeset en el que alguien puede excluir la mitad y dejar el objeto
 	// borrado.
 	ReplaceObject Type = "replaceObject"
+
+	// AddEnumValue y RenameEnumValue son las DOS cosas que se le pueden hacer a
+	// un enum sin recrearlo, y no hay una tercera.
+	//
+	// PostgreSQL no tiene `ALTER TYPE … DROP VALUE`: comprobado contra la 18,
+	// es un error de sintaxis. Sacar un valor obliga a crear un tipo nuevo,
+	// reescribir cada columna que use el viejo —y eso falla si alguna fila
+	// todavía tiene el valor que se quiere sacar— y borrar el original. Kaname
+	// no lo ofrece, y lo dice: ofrecerlo como si fuera simétrico con agregar
+	// sería prometer algo que termina en un error a mitad de camino.
+	AddEnumValue    Type = "addEnumValue"
+	RenameEnumValue Type = "renameEnumValue"
 )
 
 // Cell es el valor de una columna en un cambio de datos.
@@ -216,6 +228,22 @@ type Change struct {
 	// intercambiables, y el motor no lo deduce del nombre.
 	ObjectKind schema.ObjectKind `json:"objectKind,omitempty"`
 
+	// Value es el valor de un enum que se agrega o se renombra.
+	//
+	// Es un VALOR y no un identificador: va citado como literal, no entre
+	// comillas dobles. `'alto'` y `"alto"` son cosas distintas y la segunda es
+	// un nombre de columna.
+	Value string `json:"value,omitempty"`
+
+	// Before es el valor ANTES del cual se inserta el nuevo. Vacío lo pone al
+	// final.
+	//
+	// El orden de un enum no es cosmética: en Postgres es el orden en que los
+	// valores COMPARAN y ORDENAN, así que `ORDER BY estado` cambia de resultado
+	// según dónde entre el valor nuevo. Y es la única oportunidad de elegirlo:
+	// una vez agregado no se puede mover sin recrear el tipo entero.
+	Before string `json:"before,omitempty"`
+
 	// Args es la firma de una función sobrecargada, en la forma de identidad
 	// del motor.
 	//
@@ -288,7 +316,7 @@ func (c Change) Kind() Kind {
 		AddColumn, DropColumn, RenameColumn, SetColumnType,
 		SetNotNull, DropNotNull, SetDefault, DropDefault, SetColumnComment,
 		AddPrimaryKey, AddForeignKey, AddCheck, AddUnique, DropConstraint,
-		AddIndex, DropIndex, ReplaceObject:
+		AddIndex, DropIndex, ReplaceObject, AddEnumValue, RenameEnumValue:
 		return KindSchema
 	default:
 		return KindData
@@ -350,13 +378,31 @@ func (c Change) Destructive() bool {
 // Target es el objeto que toca la operación, para agrupar en la pantalla.
 func (c Change) Target() string {
 	nombre := c.Table
-	if c.Type == ReplaceObject {
+	switch c.Type {
+	case ReplaceObject, AddEnumValue, RenameEnumValue:
 		nombre = c.Name
 	}
 	if c.Schema == "" {
 		return nombre
 	}
 	return c.Schema + "." + nombre
+}
+
+// validarEnum comprueba lo que necesita un cambio de valores de un enum.
+func (c Change) validarEnum() error {
+	if c.Name == "" {
+		return fmt.Errorf("%s: falta el nombre del tipo", c.Type)
+	}
+	if c.Value == "" {
+		return fmt.Errorf("%s sobre %s: falta el valor", c.Type, c.Target())
+	}
+	if c.Type == RenameEnumValue && c.NewName == "" {
+		return fmt.Errorf("%s sobre %s: falta el valor nuevo", c.Type, c.Target())
+	}
+	if c.Type == RenameEnumValue && c.NewName == c.Value {
+		return fmt.Errorf("%s sobre %s: el valor nuevo es igual al viejo", c.Type, c.Target())
+	}
+	return nil
 }
 
 // validarObjeto comprueba lo que necesita un replaceObject.
@@ -390,8 +436,11 @@ func (c Change) validarObjeto() error {
 func (c Change) Validate() error {
 	// Un objeto no cuelga de una tabla —una vista y una función viven solas—
 	// así que la exigencia de arriba no le aplica y se valida aparte.
-	if c.Type == ReplaceObject {
+	switch c.Type {
+	case ReplaceObject:
 		return c.validarObjeto()
+	case AddEnumValue, RenameEnumValue:
+		return c.validarEnum()
 	}
 	if c.Table == "" {
 		return fmt.Errorf("%s: falta la tabla", c.Type)
@@ -651,6 +700,11 @@ func fase(t Type) int {
 		// Después de que las columnas estén como van a quedar —una vista que
 		// usa una columna nueva no se puede crear antes— y antes de los datos.
 		return 3
+	case AddEnumValue, RenameEnumValue:
+		// Lo PRIMERO de todo: una columna nueva puede tener como default un
+		// valor del enum, y una fila nueva puede traerlo. Un valor que llega
+		// después del uso hace fallar lo que lo usa.
+		return 1
 	case DropConstraint, DropIndex:
 		return 5
 	case DropColumn:

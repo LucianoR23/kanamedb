@@ -316,9 +316,9 @@ func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 			vista.RebuildsTables = true
 		}
 	}
-	vista.Tramos = len(engine.TramosDe(len(vista.Order), caps, func(i int) bool {
-		return vista.Order[i].Change.Kind() == change.KindData
-	}))
+	vista.Tramos = len(engine.TramosDe(len(vista.Order), caps,
+		func(i int) bool { return vista.Order[i].Change.Kind() == change.KindData },
+		func(i int) bool { return vista.Order[i].Statement.Aislada }))
 
 	vista.Warnings = avisos(sesion, vista.Order)
 	vista.Script = guion(vista.Order, true)
@@ -855,9 +855,9 @@ func (s *Session) aplicarPorTramos(
 	ctx context.Context, sesion *openSession,
 	cambios []change.Change, sts []change.Statement, unaSola bool,
 ) ApplyResult {
-	tramos := engine.TramosDe(len(sts), sesion.db.Caps(), func(i int) bool {
-		return cambios[i].Kind() == change.KindData
-	})
+	tramos := engine.TramosDe(len(sts), sesion.db.Caps(),
+		func(i int) bool { return cambios[i].Kind() == change.KindData },
+		func(i int) bool { return sts[i].Aislada })
 	if !unaSola {
 		tramos = nil
 		for i := range sts {

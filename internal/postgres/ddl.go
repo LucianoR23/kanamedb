@@ -96,6 +96,11 @@ func identificadoresDe(c change.Change) map[string]string {
 	poner("nombre del esquema", c.Schema)
 	poner("nombre nuevo", c.NewName)
 	poner("nombre de la restricción o del índice", c.Name)
+	// Una etiqueta de enum también tiene el límite de 63 bytes, y sin esto se la
+	// rechazaba el servidor en vez del renderizador —después de haberla dejado
+	// preparar y revisar—.
+	poner("valor del enum", c.Value)
+	poner("valor del enum", c.Before)
 	poner("nombre de la tabla referenciada", c.RefTable)
 	poner("nombre del esquema referenciado", c.RefSchema)
 	if c.Column != nil {
@@ -325,6 +330,39 @@ func RenderDDL(c change.Change) (change.Statement, error) {
 
 	case change.ReplaceObject:
 		return objetoDDL(c)
+
+	case change.AddEnumValue:
+		// El valor va como LITERAL, no como identificador. Es la excepción
+		// declarada del DDL —un valor no se puede parametrizar en un ALTER
+		// TYPE— y pasa por la vista previa antes de correr.
+		// `quoteString` y no `literal`: `literal` convierte la cadena vacía en
+		// el keyword NULL —que es lo que Postgres quiere para sacar un
+		// comentario— y acá eso no significa nada. La cadena vacía ya la rechaza
+		// la validación; que el helper equivocado la hubiera convertido en NULL
+		// es exactamente el tipo de trampa que conviene no dejar armada.
+		st.SQL = fmt.Sprintf("ALTER TYPE %s ADD VALUE %s",
+			QualifiedName(c.Schema, c.Name), quoteString(c.Value))
+		if c.Before != "" {
+			st.SQL += " BEFORE " + quoteString(c.Before)
+		}
+		st.Impact = change.ImpactMetadata
+		st.Lock = change.LockNone
+		// Se confirma sola: el valor no se puede usar hasta que su transacción
+		// cierre, en todas las versiones que soportamos. Ver Statement.Aislada.
+		st.Aislada = true
+		st.Note = "Agregar un valor no toca ninguna fila, y se aplica en su propia transacción: " +
+			"PostgreSQL no deja usar un valor nuevo hasta que se confirma. Lo que NO se puede es sacarlo después " +
+			"ni moverlo de lugar: PostgreSQL no tiene DROP VALUE, y el orden de un enum es el " +
+			"orden en que sus valores comparan y ordenan."
+
+	case change.RenameEnumValue:
+		st.SQL = fmt.Sprintf("ALTER TYPE %s RENAME VALUE %s TO %s",
+			QualifiedName(c.Schema, c.Name), quoteString(c.Value), quoteString(c.NewName))
+		st.Impact = change.ImpactMetadata
+		st.Lock = change.LockNone
+		st.Note = "Las filas que tenían el valor viejo pasan a leerse con el nuevo, todas a la " +
+			"vez. Lo que compare contra el texto anterior —una consulta guardada, el código de " +
+			"la aplicación— deja de encontrarlo."
 
 	default:
 		return st, fmt.Errorf("PostgreSQL: no sé escribir la operación %q", c.Type)

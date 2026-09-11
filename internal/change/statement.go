@@ -68,6 +68,22 @@ type Statement struct {
 	// Vacía cuando no hay nada que avisar.
 	Note string `json:"note,omitempty"`
 
+	// Aislada marca la sentencia que tiene que CONFIRMARSE SOLA, antes de que
+	// siga el resto del apply.
+	//
+	// Existe por `ALTER TYPE … ADD VALUE` de PostgreSQL: el valor se agrega
+	// dentro de la transacción pero no se puede USAR hasta que esa transacción
+	// confirme. Comprobado contra 14, 16, 17 y 18: «unsafe use of new value …
+	// New enum values must be committed before they can be used», SQLSTATE
+	// 55P04. No lo relajó ninguna versión —parecía que sí midiendo con `psql -c`,
+	// que manda todas las sentencias en un solo mensaje—.
+	//
+	// Sin esto, agregar un valor y en el mismo changeset usarlo —una columna
+	// nueva con ese default, una fila nueva que lo traiga— hacía fallar el
+	// apply ENTERO y revertir todo, que es exactamente el caso que motiva
+	// ponerlo primero.
+	Aislada bool `json:"-"`
+
 	// Steps son las sentencias que hay que mandar POR SEPARADO, en orden.
 	//
 	// `SQL` sigue siendo lo que se lee en la vista previa —las mismas

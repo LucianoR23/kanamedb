@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
@@ -169,4 +170,78 @@ type catalogoAMedias struct{ engine.Conn }
 func (catalogoAMedias) Objects(context.Context, []string) ([]schema.Object, error) {
 	return []schema.Object{{Kind: schema.ObjView, Schema: "demo", Name: "v_ventas"}},
 		errors.New("leer los eventos del catálogo: Table 'information_schema.EVENTS' doesn't exist")
+}
+
+// TestAgregarUnValorDeEnumYUsarloEnElMismoChangeset.
+//
+// Es el caso que motiva poner el enum en la primera fase, y el que fallaba por
+// ponerlo ahí: PostgreSQL agrega el valor dentro de la transacción pero NO lo
+// deja usar hasta que ésta confirma. Con todo el changeset en un solo BEGIN
+// —que es lo que la casilla «Una sola transacción» promete y cumple contra
+// Postgres— el par «ADD VALUE» + «insertar una fila con ese valor» daba «unsafe
+// use of new value» y revertía el changeset entero.
+//
+// Comprobado contra PostgreSQL 14, 16, 17 y 18: falla en las cuatro. La primera
+// medición dijo que la 17 y la 18 estaban bien, y era un artefacto de mandar las
+// sentencias en una sola cadena con `psql -c`; de a una fallan todas.
+func TestAgregarUnValorDeEnumYUsarloEnElMismoChangeset(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq := esquemaDeApply(t, sesion, c)
+	abierta, err := sesion.abierta()
+	if err != nil {
+		t.Fatalf("abierta(): %v", err)
+	}
+
+	ejecutar := func(sql string) {
+		t.Helper()
+		if err := abierta.db.Exec(ctx, sql); err != nil {
+			t.Fatalf("no se pudo ejecutar %q: %v", sql, err)
+		}
+	}
+	_ = abierta.db.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s.kn_enum_t", esq))
+	_ = abierta.db.Exec(ctx, fmt.Sprintf("DROP TYPE IF EXISTS %s.kn_humor", esq))
+	ejecutar(fmt.Sprintf("CREATE TYPE %s.kn_humor AS ENUM ('bajo', 'alto')", esq))
+	ejecutar(fmt.Sprintf("CREATE TABLE %s.kn_enum_t (id integer PRIMARY KEY)", esq))
+	t.Cleanup(func() {
+		_ = abierta.db.Exec(context.Background(), fmt.Sprintf("DROP TABLE IF EXISTS %s.kn_enum_t", esq))
+		_ = abierta.db.Exec(context.Background(), fmt.Sprintf("DROP TYPE IF EXISTS %s.kn_humor", esq))
+	})
+
+	// El valor nuevo, y una columna que lo usa como default. Los dos en el
+	// mismo apply y con una sola transacción pedida.
+	if _, err := sesion.StageMany(ctx, []change.Change{
+		{Type: change.AddEnumValue, Schema: esq, Name: "kn_humor", Value: "medio"},
+		{
+			Type: change.AddColumn, Schema: esq, Table: "kn_enum_t",
+			Column: &change.Column{
+				Name: "h", DataType: esq + ".kn_humor", Nullable: true, Default: "'medio'",
+			},
+		},
+	}, ""); err != nil {
+		t.Fatalf("StageMany(): %v", err)
+	}
+
+	res, err := sesion.Apply(ctx, ApplyOptions{SingleTransaction: true})
+	if err != nil {
+		t.Fatalf("Apply(): %v", err)
+	}
+	if !res.OK {
+		t.Fatalf("el apply falló: %+v", res)
+	}
+
+	// Y quedaron las dos cosas.
+	d, err := abierta.db.Detail(ctx, esq, "kn_enum_t")
+	if err != nil {
+		t.Fatalf("Detail(): %v", err)
+	}
+	var tiene bool
+	for _, col := range d.Columns {
+		if col.Name == "h" {
+			tiene = true
+		}
+	}
+	if !tiene {
+		t.Error("la columna que usaba el valor nuevo no quedó")
+	}
 }

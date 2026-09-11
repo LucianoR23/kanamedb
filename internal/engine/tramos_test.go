@@ -65,7 +65,7 @@ func TestTramosDe(t *testing.T) {
 
 	for _, c := range casos {
 		t.Run(c.nombre, func(t *testing.T) {
-			got := engine.TramosDe(len(c.tipos), c.caps, func(i int) bool { return c.tipos[i] })
+			got := engine.TramosDe(len(c.tipos), c.caps, func(i int) bool { return c.tipos[i] }, nil)
 			if len(got) != len(c.quiere) {
 				t.Fatalf("dio %d tramos y se esperaban %d: %+v", len(got), len(c.quiere), got)
 			}
@@ -89,5 +89,55 @@ func TestTramosDe(t *testing.T) {
 				t.Fatalf("los tramos cubren %d sentencias de %d", esperado, len(c.tipos))
 			}
 		})
+	}
+}
+
+// TestUnaSentenciaAisladaCortaElTramoAunqueElDDLSeaTransaccional.
+//
+// Es lo que hace posible agregar un valor a un enum y usarlo en el MISMO
+// changeset. PostgreSQL agrega el valor dentro de la transacción pero no lo
+// deja usar hasta que ésta confirma: el par «ADD VALUE» + «usarlo» da «unsafe
+// use of new value … New enum values must be committed before they can be
+// used» y tira el changeset entero. Comprobado en las cuatro versiones que
+// soportamos, de la 14 a la 18.
+//
+// Con DDL transaccional el tramo sería UNO solo con todo adentro. La aislada lo
+// corta en tres: lo de antes, ella sola, y lo de después — que es lo único que
+// deja que lo de después la use.
+func TestUnaSentenciaAisladaCortaElTramoAunqueElDDLSeaTransaccional(t *testing.T) {
+	caps := engine.Caps{TransactionalDDL: true}
+	datos := func(int) bool { return false }
+
+	// La aislada en el medio: corta a los dos lados.
+	got := engine.TramosDe(3, caps, datos, func(i int) bool { return i == 1 })
+	quiero := []engine.Tramo{
+		{Desde: 0, Hasta: 1, Transaccional: true},
+		{Desde: 1, Hasta: 2, Transaccional: false},
+		{Desde: 2, Hasta: 3, Transaccional: true},
+	}
+	comparar(t, "en el medio", got, quiero)
+
+	// Primera, que es donde cae de verdad: el enum va en la fase 1.
+	got = engine.TramosDe(3, caps, datos, func(i int) bool { return i == 0 })
+	quiero = []engine.Tramo{
+		{Desde: 0, Hasta: 1, Transaccional: false},
+		{Desde: 1, Hasta: 3, Transaccional: true},
+	}
+	comparar(t, "primera", got, quiero)
+
+	// Sin ninguna aislada no cambia nada: un solo tramo, como antes.
+	got = engine.TramosDe(3, caps, datos, nil)
+	comparar(t, "ninguna", got, []engine.Tramo{{Desde: 0, Hasta: 3, Transaccional: true}})
+}
+
+func comparar(t *testing.T, que string, got, quiero []engine.Tramo) {
+	t.Helper()
+	if len(got) != len(quiero) {
+		t.Fatalf("%s: salieron %d tramos y se esperaban %d: %+v", que, len(got), len(quiero), got)
+	}
+	for i := range quiero {
+		if got[i] != quiero[i] {
+			t.Errorf("%s: el tramo %d es %+v y se esperaba %+v", que, i, got[i], quiero[i])
+		}
 	}
 }

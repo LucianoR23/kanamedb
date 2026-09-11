@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Type as ChangeType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
+import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
+import { ObjectKind } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { $Object as DBObject, Dependents, ObjectDefinition, Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { SqlEditor } from "../components/SqlEditor";
+import { EnumEditor } from "./EnumEditor";
 import { Badge, Button, CopyButton, Glyph, Spinner } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import { useStage } from "../lib/useStage";
@@ -54,8 +57,41 @@ export function ObjectScreen({
   // «falta confirmar» caía como texto en el aviso y no había dónde escribir el
   // nombre de la base —así que reemplazar un objeto era imposible, y en SQLite
   // eso es CUALQUIER edición de objeto, porque todas son borrar y crear—.
+  // Lo que YA se preparó sobre este enum y todavía no se aplicó.
+  //
+  // Hace falta porque la definición que se relee es la de la BASE, que no
+  // cambia al preparar: sin esto, agregar «medio» dos veces entraba dos cambios
+  // idénticos y el segundo fallaba al aplicar con «enum label already exists»,
+  // tirando el changeset entero.
+  const [pendientesDelEnum, setPendientes] = useState<{
+    agregados: string[];
+    renombrados: Record<string, string>;
+  }>({ agregados: [], renombrados: {} });
+
+  async function releerPendientes() {
+    try {
+      const v = await SessionSvc.Changeset();
+      const agregados: string[] = [];
+      const renombrados: Record<string, string> = {};
+      for (const cv of v.changes ?? []) {
+        const c = cv.change;
+        if (!c || c.schema !== objeto.schema || c.name !== objeto.name) continue;
+        if (c.type === ChangeType.AddEnumValue && c.value) agregados.push(c.value);
+        if (c.type === ChangeType.RenameEnumValue && c.value && c.newName) {
+          renombrados[c.value] = c.newName;
+        }
+      }
+      setPendientes({ agregados, renombrados });
+    } catch {
+      // Si no se puede leer el changeset se sigue sin la guarda: es una ayuda
+      // para no preparar dos veces lo mismo, no una garantía. La de verdad la
+      // da el motor al aplicar.
+    }
+  }
+
   const staging = useStage(() => {
     setAviso("Listo. El cambio quedó en «Cambios pendientes» — todavía no se aplicó.");
+    void releerPendientes();
     onStaged();
   });
   const [def, setDef] = useState<ObjectDefinition | null>(null);
@@ -101,6 +137,8 @@ export function ObjectScreen({
     // objeto no es motivo para no mostrarla. Lo que SÍ importa es que un fallo
     // acá no se lea como «no depende nada»: por eso el estado arranca en null
     // —sin respuesta— y no en una lista vacía.
+    void releerPendientes();
+
     setDeps(null);
     SessionSvc.ObjectDependents(objeto)
       .then((d) => {
@@ -119,6 +157,7 @@ export function ObjectScreen({
   }, [objeto, recarga]);
 
   const clase = nombreDeClase(objeto.kind);
+  const esEnum = objeto.kind === ObjectKind.ObjEnum;
   // Se compara con lo que vino del motor y no se guarda un booleano aparte:
   // escribir y deshacer deja el texto igual, y un «sucio» pegajoso habilitaría
   // preparar un cambio que no cambia nada.
@@ -142,7 +181,7 @@ export function ObjectScreen({
           definition: texto,
           recreate: recrear,
           source: "object",
-        } as never,
+        } as Change,
       );
     } finally {
       setGuardando(false);
@@ -175,7 +214,11 @@ export function ObjectScreen({
         </p>
       ) : (
         <>
-          {def?.values && def.values.length > 0 ? (
+          {/* Los valores los dibuja el editor de enums, con su número de orden y
+              su botón de renombrar. Esta lista suelta es para cuando NO hay
+              editor —hoy no queda ninguna clase así, y queda por si aparece—;
+              sin la condición salían los mismos valores dos veces. */}
+          {!esEnum && def?.values && def.values.length > 0 ? (
             <section className={styles.valores}>
               <h3 className={styles.subtitulo}>
                 Valores <span className={styles.cuantos}>{def.values.length}</span>
@@ -193,6 +236,21 @@ export function ObjectScreen({
               </ol>
             </section>
           ) : null}
+          {esEnum ? (
+            /* Un enum NO se edita como texto: ver el comentario de EnumEditor.
+               Las tres operaciones que un CREATE TYPE sugiere —agregar,
+               renombrar, sacar— no cuestan lo mismo, y una de las tres no
+               existe. */
+            <EnumEditor
+              objeto={objeto}
+              valores={def?.values ?? []}
+              preparados={pendientesDelEnum.agregados}
+              renombrados={pendientesDelEnum.renombrados}
+              soloLectura={soloLectura}
+              onStage={(c) => staging.stage(c)}
+            />
+          ) : (
+          <>
           <div className={styles.editor}>
             <SqlEditor
               value={texto}
@@ -231,6 +289,8 @@ export function ObjectScreen({
               {guardando ? "Preparando…" : "Preparar el cambio"}
             </Button>
           </div>
+          </>
+          )}
           {staging.error || aviso ? (
             <p className={styles.avisoGuardar}>{staging.error || aviso}</p>
           ) : null}
@@ -285,8 +345,8 @@ function Dependientes({ deps }: { deps: Dependents | null }) {
             Qué depende de esto <span className={styles.cuantos}>{objetos.length}</span>
           </h3>
           <p className={styles.depsTexto}>
-            Reemplazar este objeto donde el motor tenga que borrarlo y volver a crearlo rompe —o
-            arrastra— lo que sigue:
+            Esto es lo que usa este objeto hoy. Borrarlo o volver a crearlo lo rompe —o lo
+            arrastra—, y renombrar un valor de un enum cambia lo que estas filas leen:
           </p>
           <ul className={styles.lista}>
             {objetos.map((o) => (

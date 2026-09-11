@@ -548,7 +548,10 @@ Vistas, funciones, procedures, triggers y enums como editor de definición.
 - ✅ **S16 Object editor** — completa: la definición se edita, el cambio pasa
   por el changeset con su vista previa, y la lista de dependientes y el aviso de
   DROP + CREATE están al lado del botón que los necesita.
-- ⏳ **S17 Enum / type editor** — completa.
+- ✅ **S17 Enum / type editor** — agregar un valor eligiendo su posición y
+  renombrar uno. Sacar un valor NO se ofrece, y se explica por qué: PostgreSQL
+  no tiene `DROP VALUE`. Los dominios y los tipos compuestos siguen mostrándose
+  en el árbol y abriéndose con el aviso de que Kaname todavía no los escribe.
 - ✅ **S05** — nodos de vistas, materialized views, funciones, procedures,
   triggers, enums, dominios, tipos compuestos, secuencias, políticas y eventos
   en el árbol, agrupados por clase, y la definición de cada uno para leer.
@@ -937,6 +940,112 @@ no pueda ser otra cosa. Refrescar pisaba el texto sin guardar del editor, y
 perdía por aplicar un cambio de otra pestaña. Y para una política o una
 extensión el error mandaba a «borrarla y volver a crearla», consejo que llevaba
 derecho a un segundo error distinto porque tampoco se sabe borrarlas.
+
+**S17: un enum NO se edita como texto, y esa es toda la decisión.** La pantalla
+podría mostrar su `CREATE TYPE … AS ENUM ('a','b')` y dejar editarlo, como
+cualquier otro objeto. Sería consistente y estaría mal, porque sugiere que las
+tres operaciones que ese texto permite —agregar, renombrar, sacar— cuestan lo
+mismo. Comprobado contra PostgreSQL 18:
+
+- **Agregar** es `ALTER TYPE … ADD VALUE`. No toca ninguna fila.
+- **Renombrar** es `ALTER TYPE … RENAME VALUE`. Tampoco toca filas y sin embargo
+  cambia lo que TODAS dicen, a la vez.
+- **Sacar no existe.** `ALTER TYPE … DROP VALUE` es un error de sintaxis. Para
+  sacar un valor hay que crear un tipo nuevo, reescribir cada columna que use el
+  viejo y borrar el original — y eso falla a mitad de camino si alguna fila
+  todavía tiene el valor que se quiere sacar.
+
+Un editor de texto dejaría borrar una línea y apretar guardar, y lo que sigue
+sería un DROP TYPE que el servidor rechaza porque hay columnas usándolo. La
+lista con un botón por operación no ofrece lo que no se puede hacer, que es la
+misma regla que sostiene todo el changeset: **una operación que no sabemos
+expresar es una operación que la interfaz no ofrece**. Y lo que no se ofrece se
+explica ahí mismo, no cuando alguien busque el botón que no está.
+
+**La posición se elige al agregar, porque es la única oportunidad.** El orden de
+un enum no es cosmético: en Postgres es el orden en que sus valores COMPARAN y
+ORDENAN, así que un `ORDER BY estado` cambia de resultado según dónde entre el
+valor nuevo. Y una vez agregado no se puede mover sin recrear el tipo entero. Por
+eso la lista va numerada —el número es lo que un ORDER BY va a hacer— y el
+combo dice «antes de cuál».
+
+El test no mira la sentencia sino el CATÁLOGO: que escribamos `BEFORE 'alto'` no
+prueba que el servidor lo haya puesto ahí. La inyección que lo pone en rojo es
+ignorar la posición pedida, y el valor aparece al final.
+
+**Un valor nuevo tiene que confirmarse antes de que algo lo use, y eso partió el
+apply.** El review encontró que la justificación de poner el enum en la primera
+fase —«una columna nueva puede tener como default un valor del enum»— era
+exactamente lo que PostgreSQL prohibe: el valor se agrega dentro de la
+transacción pero **no se puede usar hasta que ésta confirme**. Con todo el
+changeset en un solo BEGIN —que es lo que la casilla «Una sola transacción»
+promete y cumple contra Postgres— el par «agregar el valor» + «usarlo» daba
+`unsafe use of new value` (SQLSTATE 55P04) y revertía el changeset entero.
+
+De ahí salió `Statement.Aislada`: la sentencia que tiene que confirmarse SOLA,
+antes de que siga el resto. `TramosDe` la corta a los dos lados aunque el motor
+tenga DDL transaccional. No deja de ser todo o nada —sigue siendo una sola
+sentencia, que es atómica—; lo que se pierde es agruparla, que es justo lo que
+hacía falta.
+
+**Y la primera medición de esto estuvo mal, de una forma que vale anotar.**
+Probando con `psql -c "BEGIN; ALTER TYPE …; INSERT …; COMMIT;"` contra la 17 y la
+18 funcionaba, así que la conclusión fue «la 17 lo relajó» y quedó escrita en
+tres comentarios. Es falso: `psql -c` manda todas las sentencias en UN mensaje
+de consulta simple, y ahí el servidor no se queja. Mandadas de a una —que es como
+las manda Kaname— **fallan en las cuatro versiones que soportamos**. Lo que
+descubrió el error no fue leer la documentación sino la inyección: sacar el
+aislamiento tiró el test contra la 18, que según mi medición no tenía que fallar.
+Una herramienta de línea de comandos no manda las sentencias como las manda la
+aplicación, y medir con ella es medir otra cosa.
+
+**Del review, tres cosas más que hacían mal la cuenta de lo que ya se
+preparó.** La lista de valores que la pantalla muestra sale de la definición que
+está EN LA BASE, y preparar un cambio no la toca. Así que agregar «medio» dos
+veces entraba dos cambios idénticos —la comprobación de duplicados miraba una
+lista que no había cambiado— y el segundo fallaba al aplicar con «enum label
+already exists», tirando el changeset entero porque Postgres lo corre en una
+transacción. Ahora la pantalla lee también lo que hay preparado y lo muestra
+aparte, con borde punteado: un valor preparado y uno que ya existe son cosas
+distintas, y uno de los dos todavía no se puede consultar.
+
+El combo de la posición no se podía volver atrás. Con `estricto`, el valor solo
+sale de la lista de opciones, y «Al final» era un *placeholder* y no una
+opción: una vez elegido «antes de alto» no había forma de deshacerlo —ni
+borrando el texto, ni con Escape— y se preparaba una posición que ya no se
+quería. Para un enum eso no se corrige después.
+
+Y lo escrito se limpiaba antes de saber que el cambio había entrado. El primer
+arreglo fue peor que el problema: limpiaba cuando lo tipeado coincidía con algo
+ya preparado, así que volver a escribir un valor preparado —para ver por qué no
+se podía— hacía desaparecer lo tipeado y el aviso no llegaba a mostrarse nunca.
+Se limpia lo que ESTE formulario envió, no cualquier cosa que coincida; lo
+encontró mirar la pantalla, no un test. Contra
+producción, `stage` abre el diálogo de confirmación y **devuelve sin haber
+preparado nada**; limpiar ahí borraba lo tipeado mientras el diálogo seguía
+arriba, y si alguien cancelaba, sin decir nada. Se limpia cuando el valor
+aparece entre los preparados, que es lo único que prueba que entró.
+
+Los tres chicos: la pantalla de pendientes no tenía etiqueta para los tipos
+nuevos —salían con su nombre camelCase— y armaba la línea como
+`addEnumValue · .humor`, con un punto colgando, porque un cambio de objeto no
+cuelga de ninguna tabla; el renderizador usaba `literal()`, que convierte la
+cadena vacía en el keyword NULL —correcto para sacar un comentario, sin sentido
+para una etiqueta— y ahora usa el citador de cadenas a secas; y las etiquetas no
+pasaban por el límite de 63 bytes que tiene todo otro nombre, así que las
+rechazaba el servidor en vez del renderizador, después de haberlas dejado
+preparar y revisar.
+
+También se tipó el callback que prepara el cambio, que estaba como `unknown` con
+un `as never` del otro lado. Eso borraba el contrato entero: escribir
+`beforeValue` en vez de `before` compilaba igual y el campo se perdía en
+silencio — y ese campo es la posición del valor, lo único que después no se
+puede corregir.
+
+**Los enums son de PostgreSQL y punto.** En MySQL y MariaDB un ENUM es un TIPO
+DE COLUMNA y no un objeto del catálogo —vive en la definición de la columna— y
+SQLite no los tiene. No hace falta ninguna capacidad nueva para que la pantalla
+no aparezca ahí: el árbol no lista ninguno, porque el catálogo no tiene ninguno.
 
 **S16 se parte en dos, y el orden no es casual: primero los dependientes.** La
 pantalla del objeto ya existía en solo lectura, así que la lista de qué se rompe

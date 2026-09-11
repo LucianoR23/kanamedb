@@ -31,19 +31,60 @@ func (t Tramo) Len() int { return t.Hasta - t.Desde }
 // de agrupar — y esa se pierde de todas formas, con la diferencia de que ahora
 // se dice en vez de fingirse.
 //
-// `esDatos` dice si la sentencia i toca filas en vez de estructura.
-func TramosDe(n int, caps Caps, esDatos func(i int) bool) []Tramo {
+// `esDatos` dice si la sentencia i toca filas en vez de estructura, y `aislada`
+// si tiene que CONFIRMARSE SOLA antes de que siga el resto.
+//
+// Lo segundo existe por una sola cosa y es real: `ALTER TYPE … ADD VALUE` de
+// PostgreSQL agrega el valor dentro de la transacción, pero el valor NO SE
+// PUEDE USAR hasta que esa transacción confirme. Comprobado contra 14, 16, 17 y
+// 18: agregar un valor y usarlo en el mismo BEGIN da «unsafe use of new value …
+// New enum values must be committed before they can be used» (SQLSTATE 55P04) y
+// tira el changeset entero.
+//
+// La primera medición dijo que la 17 y la 18 lo habían relajado, y era un
+// artefacto: `psql -c` con todas las sentencias en UNA cadena las manda en un
+// solo mensaje de consulta simple, y ahí el servidor no se queja. Mandadas de a
+// una —que es como las manda Kaname— fallan en las cuatro versiones.
+//
+// Aislar significa exactamente eso y nada más: la sentencia queda en su propio
+// tramo, que se confirma antes de empezar el siguiente. NO deja de ser todo o
+// nada —sigue siendo una sola sentencia, que es atómica—; lo que se pierde es
+// agruparla con el resto, y eso es justo lo que hace falta para que el resto la
+// pueda usar.
+func TramosDe(n int, caps Caps, esDatos func(i int) bool, aislada func(i int) bool) []Tramo {
 	if n == 0 {
 		return nil
 	}
+	if aislada == nil {
+		aislada = func(int) bool { return false }
+	}
 	if caps.TransactionalDDL {
-		return []Tramo{{Desde: 0, Hasta: n, Transaccional: true}}
+		// Con DDL transaccional sería un solo tramo, salvo por las aisladas: hay
+		// que cortar antes y después de cada una.
+		var out []Tramo
+		desde := 0
+		for i := 0; i < n; i++ {
+			if !aislada(i) {
+				continue
+			}
+			if i > desde {
+				out = append(out, Tramo{Desde: desde, Hasta: i, Transaccional: true})
+			}
+			out = append(out, Tramo{Desde: i, Hasta: i + 1, Transaccional: false})
+			desde = i + 1
+		}
+		if desde < n {
+			out = append(out, Tramo{Desde: desde, Hasta: n, Transaccional: true})
+		}
+		return out
 	}
 
 	var out []Tramo
 	i := 0
 	for i < n {
 		if !esDatos(i) {
+			// Una aislada ya queda sola por ser DDL: acá no hace falta nada
+			// especial, y por eso no se la mira.
 			// Un DDL solo. No se agrupa ni con el DDL de al lado: agruparlos no
 			// daría ninguna garantía extra y sí daría la impresión de que sí.
 			out = append(out, Tramo{Desde: i, Hasta: i + 1, Transaccional: false})

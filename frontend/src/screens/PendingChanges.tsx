@@ -467,10 +467,20 @@ function resumen(v: ChangeView): string {
     return `${etiquetaDeTipo(c.type)} · ${c.table}${clave ? ` (${clave})` : ""}`;
   }
   const objeto = c.column?.name ?? c.name ?? c.newName ?? "";
+  // Un cambio de OBJETO no cuelga de una tabla —una vista y un enum viven
+  // solos— así que el nombre va calificado con su esquema. Sin esto la línea
+  // salía como «addEnumValue · .humor», con un punto colgando y sin decir dónde.
+  if (!c.table) {
+    const donde = c.schema ? `${c.schema}.${objeto}` : objeto;
+    return `${etiquetaDeTipo(c.type)}${donde ? " · " + donde : ""}`;
+  }
   return `${etiquetaDeTipo(c.type)} · ${c.table}${objeto ? "." + objeto : ""}`;
 }
 
 const TIPOS: Record<string, string> = {
+  replaceObject: "reemplazar definición",
+  addEnumValue: "agregar valor al enum",
+  renameEnumValue: "renombrar valor del enum",
   createTable: "crear tabla",
   dropTable: "borrar tabla",
   renameTable: "renombrar tabla",
