@@ -140,6 +140,7 @@ export function DataGrid({
   onColumnMenu,
   keys,
   edit,
+  anchoDeColumna,
 }: {
   result: Result;
   selection: CellRef | null;
@@ -157,6 +158,10 @@ export function DataGrid({
   keys?: Readonly<Record<string, "pk" | "fk">>;
   /** Con esto la grilla se puede editar. Sin esto es la de solo lectura de S07. */
   edit?: GridEdit;
+  /** Ancho de arranque de una columna, si quien dibuja sabe más que el tipo:
+   *  el plan de ejecución es texto largo y 200 píxeles lo cortan en la
+   *  primera palabra. Recibe el ancho por defecto y devuelve el que va. */
+  anchoDeColumna?: (c: Column, porDefecto: number) => number;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -214,7 +219,7 @@ export function DataGrid({
       id: `${i}:${c.name}`,
       accessorFn: (fila: (string | null)[]) => fila[i] ?? null,
       header: c.name,
-      size: anchoDe(c),
+      size: anchoDeColumna ? anchoDeColumna(c, anchoDe(c)) : anchoDe(c),
       minSize: 48,
     })),
     getRowId: (_fila, i) => String(i),

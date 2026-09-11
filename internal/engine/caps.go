@@ -21,6 +21,7 @@ var capacidades = map[Kind]Caps{
 		DeferrableConstraints: true,
 		// Postgres trunca en silencio a 63 bytes. Ver kaname-plan.md § 6.
 		MaxIdentifier: 63,
+		ExplainPrefix: "EXPLAIN",
 	},
 	MySQL: {
 		// Comprobado contra MySQL 9.7.2: un CREATE TABLE dentro de una
@@ -39,6 +40,7 @@ var capacidades = map[Kind]Caps{
 		PartialIndexes:        false,
 		DeferrableConstraints: false,
 		MaxIdentifier:         64,
+		ExplainPrefix:         "EXPLAIN",
 	},
 	// MariaDB no es «MySQL con otro nombre», y probando las dos quedó a la
 	// vista: 12.3 tiene secuencias, UUID, INET6, RETURNING y períodos de
@@ -60,6 +62,7 @@ var capacidades = map[Kind]Caps{
 		PartialIndexes:        false,
 		DeferrableConstraints: false,
 		MaxIdentifier:         64,
+		ExplainPrefix:         "EXPLAIN",
 	},
 	SQLite: {
 		TransactionalDDL: true,
@@ -78,6 +81,7 @@ var capacidades = map[Kind]Caps{
 		// SQLite no impone límite. Se pone uno igual, generoso: un nombre de
 		// mil caracteres no es un caso de uso, es un accidente.
 		MaxIdentifier: 255,
+		ExplainPrefix: "EXPLAIN QUERY PLAN",
 	},
 }
 

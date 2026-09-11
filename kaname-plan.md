@@ -656,10 +656,15 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   valores coinciden exactamente, así que no se ve nada mal — pero cambiar el
   color de una cascada exige saber que se llama como un entorno de staging. Es
   un renombre, no un rediseño.
-- **Plan de ejecución y Formatear** — los dos botones grises del editor SQL, que
-  el plan nombraba una sola vez y no agendaba nunca. Agendados acá, con el
-  diseño decidido en la § 6. **El plan de ejecución no necesita ninguna
-  dependencia; Formatear sí, y por eso van en dos commits separados.**
+- ✅ **Plan de ejecución** — el primero de los dos botones grises del editor
+  SQL. Pestaña «Plan» al lado de Resultados y Mensajes; explica la sentencia
+  bajo el cursor con `EXPLAIN` —`EXPLAIN QUERY PLAN` en SQLite—, que **no la
+  ejecuta**, y el test lo prueba en los cinco motores pidiendo el plan de un
+  DELETE. Postgres y MySQL 9 devuelven un árbol de texto y se muestra como en
+  psql; MariaDB y SQLite una tabla, en la grilla con las columnas medidas por
+  su contenido. Ver la § 6.
+- ⏳ **Formatear** — el segundo, con `sql-formatter` en su propio commit,
+  versión exacta y changelog leído. Ver la § 6.
 - **Pase de movimiento.** Ver § 6.
 - ✅ **S02 Carpetas.** Pedido del usuario el 2026-09-11, y estaba en el artboard
   desde el principio —«New folder», «Move to folder»— aunque la implementación
@@ -1203,6 +1208,55 @@ para poder cancelar.
 Una sola sentencia por vez: `EXPLAIN` toma una. El editor ya sabe partir el texto
 desde la iteración 6, así que se explica **la que está bajo el cursor** y, si no
 se puede saber cuál es, se dice en vez de adivinar.
+
+**Plan de ejecución, hecho: lo que fijó la implementación.**
+
+- **El prefijo vive en `engine.Caps.ExplainPrefix`**, y un motor desconocido
+  lo tiene vacío: cero es «no da plan», que es el lado seguro. `EXPLAIN` en
+  Postgres, MySQL y MariaDB; `EXPLAIN QUERY PLAN` en SQLite, porque un
+  `EXPLAIN` a secas ahí devuelve el bytecode de la máquina virtual.
+- **`Queries.Explain(runID, sql, line)`** recibe el texto entero y la línea
+  del cursor, parte con `query.Split` y elige **la última sentencia que
+  empieza en esa línea o antes**: el cursor en la línea en blanco después de
+  una sentencia sigue apuntando a ella. Con una sola no hace falta cursor;
+  con varias y el cursor antes de la primera, se dice en vez de adivinar.
+  Comparte el `runID` con Run —cancelar corta cualquiera de los dos—, así que
+  no corren a la vez: la barra deshabilita el otro botón.
+- **Lista blanca, no lista negra.** La primera versión rechazaba solo lo que
+  empezaba con EXPLAIN, y el review `high` la rompió en un minuto: `ANALYZE
+  DELETE FROM t` bajo el cursor, pegado detrás del prefijo, es `EXPLAIN
+  ANALYZE DELETE FROM t` —Postgres acepta las opciones después de la palabra,
+  con o sin paréntesis; MySQL también tiene EXPLAIN ANALYZE— y **borra**.
+  Comprobado contra el Postgres de prueba: el test lo ve (con la lista negra
+  vuelta a poner, «quedan 0 filas»). Ahora solo llega al motor lo que
+  EXPLAIN sabe planificar —SELECT, INSERT, UPDATE, DELETE, WITH, VALUES,
+  TABLE, MERGE, REPLACE— y el resto se dice: un EXPLAIN a mano, una opción
+  suelta, un DDL. Quien quiera un EXPLAIN ANALYZE lo ejecuta como cualquier
+  otra sentencia, por el camino que confirma.
+- **Sin límite de filas para el plan**: es chico y llega entero, y cortado a
+  la mitad del árbol sin que la vista lo diga es peor que no darlo. Del mismo
+  review: Ctrl+↵ con el plan en curso corría la consulta sin registrarla
+  —comparten el `runID`— y «Cancelar» no la encontraba; y el bloque
+  «Ejecutando…» ahora se muestra en cualquier pestaña, que es el único lugar
+  con «Cancelar».
+- **No va al historial.** El historial es lo que se ejecutó, y esto no lo fue.
+- **Cuatro tests, cuatro inyecciones en rojo**: `EXPLAIN ANALYZE` puesto en
+  el prefijo de Postgres borra las filas y el test lo ve; elegir siempre la
+  primera sentencia; aceptar el EXPLAIN a mano; anotar en el historial. El
+  primero corre contra los cinco motores y por eso el armado de sesión por
+  motor de `session_test.go` pasó a un helper (`abrirMotorDePrueba`).
+- **La forma del plan no es una sola.** Postgres da UNA columna de texto donde
+  la sangría es el árbol; en una grilla se pierde la sangría y cada línea se
+  corta en la primera palabra. Así que un plan de una columna se muestra como
+  texto tal cual, como en psql. **MySQL 9.7 también**: desde la 8.3 el formato
+  por defecto de `EXPLAIN` es TREE, no la tabla, y así llegó en la prueba a
+  mano. MariaDB y SQLite dan una tabla, y esa va en la grilla con un prop
+  nuevo, `anchoDeColumna`: la grilla saca los anchos del tipo y no del
+  contenido porque una página cambia al cargar más filas, pero un plan son
+  pocas filas y llegan enteras, así que ahí sí se mide —ni `select_type`
+  ocupa media pantalla ni `Extra` se corta—.
+- **Ctrl+C y el visor de celda trabajan sobre lo que se está mirando**: con la
+  pestaña Plan abierta, sobre el plan y no sobre el resultado de al lado.
 
 **Formatear: se hace, pero con una dependencia y nunca a mano.** Es lo que
 respondía a la pregunta de si alguno traería problema: escribir un formateador

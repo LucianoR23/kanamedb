@@ -381,68 +381,81 @@ func TestErdLayoutSinConexionNoInventaNada(t *testing.T) {
 // leer la conexión del archivo, sacar la contraseña del keychain, armar el
 // DSN, abrir, leer el catálogo y renderizar un cambio. Cada paso pasaba por
 // algo específico de Postgres.
-func TestElServicioAbreLosCuatroMotores(t *testing.T) {
-	casos := []struct {
-		nombre string
-		uri    string
-		// archivo pide una base de SQLite en un directorio temporal.
-		archivo bool
-	}{
-		{"postgres", "postgres://kaname:kaname@127.0.0.1:55432/kaname_test?sslmode=disable", false},
-		{"mysql", "mysql://kaname:kaname@127.0.0.1:53306/kaname_test", false},
-		{"mariadb", "mariadb://kaname:kaname@127.0.0.1:53307/kaname_test", false},
-		{"mariadb-lts", "mariadb://kaname:kaname@127.0.0.1:53308/kaname_test", false},
-		{"sqlite", "", true},
+// motorDePrueba es cada uno de los motores contra los que corren los tests de
+// sesión. Los de servidor se saltean si no están escuchando —salvo con
+// KANAME_REQUIRE_ENGINES, que en CI los vuelve un fallo—; SQLite es un archivo
+// en un directorio temporal y nunca se saltea.
+type motorDePrueba struct {
+	nombre string
+	uri    string
+	// archivo pide una base de SQLite en un directorio temporal.
+	archivo bool
+}
+
+var motoresDePrueba = []motorDePrueba{
+	{"postgres", "postgres://kaname:kaname@127.0.0.1:55432/kaname_test?sslmode=disable", false},
+	{"mysql", "mysql://kaname:kaname@127.0.0.1:53306/kaname_test", false},
+	{"mariadb", "mariadb://kaname:kaname@127.0.0.1:53307/kaname_test", false},
+	{"mariadb-lts", "mariadb://kaname:kaname@127.0.0.1:53308/kaname_test", false},
+	{"sqlite", "", true},
+}
+
+// abrirMotorDePrueba conecta una sesión nueva al motor, o saltea el test.
+func abrirMotorDePrueba(t *testing.T, caso motorDePrueba) (*Session, connection.Connection, ConnectResult) {
+	t.Helper()
+	st := store.New(filepath.Join(t.TempDir(), "connections.toml"))
+	kr := newFakeKeyring()
+
+	var c connection.Connection
+	if caso.archivo {
+		c = connection.Connection{
+			ID: "s1", Name: "archivo", Engine: connection.SQLite,
+			Database: filepath.ToSlash(filepath.Join(t.TempDir(), "kaname.db")),
+		}
+	} else {
+		parsed, err := connection.ParseURI(caso.uri)
+		if err != nil {
+			t.Fatalf("el DSN de pruebas no se pudo interpretar: %v", err)
+		}
+		c = parsed.Connection
+		c.ID, c.Name = "s1", caso.nombre
+		if parsed.Password != "" {
+			if err := kr.Set(c.ID, parsed.Password); err != nil {
+				t.Fatalf("guardar la contraseña: %v", err)
+			}
+		}
+	}
+	c.Environment = connection.Local
+	if err := st.Add(c.Normalize()); err != nil {
+		t.Fatalf("Add(): %v", err)
 	}
 
-	for _, caso := range casos {
+	sesion := NewSession(st, kr,
+		tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")),
+		layout.New(filepath.Join(t.TempDir(), "layouts")))
+	t.Cleanup(sesion.Disconnect)
+
+	res := sesion.Connect(context.Background(), c.ID)
+	if !res.OK {
+		msg := "sin detalle"
+		if res.Failure != nil {
+			msg = res.Failure.Message + " — " + res.Failure.Detail
+		}
+		if os.Getenv("KANAME_REQUIRE_ENGINES") != "" || caso.archivo {
+			t.Fatalf("no conectó: %s", msg)
+		}
+		t.Skipf("no hay %s escuchando (%s).\n"+
+			"Levantalo con: docker compose -f docker-compose.test.yml up -d",
+			caso.nombre, msg)
+	}
+	return sesion, c, res
+}
+
+func TestElServicioAbreLosCuatroMotores(t *testing.T) {
+	for _, caso := range motoresDePrueba {
 		t.Run(caso.nombre, func(t *testing.T) {
-			st := store.New(filepath.Join(t.TempDir(), "connections.toml"))
-			kr := newFakeKeyring()
-
-			var c connection.Connection
-			if caso.archivo {
-				c = connection.Connection{
-					ID: "s1", Name: "archivo", Engine: connection.SQLite,
-					Database: filepath.ToSlash(filepath.Join(t.TempDir(), "kaname.db")),
-				}
-			} else {
-				parsed, err := connection.ParseURI(caso.uri)
-				if err != nil {
-					t.Fatalf("el DSN de pruebas no se pudo interpretar: %v", err)
-				}
-				c = parsed.Connection
-				c.ID, c.Name = "s1", caso.nombre
-				if parsed.Password != "" {
-					if err := kr.Set(c.ID, parsed.Password); err != nil {
-						t.Fatalf("guardar la contraseña: %v", err)
-					}
-				}
-			}
-			c.Environment = connection.Local
-			if err := st.Add(c.Normalize()); err != nil {
-				t.Fatalf("Add(): %v", err)
-			}
-
-			sesion := NewSession(st, kr,
-				tunnel.NewKnownHosts(filepath.Join(t.TempDir(), "known_hosts")),
-				layout.New(filepath.Join(t.TempDir(), "layouts")))
-			t.Cleanup(sesion.Disconnect)
-
+			sesion, c, res := abrirMotorDePrueba(t, caso)
 			ctx := context.Background()
-			res := sesion.Connect(ctx, c.ID)
-			if !res.OK {
-				msg := "sin detalle"
-				if res.Failure != nil {
-					msg = res.Failure.Message + " — " + res.Failure.Detail
-				}
-				if os.Getenv("KANAME_REQUIRE_ENGINES") != "" || caso.archivo {
-					t.Fatalf("no conectó: %s", msg)
-				}
-				t.Skipf("no hay %s escuchando (%s).\n"+
-					"Levantalo con: docker compose -f docker-compose.test.yml up -d",
-					caso.nombre, msg)
-			}
 
 			// La barra de estado tiene que tener qué mostrar, y el motor que
 			// dice tiene que ser el que se pidió.

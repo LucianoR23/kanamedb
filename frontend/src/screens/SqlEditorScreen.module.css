@@ -429,3 +429,18 @@
   color: var(--warning);
   text-wrap: pretty;
 }
+
+/* El plan de Postgres: una columna de texto donde la sangría es el árbol. Se
+   muestra tal cual, sin envolver, para que se lea como en psql. */
+.planTexto {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  font: 400 12px/1.55 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre;
+  user-select: text;
+  tab-size: 4;
+}

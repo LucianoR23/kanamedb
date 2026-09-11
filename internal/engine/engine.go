@@ -144,6 +144,17 @@ type Caps struct {
 	// trunque o lo rechace. Se valida ANTES de renderizar: Postgres trunca en
 	// silencio a 63, que es un bug esperando, y por eso ya se rechaza.
 	MaxIdentifier int
+
+	// ExplainPrefix es lo que se antepone a una sentencia para pedir su plan
+	// SIN ejecutarla: `EXPLAIN` en Postgres, MySQL y MariaDB, `EXPLAIN QUERY
+	// PLAN` en SQLite (un `EXPLAIN` a secas ahí devuelve el bytecode de la
+	// máquina virtual, que no le sirve a nadie).
+	//
+	// La única decisión de seguridad del plan de ejecución es que esta
+	// variante no corre nada. `EXPLAIN ANALYZE` sí corre —un DELETE incluido—
+	// y por eso no está acá ni como opción: un botón que a veces ejecuta y a
+	// veces no es exactamente la clase de cosa que esta aplicación no hace.
+	ExplainPrefix string
 }
 
 // Statement es cómo se cita un identificador en este motor. Va acá y no en el

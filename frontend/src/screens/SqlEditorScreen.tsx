@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as HistorySvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/history";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
+import type { Batch, Column, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import { Button, ContextMenu, Dialog, Input, PillTabs, Spinner } from "../components/ui";
 import type { MenuAnchor } from "../components/ui";
@@ -30,15 +30,22 @@ type Estado =
   | { fase: "listo"; batch: Batch }
   | { fase: "error"; failure: Failure; batch: Batch | null };
 
+/** El plan de ejecución tiene su propio estado, aparte del de ejecutar: pedir
+ *  el plan no toca los resultados que ya están en la pestaña de al lado. */
+type Plan =
+  | { fase: "vacio" }
+  | { fase: "corriendo" }
+  | { fase: "listo"; result: Result; elapsedMs: number }
+  | { fase: "error"; failure: Failure };
+
 const PANEL = { min: 220, max: 520, initial: 300 };
 
 /**
  * S06 SQL editor.
  *
- * Iteración 2: escribir, ejecutar, cancelar y ver el resultado. Explain,
- * Format, guardar consultas y envolver en transacción están en la barra pero
- * deshabilitados: pertenecen a iteraciones posteriores y sacarlos dejaría una
- * barra que no se parece al diseño ni promete lo que va a venir.
+ * Escribir, ejecutar, cancelar y ver el resultado; guardar con nombre; y pedir
+ * el plan de ejecución de la sentencia bajo el cursor, que el motor da sin
+ * correrla. Envolver en transacción sigue sin estar.
  */
 export function SqlEditorScreen({
   tabId,
@@ -89,6 +96,8 @@ export function SqlEditorScreen({
   const [nombre, setNombre] = useState("");
   const [errorGuardar, setErrorGuardar] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "vacio" });
+  const [plan, setPlan] = useState<Plan>({ fase: "vacio" });
+  const [seleccionPlan, setSeleccionPlan] = useState<CellRef | null>(null);
   const [panel, setPanel] = useState("results");
   const [ancho, setAncho] = useState(PANEL.initial);
   const [cursor, setCursor] = useState({ linea: 1, columna: 1 });
@@ -108,6 +117,9 @@ export function SqlEditorScreen({
   const runID = useRef(`${tabId}:${Math.random().toString(36).slice(2)}`).current;
 
   const corriendo = estado.fase === "corriendo";
+  // Ejecutar y pedir el plan comparten el runID —es lo que permite cancelar
+  // cualquiera de los dos con el mismo botón—, así que no van a la vez.
+  const pidiendoPlan = plan.fase === "corriendo";
 
   // El contador de la pantalla de "corriendo". Es lo único que dice que la app
   // no se colgó cuando una consulta tarda.
@@ -137,7 +149,10 @@ export function SqlEditorScreen({
   }
 
   async function ejecutar() {
-    if (corriendo || sql.trim() === "") return;
+    // También con el plan en curso: Ctrl+↵ llega acá sin pasar por el botón,
+    // y las dos llamadas comparten el runID. Sin esto, la consulta corría sin
+    // registrarse y «Cancelar» no la encontraba.
+    if (corriendo || pidiendoPlan || sql.trim() === "") return;
     setEstado({ fase: "corriendo", desde: Date.now() });
     setSeleccion(null);
     const res = await QueriesSvc.Run(runID, sql);
@@ -175,16 +190,45 @@ export function SqlEditorScreen({
     void QueriesSvc.Cancel(runID);
   }
 
+  /**
+   * Pide el plan de la sentencia bajo el cursor. El motor no la ejecuta: es
+   * EXPLAIN a secas —EXPLAIN QUERY PLAN en SQLite—, nunca ANALYZE. Un DELETE
+   * bajo el cursor no borra nada. La línea la elige Go, con el texto entero
+   * y la línea del cursor; si hay varias y el cursor no está sobre ninguna,
+   * lo dice en vez de adivinar.
+   */
+  async function pedirPlan() {
+    if (corriendo || pidiendoPlan || sql.trim() === "") return;
+    setPlan({ fase: "corriendo" });
+    setSeleccionPlan(null);
+    setPanel("plan");
+    const res = await QueriesSvc.Explain(runID, sql, cursor.linea);
+    const result = (res.batch?.results ?? [])[0];
+    if (res.ok && result) {
+      setPlan({ fase: "listo", result, elapsedMs: res.batch?.elapsedMs ?? 0 });
+      return;
+    }
+    if (res.failure?.kind === "canceled") {
+      setPlan({ fase: "vacio" });
+      return;
+    }
+    setPlan({
+      fase: "error",
+      failure: res.failure ?? ({ kind: "other", message: "El plan falló sin detalle." } as Failure),
+    });
+  }
+
   // Ctrl+C sobre la grilla copia LA CELDA seleccionada, no el resultado entero:
   // el resultado entero es lo que hace el botón «Copiar» de la barra. Son dos
   // cosas distintas y la tecla es la del sistema, que en cualquier grilla copia
   // lo que está seleccionado.
   function tecladoResultado(e: React.KeyboardEvent) {
-    if (!seleccion || !result?.returnsRows) return;
+    const { result: visible, seleccion: sel } = enPantalla;
+    if (!sel || !visible?.returnsRows) return;
     if (!(e.target instanceof HTMLElement) || e.target.getAttribute("role") !== "grid") return;
     if (!((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C"))) return;
     e.preventDefault();
-    const valor = (result.rows ?? [])[seleccion.row]?.[seleccion.col] ?? null;
+    const valor = (visible.rows ?? [])[sel.row]?.[sel.col] ?? null;
     void alPortapapeles(textoDeCelda(valor))
       .then(() => setCopia("ok"))
       .catch(() => setCopia("error"));
@@ -214,11 +258,23 @@ export function SqlEditorScreen({
   const resultados = lote?.results ?? [];
   const result: Result | null = resultados[Math.min(cual, resultados.length - 1)] ?? null;
   const columnas = result?.columns ?? [];
+  // Lo que hay a la vista: el resultado de ejecutar, o el plan. Copiar una
+  // celda con Ctrl+C y abrirla en el visor trabajan sobre lo que se está
+  // mirando, no sobre la pestaña de al lado.
+  const enPantalla: { result: Result | null; seleccion: CellRef | null } =
+    panel === "plan"
+      ? { result: plan.fase === "listo" ? plan.result : null, seleccion: seleccionPlan }
+      : { result, seleccion };
 
   return (
     <div className={styles.screen}>
       <div className={styles.toolbar}>
-        <Button variant="primary" size="sm" onClick={() => void ejecutar()} disabled={corriendo}>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void ejecutar()}
+          disabled={corriendo || pidiendoPlan}
+        >
           {corriendo ? "Ejecutando…" : "Ejecutar"}
           <span className={styles.shortcut}>Ctrl ↵</span>
         </Button>
@@ -237,18 +293,16 @@ export function SqlEditorScreen({
           Guardar…
         </Button>
         <span className={styles.divider} />
-        {/* Los dos dicen en castellano lo que hacen. «Explain» era el nombre de
-            la sentencia de Postgres puesto como etiqueta, en inglés y entre dos
-            botones que no lo están; lo que la persona quiere no es escribir
-            EXPLAIN, es ver el plan.
-
-            Siguen deshabilitados y el título ya no promete una fecha: el plan
-            los nombra una sola vez —«sin Explain, Format… son de iteraciones
-            posteriores»— y nunca los agendó. Prometer «la próxima iteración»
-            sin que nadie lo haya agendado es el mismo cartel vacío que el chip
-            «Ctrl K» tuvo durante ocho iteraciones. */}
-        <button type="button" className={styles.link} disabled title="Ver el plan de ejecución. Todavía no está.">
-          Plan de ejecución
+        {/* Dice en castellano lo que hace: lo que la persona quiere no es
+            escribir EXPLAIN, es ver el plan. */}
+        <button
+          type="button"
+          className={styles.link}
+          disabled={corriendo || pidiendoPlan || sql.trim() === ""}
+          title="Cómo va a correr el motor la sentencia bajo el cursor, sin correrla."
+          onClick={() => void pedirPlan()}
+        >
+          {pidiendoPlan ? "Pidiendo el plan…" : "Plan de ejecución"}
         </button>
         <button type="button" className={styles.link} disabled title="Ordenar la consulta. Todavía no está.">
           Formatear
@@ -314,13 +368,18 @@ export function SqlEditorScreen({
             items={[
               { id: "results", label: "Resultados" },
               { id: "messages", label: "Mensajes" },
+              { id: "plan", label: "Plan" },
             ]}
             activeId={panel}
             onSelect={setPanel}
             ariaLabel="Panel de resultados"
           />
           <span className={styles.grow} />
-          {result ? (
+          {panel === "plan" ? (
+            <span className={cx(styles.meta, plan.fase === "error" && styles.metaError)}>
+              {metaDelPlan(plan)}
+            </span>
+          ) : result ? (
             <span className={styles.meta}>
               {result.returnsRows
                 ? `${(result.rows ?? []).length.toLocaleString("es", { useGrouping: true })} ${plural((result.rows ?? []).length, "fila", "filas")}`
@@ -328,10 +387,12 @@ export function SqlEditorScreen({
               {result.truncated ? " · cortado por el límite" : ""}
             </span>
           ) : null}
-          <span className={cx(styles.meta, estado.fase === "error" && styles.metaError)}>
-            {metaDe(estado)}
-          </span>
-          {result?.returnsRows ? (
+          {panel === "plan" ? null : (
+            <span className={cx(styles.meta, estado.fase === "error" && styles.metaError)}>
+              {metaDe(estado)}
+            </span>
+          )}
+          {panel !== "plan" && result?.returnsRows ? (
             <>
               <button
                 type="button"
@@ -351,7 +412,7 @@ export function SqlEditorScreen({
           ) : null}
         </div>
 
-        {resultados.length > 1 ? (
+        {panel !== "plan" && resultados.length > 1 ? (
           <div className={styles.resultTabs}>
             {resultados.map((r, i) => (
               <button
@@ -372,17 +433,9 @@ export function SqlEditorScreen({
         ) : null}
 
         <div className={styles.resultsBody} onKeyDown={tecladoResultado}>
-          {estado.fase === "cancelada" ? (
-            <div className={styles.sinFilas}>
-              <p className={styles.sinFilasTitulo}>Consulta cancelada</p>
-              <p className={styles.sinFilasNota}>
-                Se cortó la ejecución en el servidor. No quedó nada a medias: Postgres
-                revierte la transacción implícita del lote.
-              </p>
-            </div>
-          ) : panel === "messages" ? (
-            <Mensajes estado={estado} />
-          ) : corriendo ? (
+          {/* Corriendo se muestra en cualquier pestaña: es lo único que dice
+              que la app no se colgó, y el único lugar con «Cancelar». */}
+          {corriendo ? (
             <div className={styles.corriendo}>
               <Spinner />
               <div className={styles.corriendoTitulo}>Ejecutando en {connectionLabel}…</div>
@@ -396,6 +449,24 @@ export function SqlEditorScreen({
                 Cancelar consulta
               </button>
             </div>
+          ) : panel === "plan" ? (
+            <PanelDelPlan
+              plan={plan}
+              seleccion={seleccionPlan}
+              onSelect={setSeleccionPlan}
+              onOpenCell={setVisor}
+              onCancelar={cancelar}
+            />
+          ) : estado.fase === "cancelada" ? (
+            <div className={styles.sinFilas}>
+              <p className={styles.sinFilasTitulo}>Consulta cancelada</p>
+              <p className={styles.sinFilasNota}>
+                Se cortó la ejecución en el servidor. No quedó nada a medias: Postgres
+                revierte la transacción implícita del lote.
+              </p>
+            </div>
+          ) : panel === "messages" ? (
+            <Mensajes estado={estado} />
           ) : result && result.returnsRows ? (
             <DataGrid
               result={result}
@@ -452,11 +523,11 @@ export function SqlEditorScreen({
         />
       ) : null}
 
-      {visor && result ? (
+      {visor && enPantalla.result ? (
         <CellViewer
           open
-          columns={columnas}
-          row={(result.rows ?? [])[visor.row] ?? []}
+          columns={enPantalla.result.columns ?? []}
+          row={(enPantalla.result.rows ?? [])[visor.row] ?? []}
           index={visor.col}
           rowNumber={visor.row + 1}
           source="resultado"
@@ -603,6 +674,111 @@ function metaDe(e: Estado): string {
     default:
       return "";
   }
+}
+
+function metaDelPlan(p: Plan): string {
+  switch (p.fase) {
+    case "corriendo":
+      return "pidiendo el plan…";
+    case "error":
+      return "no se pudo";
+    case "listo":
+      return `plan de la sentencia de la línea ${p.result.line} · no se ejecutó · ${p.elapsedMs} ms`;
+    default:
+      return "";
+  }
+}
+
+/**
+ * El plan de ejecución. Los cuatro motores lo devuelven como filas, pero no
+ * con la misma forma: Postgres da UNA columna de texto donde la sangría es el
+ * árbol —una grilla la pierde y corta cada línea en la primera palabra—, así
+ * que eso va como texto tal cual. MySQL, MariaDB y SQLite dan una tabla, y
+ * esa sí va en la grilla, con las columnas de texto más anchas que las de un
+ * resultado común.
+ */
+function PanelDelPlan({
+  plan,
+  seleccion,
+  onSelect,
+  onOpenCell,
+  onCancelar,
+}: {
+  plan: Plan;
+  seleccion: CellRef | null;
+  onSelect: (ref: CellRef | null) => void;
+  onOpenCell: (ref: CellRef) => void;
+  onCancelar: () => void;
+}) {
+  switch (plan.fase) {
+    case "corriendo":
+      return (
+        <div className={styles.corriendo}>
+          <Spinner />
+          <div className={styles.corriendoTitulo}>Pidiendo el plan…</div>
+          <button type="button" className={styles.cancel} onClick={onCancelar}>
+            Cancelar
+          </button>
+        </div>
+      );
+    case "error":
+      return <Mensajes estado={{ fase: "error", failure: plan.failure, batch: null }} />;
+    case "listo": {
+      const r = plan.result;
+      if ((r.columns ?? []).length === 1) {
+        return (
+          <pre className={styles.planTexto}>
+            {(r.rows ?? []).map((fila) => fila?.[0] ?? "").join("\n")}
+          </pre>
+        );
+      }
+      const anchos = anchosPorContenido(r);
+      return (
+        <DataGrid
+          result={r}
+          selection={seleccion}
+          onSelect={onSelect}
+          onOpenCell={onOpenCell}
+          anchoDeColumna={(c, porDefecto) => anchos.get(c) ?? porDefecto}
+        />
+      );
+    }
+    default:
+      return (
+        <div className={styles.sinFilas}>
+          <p className={styles.sinFilasTitulo}>Todavía no se pidió ningún plan</p>
+          <p className={styles.sinFilasNota}>
+            «Plan de ejecución» le pide al motor cómo va a correr la sentencia bajo el cursor,
+            sin correrla. Un DELETE bajo el cursor no borra nada.
+          </p>
+        </div>
+      );
+  }
+}
+
+/**
+ * Anchos de columna medidos por el contenido, para el plan tabular.
+ *
+ * La grilla los saca del tipo y no del contenido, porque una página de
+ * resultados cambia al cargar más filas. Un plan no: son pocas filas y llegan
+ * enteras, así que acá sí se mide lo que hay —el encabezado o el valor más
+ * largo— y ni `select_type` ocupa media pantalla ni `Extra` se corta en la
+ * primera palabra.
+ */
+function anchosPorContenido(r: Result): Map<Column, number> {
+  const PX_POR_CARACTER = 7.4;
+  const MARGEN = 28;
+  // El encabezado lleva además la etiqueta del tipo («TXT») y el tirador.
+  const MARGEN_ENCABEZADO = 64;
+  const out = new Map<Column, number>();
+  (r.columns ?? []).forEach((c, i) => {
+    let px = c.name.length * PX_POR_CARACTER + MARGEN_ENCABEZADO;
+    for (const fila of r.rows ?? []) {
+      px = Math.max(px, (fila?.[i] ?? "[null]").length * PX_POR_CARACTER + MARGEN);
+    }
+    out.set(c, Math.min(640, Math.max(64, Math.ceil(px))));
+  });
+  return out;
 }
 
 /** «Corrieron 2 sentencias» / «No corrió ninguna», para el pie del error. */
