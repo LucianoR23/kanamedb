@@ -99,6 +99,72 @@ jobs:
         working-directory: frontend
         run: pnpm run typecheck
 
+  # Secretos en el historial ENTERO, no solo en el árbol de este commit. Es la
+  # condición para que el repo sea público —publicar el repo publica los
+  # commits, y una contraseña commiteada y borrada al siguiente sigue en
+  # `git log -p`— y después de público sigue corriendo en cada push, que es
+  # cuando más importa: lo que entra a main es público en segundos.
+  #
+  # Las reglas están en .gitleaks.toml: las de gitleaks más dos propias, porque
+  # las de fábrica dejaban pasar `postgres://usuario:contraseña@host`, que es
+  # justo el secreto que este proyecto podría filtrar.
+  secretos:
+    name: Secretos en el historial
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Sin esto checkout baja UN commit y «todo el historial» es uno. El
+          # último paso lo comprueba en vez de confiar.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Con go install y no con la GitHub Action de gitleaks: versión exacta e
+      # integridad por el checksum database de Go, igual que govulncheck, y sin
+      # la validación de licencia contra un servidor externo que la action hace
+      # en repos de organización.
+      - name: Instalar gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
+      # Primero se comprueba que la configuración detecta lo que dice detectar:
+      # una DSN y un `password = "…"` con una contraseña de baja entropía, que
+      # las reglas de fábrica no ven. La muestra se arma acá, en partes, para
+      # que este archivo no contenga la forma que busca la regla. Sin este
+      # paso, un .gitleaks.toml roto —una regla mal escrita, una lista blanca
+      # demasiado ancha— dejaría el job verde sin mirar nada.
+      - name: La configuración detecta lo que dice detectar
+        run: |
+          pw=hola1234
+          m="$RUNNER_TEMP/muestra"
+          mkdir -p "$m"
+          { printf 'dsn = "postgres://app:'; printf '%s' "$pw"; printf '@db.example.com:5432/app"\n'; } > "$m/config.toml"
+          { printf 'password = "'; printf '%s' "$pw"; printf '"\n'; } >> "$m/config.toml"
+          if gitleaks dir "$m" --config .gitleaks.toml --no-banner --redact --report-format json --report-path "$m/informe.json"; then
+            echo "gitleaks no detectó la muestra: .gitleaks.toml no sirve"; exit 1
+          fi
+          # gitleaks sale con 1 tanto si encontró algo como si la config no
+          # parsea; el informe distingue los dos casos.
+          test -s "$m/informe.json" || { echo "gitleaks no escribió el informe: revisar .gitleaks.toml"; exit 1; }
+          for regla in kaname-dsn-con-contrasena kaname-password-literal; do
+            if ! jq -e --arg r "$regla" 'any(.[]; .RuleID == $r)' "$m/informe.json" >/dev/null; then
+              echo "la regla $regla no disparó sobre la muestra"; exit 1
+            fi
+          done
+
+      # --redact es obligatorio: si un día encuentra algo, sin él lo imprime en
+      # el log del job, y el log de un repo público es público.
+      - name: gitleaks sobre todos los commits
+        run: |
+          commits=$(git rev-list --count --all)
+          echo "commits en el clon: $commits"
+          if [ "$commits" -lt 2 ]; then
+            echo "el clon no trae el historial: revisar fetch-depth"; exit 1
+          fi
+          gitleaks git --log-opts=--all --config .gitleaks.toml --no-banner --redact
   # Qué se podría subir de versión. NO bloquea: que exista una versión nueva no
   # es un error, es información para decidir.
   #
@@ -426,7 +492,10 @@ jobs:
   # notas y, si hay con qué, de abrir el binario de macOS o Linux en una
   # máquina de verdad. Es el único job que escribe en el repositorio.
   release:
-    name: Release ${{ github.ref_name }}
+    # Nombre fijo a propósito: cuando el job se saltea —todo push que no es
+    # un tag— GitHub muestra el `name:` sin evaluar, y «Release
+    # ${{ github.ref_name }}» parece un error que no es.
+    name: Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build, build-linux, build-macos]
     runs-on: ubuntu-latest

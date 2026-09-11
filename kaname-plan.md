@@ -763,7 +763,9 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
 GitHub Actions. Hoy: builds win-x64 (`windows-latest`), win-arm64
 (`windows-11-arm`), linux-x64 (`ubuntu-24.04`, GTK4 + WebKitGTK 6.0:
 AppImage, .deb y .rpm) y mac-universal (`macos-latest`, `.app` arm64 +
-x86_64 en un .zip); un job de gofmt + vet + test + typecheck; una matriz de
+x86_64 en un .zip); un job de gofmt + vet + test + typecheck; un job
+`secretos` que corre gitleaks sobre el historial entero con `.gitleaks.toml`,
+después de comprobar que esas reglas detectan una muestra; una matriz de
 integración contra PostgreSQL 18, 17, 16 y 14 en `ubuntu-latest` con
 `KANAME_REQUIRE_POSTGRES=1`, para que un job sin base se ponga rojo en vez de
 verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
@@ -1334,6 +1336,63 @@ integración, y ninguna por el código:
 De paso el README dice, en una tabla, desde qué versión de cada motor se puede
 usar Kaname: la pregunta la hizo el usuario y la respuesta estaba repartida
 entre `engine.minimas` y tres comentarios.
+
+**gitleaks sobre el historial entero, como job de CI: el primer ítem del
+checklist de pre-publicación.** Primero se corrió acá, sobre los 146 commits:
+con las reglas de fábrica, **limpio**. Pero limpio con reglas que no buscan lo
+que este proyecto podría filtrar, y eso se comprobó antes de creerlo: una
+muestra con una connection string de Postgres con la contraseña `hola1234`
+adentro, y la misma contraseña en un `password = "…"`, pasó sin un solo
+hallazgo. Las reglas de fábrica
+conocen tokens de proveedores y claves privadas, y la genérica exige entropía
+alta; una DSN con la contraseña adentro, o una contraseña de persona entre
+comillas, no llegan. Lo que quedó:
+
+- **Dos reglas propias en `.gitleaks.toml`.** `kaname-dsn-con-contrasena`:
+  `motor://usuario:contraseña@` para postgres, mysql, mariadb, mongodb, redis,
+  amqp, ssh, http… `kaname-password-literal`: `password = "…"` —o `:`— con
+  la clave `password`, `passwd` o `pwd`, con prefijo en MAYÚSCULAS
+  (`DBPASSWORD`, `POSTGRES_PASSWORD`) o con guion bajo (`db_password`), entre
+  comillas o no (JSON), y el valor entre comillas, sin entropía mínima. Los
+  dos límites son a propósito. Una variante que aceptaba `password = valor`
+  sin comillas disparaba sobre `password = guardada` y `sec.Password =
+  secreto`, que son asignaciones de Go; y el prefijo no puede ser camelCase
+  porque `sshPassword = "kaname"` y `sqlStateInvalidPassword = "28P01"`
+  también lo son, y una lista blanca de identificadores es la que hace que la
+  gente apague el escáner. Con las dos reglas, el historial tiene 50
+  disparos: todos fixtures de tests (`s3cr3t`, `hunter2`, `kaname` del
+  compose, `a%40b` de los tests de escape), un comentario de `uri.go` y el
+  ternario `? "password" : "text"` de `PasswordField`, que no es una
+  asignación y tiene su lista blanca por forma de línea.
+- **Lista blanca por valor, no por archivo.** Una lista por archivo
+  —«todo `_test.go`»— dejaría pasar una DSN real pegada «un momento» en un
+  test, que es exactamente el descuido plausible. Cada contraseña de mentira
+  está enumerada por su valor; agregar una nueva a un test es agregarla al
+  `.gitleaks.toml` a conciencia.
+- **El job se prueba a sí mismo antes de escanear.** Arma esa misma muestra
+  —en partes, con `printf`, para que ni el YAML ni este plan contengan la
+  forma que la regla busca— y exige que las dos reglas
+  disparen. Se comprobó que sirve: con la lista blanca cambiada a `^.*$`, el
+  paso falla. Y el paso del escaneo cuenta los commits del clon y falla si hay
+  menos de dos, porque sin `fetch-depth: 0` checkout baja uno y «todo el
+  historial» es un commit.
+- **`go install` pineado, no la GitHub Action.** Misma integridad que
+  govulncheck (versión exacta, checksum database de Go) y sin la validación
+  de licencia contra un servidor externo que la action hace en repos de
+  organización. `--redact` obligatorio: el log de un repo público es público.
+- **Si un día encuentra algo, la respuesta no es borrarlo**: es rotar el
+  secreto —ya está comprometido— y reescribir el historial con
+  `git filter-repo`, que cambia todos los hashes y obliga a un force push.
+  Por eso este ítem fue el primero del checklist.
+
+Review medium, un hallazgo: la primera versión de la regla exigía un guion
+bajo antes de `password`, y se le pasaban la clave de JSON entre comillas y
+`DBPASSWORD` sin guion. De ahí el prefijo en mayúsculas o con guion bajo, y
+la comprobación de que camelCase sigue afuera.
+
+El job `release` pasa a llamarse «Release» a secas: con `${{ github.ref_name
+}}` en el nombre, GitHub lo mostraba sin evaluar en cada push que no es un
+tag, y parecía un error.
 
 **Automatizar los bumps de dependencias: postergado.** Decisión del usuario:
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
@@ -5060,8 +5119,10 @@ claves ni datos de conexiones reales no es higiene: es irreversible.
 No es una lista para "algún día": es la condición para que el repo pase a
 público. Nada se marca por confianza, todo con evidencia.
 
-- [ ] Auditoría del historial completo en busca de secretos, no solo del árbol
-      actual (`gitleaks detect --log-opts=--all`, como job de CI).
+- [x] Auditoría del historial completo en busca de secretos, no solo del árbol
+      actual. Job `secretos` con `gitleaks git --log-opts=--all` y
+      `.gitleaks.toml`, 2026-09-11: 146 commits limpios, con dos reglas
+      propias para las DSN y los `password = "…"` que las de fábrica no ven.
 - [ ] Verificar que ningún log, mensaje de error ni evento hacia el frontend
       contenga credenciales, connection strings ni valores de filas.
 - [ ] Confirmar que los secretos viven solo en el keychain y que el SQLite de

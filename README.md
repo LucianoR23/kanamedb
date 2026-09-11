@@ -319,12 +319,22 @@ go vet ./...                       # análisis estático
 go test -p 1 ./...                 # tests (ver abajo por qué -p 1)
 govulncheck ./...                  # CVEs alcanzables desde nuestro código
 cd frontend && pnpm run typecheck  # tipos de TypeScript
+gitleaks git --log-opts=--all --redact --config .gitleaks.toml  # secretos en TODO el historial
 ```
 
 `govulncheck` se instala con
 `go install golang.org/x/vuln/cmd/govulncheck@v1.7.0`. Consulta `vuln.go.dev` al
 correr; es una herramienta de desarrollo, la aplicación no hace ninguna llamada
 de red por su cuenta.
+
+`gitleaks` se instala con `go install github.com/zricethezav/gitleaks/v8@v8.30.1`
+y revisa los commits, no solo el árbol: publicar el repo publica el historial, y una contraseña
+commiteada y borrada al commit siguiente sigue en `git log -p`. Las reglas
+están en `.gitleaks.toml` —las de fábrica más dos propias, porque las de
+fábrica dejan pasar `postgres://usuario:contraseña@host`— y CI comprueba
+primero que esas reglas detectan una muestra, y recién después escanea. Una
+contraseña de mentira nueva en un test se agrega a la lista blanca del
+`.gitleaks.toml` por su valor, con el motivo al lado.
 
 El `-p 1` no es opcional cuando hay base: `go test` corre los binarios de cada
 paquete **en paralelo**, y los de `internal/postgres` e `internal/service`
@@ -373,7 +383,9 @@ frontend/
   .npmrc             Filtro de supply chain. Leer antes de tocar.
 internal/            Paquetes de Go. Cada servicio expuesto al frontend vive acá.
 design/             Artboards bajados de Claude Design. No se commitea.
-.github/workflows/   CI: lint, typecheck y build win-x64 + win-arm64.
+.gitleaks.toml       Reglas de gitleaks: las de fábrica más las DSN y `password = "…"`.
+.github/workflows/   CI: lint, typecheck, secretos en el historial, integración,
+                     builds de los tres sistemas y release en borrador con tag.
 CLAUDE.md            Convenciones de código y reglas de seguridad.
 kaname-plan.md       Plan por iteraciones y registro de decisiones.
 ```
