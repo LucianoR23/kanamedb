@@ -302,3 +302,23 @@ func TestUnTunelApagadoNoExigeSusCampos(t *testing.T) {
 		t.Errorf("un túnel apagado hizo fallar la validación: %v", err)
 	}
 }
+
+// Sin carpeta es un estado válido —es el de toda conexión que existía antes de
+// que hubiera carpetas—, y con carpeta el límite es el del nombre.
+func TestLaCarpetaEsOpcionalYTieneElLimiteDelNombre(t *testing.T) {
+	c := valid()
+	c.Folder = ""
+	if err := c.Validate(); err != nil {
+		t.Errorf("una conexión sin carpeta fue rechazada: %v", err)
+	}
+
+	c.Folder = strings.Repeat("á", maxNameLength)
+	if err := c.Validate(); err != nil {
+		t.Errorf("una carpeta de %d caracteres fue rechazada: %v", maxNameLength, err)
+	}
+
+	c.Folder = strings.Repeat("á", maxNameLength+1)
+	if _, ok := fieldErrors(t, c)["folder"]; !ok {
+		t.Errorf("una carpeta de %d caracteres debería ser rechazada, y en el campo folder", maxNameLength+1)
+	}
+}

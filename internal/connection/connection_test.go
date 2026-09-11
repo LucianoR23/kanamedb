@@ -386,3 +386,23 @@ func TestDSNNoExigeNombreNiIdentificador(t *testing.T) {
 		t.Errorf("DSN() exigió datos que no hacen falta para conectar: %v", err)
 	}
 }
+
+// La carpeta agrupa por igualdad exacta, así que lo que no se ve no puede
+// separar dos conexiones del mismo proyecto.
+func TestNormalizeLimpiaLaCarpeta(t *testing.T) {
+	casos := map[string]string{
+		"  Ahorra  ":     "Ahorra",
+		"Ahorra   app":   "Ahorra app",
+		"Ahorra\tapp\n":  "Ahorra app",
+		"":               "",
+		"   ":            "",
+		"Nutrigo · 2026": "Nutrigo · 2026",
+	}
+	for crudo, quiere := range casos {
+		c := valid()
+		c.Folder = crudo
+		if got := c.Normalize().Folder; got != quiere {
+			t.Errorf("Normalize() con Folder=%q dio %q, se esperaba %q", crudo, got, quiere)
+		}
+	}
+}

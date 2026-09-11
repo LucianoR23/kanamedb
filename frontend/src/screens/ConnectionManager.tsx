@@ -7,19 +7,92 @@ import {
   ContextMenu,
   Dialog,
   EnvBadge,
+  Field,
+  Input,
   SearchInput,
 } from "../components/ui";
-import type { MenuAnchor, MenuEntry } from "../components/ui";
+import type { MenuAnchor, MenuEntry, MenuLeaf } from "../components/ui";
 import { DevSignature } from "../components/DevSignature";
+import { SIN_CARPETA, carpetasDe } from "../lib/carpetas";
 import { cx } from "../lib/cx";
+import { nombreDeMotor } from "../lib/motor";
 import styles from "./ConnectionManager.module.css";
 
-const GROUPS: { env: Environment; label: string }[] = [
-  { env: Environment.Local, label: "Local" },
-  { env: Environment.Dev, label: "Dev" },
-  { env: Environment.Staging, label: "Staging" },
-  { env: Environment.Production, label: "Production" },
-];
+/** El orden de los entornos dentro de una carpeta: del más inofensivo al que
+ *  más cuidado pide. Así un proyecto se lee como su pipeline. */
+const ORDEN_ENV: Record<string, number> = {
+  [Environment.Local]: 0,
+  [Environment.Dev]: 1,
+  [Environment.Staging]: 2,
+  [Environment.Production]: 3,
+};
+
+/** Cómo se dice el entorno en una fila de 36 píxeles. */
+const ENV_CORTO: Record<string, string> = {
+  [Environment.Local]: "local",
+  [Environment.Dev]: "dev",
+  [Environment.Staging]: "staging",
+  [Environment.Production]: "prod",
+};
+
+/** Qué carpetas están plegadas. Se guarda en esta máquina y no en la libreta:
+ *  es cómo se mira la lista, no qué hay en ella. */
+const CLAVE_PLEGADAS = "kaname.conexiones.carpetasPlegadas";
+
+function leerPlegadas(): ReadonlySet<string> {
+  try {
+    const crudo = localStorage.getItem(CLAVE_PLEGADAS);
+    const lista: unknown = crudo ? JSON.parse(crudo) : [];
+    return new Set(
+      Array.isArray(lista) ? lista.filter((x): x is string => typeof x === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function guardarPlegadas(plegadas: ReadonlySet<string>) {
+  try {
+    localStorage.setItem(CLAVE_PLEGADAS, JSON.stringify([...plegadas]));
+  } catch {
+    /* Sin almacenamiento, el plegado dura lo que la ventana. No es grave. */
+  }
+}
+
+interface Grupo {
+  carpeta: string;
+  filas: ConnectionView[];
+}
+
+/**
+ * Agrupa por carpeta —alfabético, sin carpeta al final— y dentro de cada una
+ * ordena por entorno y después por nombre.
+ *
+ * Una carpeta es un proyecto, y adentro conviven su local, su dev y su
+ * producción: por eso el entorno ya no es el grupo sino una marca en la fila.
+ */
+function agrupar(vistas: readonly ConnectionView[]): Grupo[] {
+  const porCarpeta = new Map<string, ConnectionView[]>();
+  for (const v of vistas) {
+    const filas = porCarpeta.get(v.connection.folder);
+    if (filas) filas.push(v);
+    else porCarpeta.set(v.connection.folder, [v]);
+  }
+  const nombres = [...porCarpeta.keys()].sort((a, b) => {
+    if (a === SIN_CARPETA) return 1;
+    if (b === SIN_CARPETA) return -1;
+    return a.localeCompare(b, undefined, { sensitivity: "base" });
+  });
+  return nombres.map((carpeta) => ({
+    carpeta,
+    filas: (porCarpeta.get(carpeta) ?? []).sort((a, b) => {
+      const ea = ORDEN_ENV[a.connection.environment] ?? 9;
+      const eb = ORDEN_ENV[b.connection.environment] ?? 9;
+      if (ea !== eb) return ea - eb;
+      return a.connection.name.localeCompare(b.connection.name, undefined, { sensitivity: "base" });
+    }),
+  }));
+}
 
 type Filter = "all" | "production";
 
@@ -38,6 +111,8 @@ interface Props {
   onToggleReadOnly: (view: ConnectionView, readOnly: boolean) => void;
   onConnect: (view: ConnectionView) => void;
   onDuplicate: (id: string) => void;
+  /** Cambia la carpeta de una conexión. Vacío la saca de la que tenga. */
+  onMoveToFolder: (id: string, folder: string) => void;
   onDelete: (id: string) => void;
   onAbout: () => void;
   onSettings: () => void;
@@ -55,6 +130,7 @@ export function ConnectionManager({
   onToggleReadOnly,
   onConnect,
   onDuplicate,
+  onMoveToFolder,
   onDelete,
   onAbout,
   onSettings,
@@ -68,6 +144,19 @@ export function ConnectionManager({
   const [filter, setFilter] = useState<Filter>("all");
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ConnectionView | null>(null);
+  const [plegadas, setPlegadas] = useState<ReadonlySet<string>>(leerPlegadas);
+  // «Nueva carpeta…» desde el menú: a qué conexión se le pone, y el nombre.
+  const [nuevaCarpeta, setNuevaCarpeta] = useState<{ view: ConnectionView; nombre: string } | null>(
+    null,
+  );
+
+  function plegar(carpeta: string) {
+    const next = new Set(plegadas);
+    if (next.has(carpeta)) next.delete(carpeta);
+    else next.add(carpeta);
+    guardarPlegadas(next);
+    setPlegadas(next);
+  }
 
   const produccion = connections.filter(
     (c) => c.connection.environment === Environment.Production,
@@ -81,6 +170,7 @@ export function ConnectionManager({
     const q = query.toLowerCase();
     return (
       c.connection.name.toLowerCase().includes(q) ||
+      c.connection.folder.toLowerCase().includes(q) ||
       c.connection.host.toLowerCase().includes(q) ||
       c.connection.database.toLowerCase().includes(q)
     );
@@ -88,6 +178,45 @@ export function ConnectionManager({
 
   const selected =
     visibles.find((c) => c.connection.id === selectedId) ?? visibles[0] ?? null;
+
+  const carpetas = carpetasDe(connections);
+  const grupos = agrupar(visibles);
+  // Con una sola carpeta —o ninguna— el rótulo «Sin carpeta» sobre todas las
+  // conexiones no separa nada: se muestra solo cuando hay de qué separar.
+  const conCabeceras = carpetas.length > 0;
+  // Buscando o filtrando, todo a la vista: un plegado que esconde lo que se
+  // está buscando se lee como «no está».
+  const respetarPlegado = query === "" && filter === "all";
+
+  /** Adónde se puede mover una conexión: las otras carpetas, afuera de la
+   *  suya si tiene, y una nueva. Una carpeta nace con su primera conexión
+   *  adentro, así que «nueva» es mover, no crear en el vacío. */
+  function destinosDeCarpeta(view: ConnectionView): MenuLeaf[] {
+    const actual = view.connection.folder;
+    const destinos: MenuLeaf[] = carpetas
+      .filter((c) => c !== actual)
+      .map((c) => ({
+        // Con su propio prefijo: una carpeta que se llame «out» o «new» no
+        // puede chocar con las entradas fijas de abajo.
+        id: `move:to:${c}`,
+        label: c,
+        onSelect: () => onMoveToFolder(view.connection.id, c),
+      }));
+    if (actual !== SIN_CARPETA) {
+      destinos.push({
+        id: "move:out",
+        label: `Sacar de «${actual}»`,
+        onSelect: () => onMoveToFolder(view.connection.id, SIN_CARPETA),
+      });
+    }
+    if (destinos.length > 0) destinos.push({ kind: "separator", id: "move:sep" });
+    destinos.push({
+      id: "move:new",
+      label: "Nueva carpeta…",
+      onSelect: () => setNuevaCarpeta({ view, nombre: "" }),
+    });
+    return destinos;
+  }
 
   const menuEntries: MenuEntry[] = selected
     ? [
@@ -105,6 +234,16 @@ export function ConnectionManager({
           id: "duplicate",
           label: "Duplicar",
           onSelect: () => onDuplicate(selected.connection.id),
+        },
+        {
+          kind: "submenu",
+          id: "move",
+          label: "Mover a carpeta",
+          // Mover pasa por la validación del store, igual que guardar: una
+          // conexión rota primero se arregla.
+          disabled: (selected.problems?.length ?? 0) > 0,
+          disabledReason: "mal configurada",
+          entries: destinosDeCarpeta(selected),
         },
         {
           id: "copy",
@@ -194,57 +333,81 @@ export function ConnectionManager({
                   : "Ninguna conexión coincide con el filtro."}
               </p>
             ) : (
-              GROUPS.map((g) => {
-                const filas = visibles.filter((c) => c.connection.environment === g.env);
-                if (filas.length === 0) return null;
+              grupos.map((g) => {
+                const plegada = respetarPlegado && plegadas.has(g.carpeta);
+                const rotulo = g.carpeta === SIN_CARPETA ? "Sin carpeta" : g.carpeta;
                 return (
-                  <div key={g.env} className={styles.group}>
-                    <div className={cx(styles.groupHead, styles[`env_${g.env}`])}>
-                      <span className={styles.groupLabel}>{g.label}</span>
-                      <span className={styles.groupRule} />
-                      <span className={styles.groupCount}>{filas.length}</span>
-                    </div>
-                    {filas.map((c) => (
-                      <div
-                        key={c.connection.id}
-                        role="option"
-                        tabIndex={0}
-                        aria-selected={c.connection.id === selected?.connection.id}
-                        className={cx(
-                          styles.row,
-                          styles[`env_${c.connection.environment}`],
-                          c.connection.id === selected?.connection.id && styles.rowOn,
-                        )}
-                        onClick={() => setSelectedId(c.connection.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") onConnect(c);
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setSelectedId(c.connection.id);
-                          setMenu({ x: e.clientX, y: e.clientY });
-                        }}
+                  <div key={g.carpeta} className={styles.group}>
+                    {conCabeceras ? (
+                      <button
+                        type="button"
+                        className={styles.groupHead}
+                        aria-expanded={!plegada}
+                        onClick={() => plegar(g.carpeta)}
                       >
-                        <span className={styles.rowDot} />
-                        <div className={styles.rowText}>
-                          <div className={styles.rowName}>{c.connection.name}</div>
-                          <div className={styles.rowHost}>
-                            {c.connection.host}:{c.connection.port}
+                        <span className={styles.groupChevron} aria-hidden="true">
+                          {plegada ? "▸" : "▾"}
+                        </span>
+                        <span
+                          className={cx(
+                            styles.groupLabel,
+                            g.carpeta === SIN_CARPETA && styles.groupLabelDim,
+                          )}
+                        >
+                          {rotulo}
+                        </span>
+                        <span className={styles.groupRule} />
+                        <span className={styles.groupCount}>{g.filas.length}</span>
+                      </button>
+                    ) : null}
+                    {plegada
+                      ? null
+                      : g.filas.map((c) => (
+                          <div
+                            key={c.connection.id}
+                            role="option"
+                            tabIndex={0}
+                            aria-selected={c.connection.id === selected?.connection.id}
+                            className={cx(
+                              styles.row,
+                              styles[`env_${c.connection.environment}`],
+                              c.connection.id === selected?.connection.id && styles.rowOn,
+                            )}
+                            onClick={() => setSelectedId(c.connection.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") onConnect(c);
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              setSelectedId(c.connection.id);
+                              setMenu({ x: e.clientX, y: e.clientY });
+                            }}
+                          >
+                            <span className={styles.rowDot} />
+                            <div className={styles.rowText}>
+                              <div className={styles.rowName}>{c.connection.name}</div>
+                              <div className={styles.rowHost}>
+                                {c.connection.engine === "sqlite"
+                                  ? c.connection.database
+                                  : `${c.connection.host}:${c.connection.port}`}
+                              </div>
+                            </div>
+                            {(c.problems?.length ?? 0) > 0 ? (
+                              <Badge tone="danger">rota</Badge>
+                            ) : null}
+                            {c.connection.safety.readOnly ? (
+                              <Badge tone="neutral">RO</Badge>
+                            ) : null}
+                            {!c.hasPassword && c.connection.engine !== "sqlite" ? (
+                              <span className={styles.noKey} title="Sin contraseña en esta máquina">
+                                sin clave
+                              </span>
+                            ) : null}
+                            <span className={styles.rowEnv}>
+                              {ENV_CORTO[c.connection.environment] ?? c.connection.environment}
+                            </span>
                           </div>
-                        </div>
-                        {(c.problems?.length ?? 0) > 0 ? (
-                          <Badge tone="danger">rota</Badge>
-                        ) : null}
-                        {c.connection.safety.readOnly ? (
-                          <Badge tone="neutral">RO</Badge>
-                        ) : null}
-                        {!c.hasPassword ? (
-                          <span className={styles.noKey} title="Sin contraseña en esta máquina">
-                            sin clave
-                          </span>
-                        ) : null}
-                      </div>
-                    ))}
+                        ))}
                   </div>
                 );
               })
@@ -316,6 +479,52 @@ export function ConnectionManager({
       >
         Se borra la conexión y <strong>también su contraseña del keychain</strong>. Eso
         último no se puede deshacer. La base de datos no se toca.
+      </Dialog>
+
+      <Dialog
+        open={nuevaCarpeta !== null}
+        title={`Nueva carpeta para ${nuevaCarpeta?.view.connection.name ?? ""}`}
+        onClose={() => setNuevaCarpeta(null)}
+        footer={
+          <>
+            <Button onClick={() => setNuevaCarpeta(null)}>Cancelar</Button>
+            <Button
+              variant="primary"
+              disabled={(nuevaCarpeta?.nombre.trim() ?? "") === ""}
+              onClick={() => {
+                if (!nuevaCarpeta) return;
+                onMoveToFolder(nuevaCarpeta.view.connection.id, nuevaCarpeta.nombre.trim());
+                setNuevaCarpeta(null);
+              }}
+            >
+              Mover
+            </Button>
+          </>
+        }
+      >
+        <div className={styles.dialogBody}>
+          <Field label="Nombre">
+            <Input
+              value={nuevaCarpeta?.nombre ?? ""}
+              autoFocus
+              placeholder="el proyecto, por ejemplo"
+              onChange={(e) => {
+                const nombre = e.currentTarget.value;
+                setNuevaCarpeta((prev) => (prev ? { ...prev, nombre } : prev));
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || !nuevaCarpeta || nuevaCarpeta.nombre.trim() === "") return;
+                e.preventDefault();
+                onMoveToFolder(nuevaCarpeta.view.connection.id, nuevaCarpeta.nombre.trim());
+                setNuevaCarpeta(null);
+              }}
+            />
+          </Field>
+          <p className={styles.dialogNote}>
+            La carpeta existe mientras alguna conexión la tenga. Las demás se mueven desde su
+            menú, o se elige la carpeta al editarlas.
+          </p>
+        </div>
       </Dialog>
     </div>
   );
@@ -401,20 +610,29 @@ function Detail({
         <section>
           <h2 className={styles.sectionLabel}>Conexión</h2>
           <dl className={styles.table}>
-            <Row label="Motor" value="PostgreSQL" />
-            <Row label="Host" value={`${c.host}:${c.port}`} />
-            <Row label="Base" value={c.database} />
-            <Row label="Usuario" value={c.user} />
-            <Row
-              label="Contraseña"
-              value={
-                view.hasPassword
-                  ? `keychain · ${view.keychainRef}`
-                  : "sin guardar en esta máquina"
-              }
-              muted={!view.hasPassword}
-            />
-            <Row label="TLS" value={c.sslMode} />
+            <Row label="Motor" value={nombreDeMotor(c.engine)} />
+            {c.engine === "sqlite" ? (
+              /* Un archivo: el permiso lo da el sistema de archivos. No hay
+                 host, usuario, contraseña ni TLS que mostrar. */
+              <Row label="Archivo" value={c.database} />
+            ) : (
+              <>
+                <Row label="Host" value={`${c.host}:${c.port}`} />
+                <Row label="Base" value={c.database} />
+                <Row label="Usuario" value={c.user} />
+                <Row
+                  label="Contraseña"
+                  value={
+                    view.hasPassword
+                      ? `keychain · ${view.keychainRef}`
+                      : "sin guardar en esta máquina"
+                  }
+                  muted={!view.hasPassword}
+                />
+                <Row label="TLS" value={c.sslMode} />
+              </>
+            )}
+            <Row label="Carpeta" value={c.folder || "sin carpeta"} muted={c.folder === ""} />
           </dl>
         </section>
 

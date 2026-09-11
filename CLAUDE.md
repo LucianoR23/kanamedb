@@ -226,3 +226,15 @@ cgo. Linux y macOS van por CI.
   día uno: el differ se rompe en silencio.
 - Test obligatorio del ciclo `inspect → apply → inspect` dando diff vacío, para
   cazar ruido de normalización (`varchar(255)` vs `character varying(255)`).
+
+### Contenedores: de a uno, según haga falta
+
+Docker Desktop suele estar abierto; los contenedores de
+`docker-compose.test.yml` los levanta y los para Claude sin pedir permiso.
+**Lo ideal es que los seis no corran a la vez** salvo que haga falta —la
+batería completa de Go, con `KANAME_REQUIRE_ENGINES=1`, es el único caso—. Para
+una prueba a mano contra un motor se levanta ese y se paran los demás
+(`docker compose -f docker-compose.test.yml start postgres` / `stop …`); al
+terminar la unidad de trabajo se bajan todos. Es por velocidad y por espacio en
+la máquina de desarrollo, no por prolijidad: cinco motores ociosos comiendo
+memoria hacen más lento todo lo demás, incluido el build.

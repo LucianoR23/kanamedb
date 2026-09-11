@@ -221,6 +221,74 @@ func TestDuplicateNoCopiaLaContrasena(t *testing.T) {
 	}
 }
 
+// Duplicar es cómo se arma la conexión de dev a partir de la local, y las dos
+// son del mismo proyecto: la copia nace en la misma carpeta.
+func TestDuplicateHeredaLaCarpeta(t *testing.T) {
+	s := nuevo(t)
+	c := base("a1", "shop local")
+	c.Folder = "Shop"
+	if _, err := s.Save(c, PasswordKeep, ""); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+	copia, err := s.Duplicate("a1")
+	if err != nil {
+		t.Fatalf("Duplicate() error: %v", err)
+	}
+	if copia.Connection.Folder != "Shop" {
+		t.Errorf("la copia quedó en la carpeta %q, se esperaba %q", copia.Connection.Folder, "Shop")
+	}
+}
+
+// Mover de carpeta cambia la carpeta y nada más: ni la contraseña, ni el
+// resto de la configuración. Y vacío la saca de la que tenga.
+func TestMoveToFolderCambiaSoloLaCarpeta(t *testing.T) {
+	s := nuevo(t)
+	c := base("a1", "shop local")
+	c.Safety.ReadOnly = true
+	if _, err := s.Save(c, PasswordSet, "s3cr3t"); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	v, err := s.MoveToFolder("a1", "  Shop  ")
+	if err != nil {
+		t.Fatalf("MoveToFolder() error: %v", err)
+	}
+	if v.Connection.Folder != "Shop" {
+		t.Errorf("Folder = %q, se esperaba %q (normalizada)", v.Connection.Folder, "Shop")
+	}
+
+	// Lo que se lee después es lo que quedó en disco, no lo que devolvió la
+	// llamada.
+	got, err := s.Get("a1")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Connection.Folder != "Shop" {
+		t.Errorf("en disco la carpeta es %q, se esperaba %q", got.Connection.Folder, "Shop")
+	}
+	if !got.HasPassword {
+		t.Error("mover de carpeta tocó la contraseña")
+	}
+	if !got.Connection.Safety.ReadOnly || got.Connection.Name != "shop local" {
+		t.Errorf("mover de carpeta cambió otra cosa: %+v", got.Connection)
+	}
+
+	if _, err := s.MoveToFolder("a1", ""); err != nil {
+		t.Fatalf("MoveToFolder(\"\") error: %v", err)
+	}
+	got, err = s.Get("a1")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Connection.Folder != "" {
+		t.Errorf("vacío tendría que sacarla de la carpeta; quedó en %q", got.Connection.Folder)
+	}
+
+	if _, err := s.MoveToFolder("no-existe", "Shop"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("mover una conexión inexistente dio %v, se esperaba ErrNotFound", err)
+	}
+}
+
 // Una conexión rota se muestra con sus problemas en vez de esconderse: el
 // archivo se edita a mano y el usuario necesita verla para arreglarla.
 func TestListMuestraLasConexionesRotasConSusProblemas(t *testing.T) {

@@ -661,14 +661,16 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   diseño decidido en la § 6. **El plan de ejecución no necesita ninguna
   dependencia; Formatear sí, y por eso van en dos commits separados.**
 - **Pase de movimiento.** Ver § 6.
-- ⏳ **S02 Carpetas.** Pedido del usuario el 2026-09-11, y estaba en el artboard
+- ✅ **S02 Carpetas.** Pedido del usuario el 2026-09-11, y estaba en el artboard
   desde el principio —«New folder», «Move to folder»— aunque la implementación
-  agrupa por entorno. Una carpeta es un proyecto: adentro conviven local, dev y
-  producción del mismo sistema, cada una con su color y su etiqueta de entorno.
-  Campo `folder` en la conexión, que viaja en la libreta; **planas, un solo
-  nivel**; una carpeta existe mientras una conexión la tenga. Se asigna en la
-  pestaña General del editor y con «Mover a carpeta ▸» en el menú contextual y
-  en el ⋯. Ver la § 6.
+  agrupaba por entorno. Una carpeta es un proyecto: adentro conviven local, dev
+  y producción del mismo sistema, ordenadas así y cada una con su color y su
+  etiqueta de entorno en la fila. Campo `folder` en la conexión, que viaja en
+  la libreta; **planas, un solo nivel**; una carpeta existe mientras una
+  conexión la tenga. Se asigna en la pestaña General del editor y con «Mover a
+  carpeta ▸» en el menú contextual y en el ⋯, que ofrece las existentes,
+  «Sacar de…» y «Nueva carpeta…». Las cabeceras pliegan, y el plegado queda en
+  esta máquina. Ver la § 6.
 - ⏳ **S02 Exportar e importar conexiones.** Mismo pedido. «Exportar para
   compartir…» en el ⋯ y en el menú contextual —un `.toml` con el formato de
   la libreta, **sin ningún secreto**—, «Exportar carpeta…» sobre la cabecera
@@ -1049,6 +1051,48 @@ tres. Tres decisiones, tomadas con el usuario:
   entorno, si es producción— y la contraseña se pide al conectar. El test
   que lo protege inyecta una contraseña en la conexión y exige que el archivo
   no la contenga.
+
+**Carpetas, hechas: lo que se decidió al implementarlas.** Cinco detalles que
+la decisión de arriba no fijaba y que salieron al escribirlas y al probarlas a
+mano:
+
+- **La carpeta se normaliza a espacios simples**, no solo se recorta:
+  `Ahorra  app` y `Ahorra app` son la misma carpeta, porque agrupar es
+  comparar por igualdad exacta y dos carpetas con el mismo aspecto serían un
+  bug imposible de ver. El límite es el del nombre (120 caracteres), y vacío
+  es válido: es el estado de toda conexión anterior a las carpetas. En la
+  libreta la clave `folder` **solo se escribe cuando hay carpeta**
+  (`omitempty`): un archivo que se sincroniza no gana una línea nueva en cada
+  conexión por una función que no se usa.
+- **«Mover a carpeta» es un binding propio, `MoveToFolder(id, folder)`**, y no
+  un `Save` con el formulario entero: el menú manda un ID y un nombre, y una
+  llamada que solo mueve no tiene por qué saber que existe una acción sobre la
+  contraseña —el keychain no se toca, y el test lo exige—. Pasa por la
+  validación del store como todo lo demás, así que sobre una conexión rota la
+  entrada está deshabilitada con «mal configurada»: primero se arregla.
+  Duplicar hereda la carpeta, con test.
+- **El submenú es una entrada nueva del `ContextMenu`** (`kind: "submenu"`),
+  con un nivel y nada más: acciones, separadores y rótulos adentro, no otro
+  submenú. Se abre al pasar el mouse o con → —que además enfoca el primer
+  ítem; ← vuelve al disparador—, sale a la derecha y se da vuelta si no
+  entra, y solo puede haber uno abierto. Adentro van las otras carpetas,
+  «Sacar de «X»» si tiene, y **«Nueva carpeta…»**, que pide un nombre y mueve.
+  No es el «+ Nueva carpeta» de cabecera que se descartó —ese crearía una
+  carpeta vacía, que no puede existir—: acá la carpeta nace con su primera
+  conexión adentro, que es la única forma en que puede nacer. Sin eso, la
+  primera carpeta obligaba a abrir el editor.
+- **La lista muestra «Sin carpeta» solo cuando hay alguna carpeta.** Con
+  ninguna, un rótulo sobre todas las conexiones no separa nada, y la lista
+  queda como una sola, ordenada local → dev → staging → producción y después
+  por nombre. Buscando o con el filtro de producción puesto, el plegado se
+  ignora: una carpeta plegada que esconde lo que se busca se lee como «no
+  está» —lo del filtro lo encontró el review—. El filtro también busca en el
+  nombre de la carpeta.
+- **Encontrado de paso:** el panel de detalle decía «PostgreSQL» para todas
+  las conexiones —estaba escrito a mano desde S02— y mostraba host, usuario,
+  contraseña y TLS para un archivo SQLite. Ahora usa `nombreDeMotor` y para
+  SQLite muestra el archivo. En la lista, SQLite muestra la ruta en vez de
+  `:0` y no dice «sin clave», porque no tiene.
 
 ### Iteración 9 — 2026-09-10
 

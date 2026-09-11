@@ -46,3 +46,18 @@
   text-transform: uppercase;
   color: var(--text-3);
 }
+
+/* Submenú. El contenedor es el punto de referencia del desplegado, que sale
+   pegado al costado derecho de la entrada, a la altura de su primer ítem. */
+.subWrap { position: relative; }
+.itemAbierto { background: var(--bg-hover); }
+.chevron { flex: none; font: 400 11px var(--font-ui); color: var(--text-3); }
+.flyout {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  margin-left: 2px;
+  min-width: 176px;
+  max-width: 280px;
+}
+.flyout .item { overflow: hidden; text-overflow: ellipsis; }

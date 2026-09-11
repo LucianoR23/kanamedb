@@ -13,7 +13,15 @@ export type { Severidad } from "./ConfirmDialog";
 export { ContextMenu } from "./ContextMenu";
 
 export { CopyButton } from "./CopyButton";
-export type { MenuAction, MenuAnchor, MenuEntry, MenuLabel, MenuSeparator } from "./ContextMenu";
+export type {
+  MenuAction,
+  MenuAnchor,
+  MenuEntry,
+  MenuLabel,
+  MenuLeaf,
+  MenuSeparator,
+  MenuSubmenu,
+} from "./ContextMenu";
 
 export { Dialog } from "./Dialog";
 export type { DialogSize } from "./Dialog";

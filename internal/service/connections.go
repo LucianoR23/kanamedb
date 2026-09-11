@@ -325,6 +325,9 @@ func (s *Connections) Duplicate(id string) (ConnectionView, error) {
 	if err != nil {
 		return ConnectionView{}, err
 	}
+	// La copia hereda todo lo demás, la carpeta incluida: duplicar es cómo se
+	// arma la conexión de dev a partir de la local, y las dos son del mismo
+	// proyecto.
 	copia := original
 	copia.ID = nuevo
 	copia.Name = original.Name + " (copia)"
@@ -332,6 +335,26 @@ func (s *Connections) Duplicate(id string) (ConnectionView, error) {
 		return ConnectionView{}, err
 	}
 	return s.view(copia), nil
+}
+
+// MoveToFolder cambia la carpeta de una conexión, y nada más. Vacío la saca
+// de la que tenga.
+//
+// Existe aparte de Save por dos razones. El menú «Mover a carpeta» no tiene ni
+// quiere el formulario entero: manda un ID y un nombre. Y Save toma una acción
+// sobre la contraseña; una llamada que solo mueve de carpeta no tiene por qué
+// saber que eso existe, así que acá el keychain no se toca.
+func (s *Connections) MoveToFolder(id, folder string) (ConnectionView, error) {
+	c, err := s.store.Get(id)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	c.Folder = folder
+	c = c.Normalize()
+	if err := s.store.Update(c); err != nil {
+		return ConnectionView{}, err
+	}
+	return s.view(c), nil
 }
 
 // RevealPassword devuelve la contraseña guardada.

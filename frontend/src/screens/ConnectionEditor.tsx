@@ -16,6 +16,7 @@ import { elegirArchivoSQLite } from "../lib/archivoSQLite";
 import {
   Badge,
   Button,
+  Combobox,
   EnvBadge,
   InfoHint,
   Input,
@@ -102,11 +103,13 @@ interface Props {
   initial: ConnectionView;
   /** Si ya existía, el campo de contraseña arranca en "guardada". */
   isNew: boolean;
+  /** Las carpetas que ya existen, para ofrecerlas. Escribir otra la crea. */
+  folders: readonly string[];
   onCancel: () => void;
   onSaved: (view: ConnectionView, connect: boolean) => void;
 }
 
-export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
+export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }: Props) {
   const [conn, setConn] = useState<Connection>(initial.connection);
   const [view, setView] = useState<ConnectionView>(initial);
   const [tab, setTab] = useState<string>("general");
@@ -534,6 +537,27 @@ export function ConnectionEditor({ initial, isNew, onCancel, onSaved }: Props) {
                     </div>
                     <p className={styles.envHint}>{envInfo.hint}</p>
                   </div>
+                </Field>
+
+                <Field
+                  label="Carpeta"
+                  error={problems.get("folder")}
+                  hint={
+                    <>
+                      Un proyecto: adentro van su local, su dev y su producción. La lista las
+                      agrupa por carpeta, y una carpeta existe mientras alguna conexión la
+                      tenga. Vacío es «sin carpeta».
+                    </>
+                  }
+                >
+                  <Combobox
+                    value={conn.folder}
+                    options={folders.map((f) => ({ value: f }))}
+                    ariaLabel="Carpeta"
+                    placeholder="sin carpeta"
+                    vacio="Ninguna carpeta se llama así. Lo que escribas la crea."
+                    onChange={(v) => set("folder", v)}
+                  />
                 </Field>
               </div>
 

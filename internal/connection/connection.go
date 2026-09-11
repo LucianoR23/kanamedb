@@ -145,6 +145,16 @@ type Connection struct {
 	User        string      `toml:"user" json:"user"`
 	Environment Environment `toml:"environment" json:"environment"`
 
+	// Folder es la carpeta en la que el gestor la agrupa: un proyecto, con su
+	// local, su dev y su producción adentro. Es un nombre y no una entidad:
+	// la carpeta existe mientras alguna conexión la tenga, y vacío es «sin
+	// carpeta». Plana, un solo nivel; ver la § 6 del plan, iteración 9.
+	//
+	// Viaja en la libreta —y no en las preferencias de esta máquina— porque
+	// es qué hay, no cómo se mira: quien sincroniza sus conexiones quiere
+	// encontrarlas ordenadas igual del otro lado.
+	Folder string `toml:"folder,omitempty" json:"folder"`
+
 	// SSLMode aplica a Postgres, MySQL y MariaDB. SQLite lo ignora.
 	SSLMode SSLMode `toml:"ssl_mode" json:"sslMode"`
 
@@ -455,6 +465,10 @@ func (c Connection) Normalize() Connection {
 	c.Host = strings.TrimSpace(c.Host)
 	c.Database = strings.TrimSpace(c.Database)
 	c.User = strings.TrimSpace(c.User)
+	// La carpeta se compara por igualdad exacta para agrupar, así que acá se
+	// borra lo que no se ve: `Ahorra  app` y `Ahorra app` tienen que ser la
+	// misma carpeta, no dos con el mismo aspecto.
+	c.Folder = strings.Join(strings.Fields(c.Folder), " ")
 
 	c.SSH = c.SSH.Normalize()
 

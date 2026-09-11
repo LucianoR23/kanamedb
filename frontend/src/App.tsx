@@ -19,6 +19,7 @@ import { Verdict } from "../bindings/github.com/LucianoR23/kanamedb/internal/tun
 import type { Inspection } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { ConnectionFailure } from "./screens/ConnectionError";
 import { elegirArchivoSQLite } from "./lib/archivoSQLite";
+import { carpetasDe } from "./lib/carpetas";
 import { cargar as cargarPreferencias } from "./lib/preferencias";
 import styles from "./App.module.css";
 
@@ -346,6 +347,7 @@ export default function App() {
             )
           }
           onDuplicate={(id) => void run(() => Connections.Duplicate(id))}
+          onMoveToFolder={(id, folder) => void run(() => Connections.MoveToFolder(id, folder))}
           onDelete={(id) => void run(() => Connections.Delete(id))}
           onAbout={() => abrirPantallaDeLaApp("about")}
           onSettings={() => abrirPantallaDeLaApp("settings")}
@@ -357,6 +359,7 @@ export default function App() {
         <ConnectionEditor
           initial={editor.view}
           isNew={editor.isNew}
+          folders={carpetasDe(connections)}
           onCancel={() => setEditor(null)}
           onSaved={(saved, shouldConnect) => {
             setEditor(null);

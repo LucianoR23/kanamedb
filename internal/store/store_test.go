@@ -270,6 +270,7 @@ func TestIdaYVueltaPorDiscoPreservaTodosLosCampos(t *testing.T) {
 		Database:    "shop_prod",
 		User:        "app_ro",
 		Environment: connection.Production,
+		Folder:      "Shop",
 		Safety:      connection.Safety{ReadOnly: true},
 		SSLMode:     connection.SSLVerifyFull,
 	}
@@ -495,5 +496,32 @@ environment = "production"
 	}
 	if got.Safety.EffectiveRowLimit() == 0 {
 		t.Error("sin sección de seguridad, debería haber límite de filas")
+	}
+}
+
+// La carpeta es opcional y la mayoría de las libretas no la usan: un archivo
+// lleno de `folder = ""` sería ruido para quien lo edita a mano, y una clave
+// que aparece «de la nada» en un archivo que se sincroniza asusta.
+func TestUnaConexionSinCarpetaNoEscribeLaClave(t *testing.T) {
+	s := nuevo(t)
+	sin := connection.Connection{
+		ID: "a1", Name: "suelta", Engine: connection.SQLite, Database: "/tmp/x.db",
+	}
+	con := sin
+	con.ID, con.Name, con.Folder = "a2", "en carpeta", "Shop"
+	for _, c := range []connection.Connection{sin, con} {
+		if err := s.Add(c); err != nil {
+			t.Fatalf("Add(%s) error: %v", c.Name, err)
+		}
+	}
+	data, err := os.ReadFile(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(data), "folder"); n != 1 {
+		t.Errorf("la clave folder aparece %d veces; se esperaba 1 —solo en la conexión que tiene carpeta—:\n%s", n, data)
+	}
+	if !strings.Contains(string(data), `folder = "Shop"`) {
+		t.Errorf("la carpeta no quedó escrita:\n%s", data)
 	}
 }

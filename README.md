@@ -9,8 +9,9 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > —PostgreSQL, MySQL, MariaDB y SQLite— directo o a través de un bastión SSH,
 > con verificación de la clave del host y sin abrir ningún puerto local. Guarda
 > la libreta de conexiones con los secretos en el keychain del sistema
-> operativo, y trae editor SQL con autocompletado, grilla con paginado,
-> estructura completa de cada tabla y diagrama ERD.
+> operativo —agrupadas por carpeta: un proyecto, con su local, su dev y su
+> producción adentro—, y trae editor SQL con autocompletado, grilla con
+> paginado, estructura completa de cada tabla y diagrama ERD.
 >
 > **Edita el esquema y las filas.** Las ediciones se juntan en un changeset, se
 > muestran como SQL antes de tocar nada y se aplican en una transacción con
@@ -66,7 +67,7 @@ configuración; en Linux y macOS no.
 
 | Archivo | Qué es | ¿Conviene sincronizarlo? |
 |---|---|---|
-| `connections.toml` | La libreta de conexiones | Sí |
+| `connections.toml` | La libreta de conexiones, con la carpeta de cada una | Sí |
 | `consultas.json` | Las consultas guardadas con nombre | Sí |
 | `layouts/` | Dónde quedó cada tabla en el diagrama | Sí |
 | `known_hosts` | Claves públicas de bastiones SSH aceptadas | Es tu decisión |

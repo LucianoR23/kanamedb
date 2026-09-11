@@ -143,6 +143,12 @@ func (c Connection) identityErrors() []FieldError {
 	if !c.Environment.Known() {
 		add("environment", fmt.Sprintf("Entorno desconocido: %q.", c.Environment))
 	}
+
+	// Vacía es válida: significa «sin carpeta». El límite es el mismo que el
+	// del nombre, y por lo mismo: es una etiqueta que se lee en una lista.
+	if utf8.RuneCountInString(c.Folder) > maxNameLength {
+		add("folder", fmt.Sprintf("El nombre de la carpeta no puede pasar de %d caracteres.", maxNameLength))
+	}
 	return errs
 }
 
