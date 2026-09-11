@@ -46,8 +46,9 @@ Manager de conexiones, keychain, conectar a Postgres, árbol de esquema.
 
 **Postergado a la Iteración 9**, aunque el diseño de S01, S02 y S05 lo muestre.
 Todo lo de abajo necesita el mismo pedazo que todavía no existe: el estado local
-en SQLite de `%APPDATA%`, que es lo que guarda qué pasó en esta máquina y no se
-sincroniza con la libreta de conexiones.
+de `%APPDATA%`, que es lo que guarda qué pasó en esta máquina y no se sincroniza
+con la libreta de conexiones. *(Terminó siendo JSON y TOML, no SQLite; ver
+`appinfo.Paths`.)*
 
 | Qué | Dónde | Por qué espera |
 |---|---|---|

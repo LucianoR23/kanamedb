@@ -157,7 +157,8 @@ Tratar como requisitos duros, no como sugerencias:
 - **Sin servidor HTTP.** Solo bindings de Wails v3. Un socket en `127.0.0.1` es
   alcanzable desde cualquier pestaña del navegador (y DNS rebinding saltea CORS).
 - **Secretos solo en el keychain del SO** (`zalando/go-keyring`). Nunca en el
-  SQLite de estado local, ni en el archivo de config, ni en logs, ni en telemetría.
+  estado local —los TOML y JSON del directorio de la app—, ni en el archivo de
+  config, ni en logs, ni en telemetría.
 - **Nunca loguear** connection strings, contraseñas, claves SSH ni valores de
   filas. Al loguear una conexión, usar `usuario@host:puerto/db` sin credenciales.
 - **SQL siempre parametrizado.** La única SQL construida por concatenación es el
@@ -184,7 +185,7 @@ Tratar como requisitos duros, no como sugerencias:
 | Drivers | `pgx/v5`, `go-sql-driver/mysql`, `modernc.org/sqlite` |
 | SSH | `golang.org/x/crypto/ssh` + `knownhosts`, `go-winio` para el agente en Windows |
 | Keychain | `zalando/go-keyring` |
-| Estado local | SQLite en `%APPDATA%`, **sin secretos** |
+| Estado local | TOML y JSON en el directorio de la app (`%APPDATA%\Kaname` en Windows), **sin secretos**. No hay SQLite de estado |
 | Frontend | React 19 + TypeScript + Vite |
 | ERD | `@xyflow/react` + `@dagrejs/dagre` |
 | Grilla | CSS Grid propio + `@tanstack/react-virtual` (pineada exacta) |
