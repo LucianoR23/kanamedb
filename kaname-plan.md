@@ -572,7 +572,10 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   llevaba desde la Iteración 1 prometiendo un atajo que no existía; en la
   pantalla de bienvenida se sacó en vez de cumplirlo, porque ahí no hay nada que
   buscar. Ver el registro de la § 6.
-- **Botón de desborde en la barra de título**, junto con S22. Se decidió
+- ✅ **Botón de desborde en la barra de título.** Se esperó a que existiera S23:
+  antes solo habría duplicado «desconectar» y «about», que ya están en la barra
+  de estado. Ahora lleva Ajustes, Acerca de, dónde se guarda todo, desconectar y
+  salir. Se decidió
   expresamente **no hacer una barra de menús** —Archivo / Edición / Vista—: es
   la respuesta de 1984 a descubrir acciones, obliga a inventar categorías para
   cosas que no las tienen («Aplicar changeset» no es Archivo ni Edición), cuesta
@@ -843,6 +846,33 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**El botón de desborde esperó a tener algo adentro.** El plan lo agendaba junto
+con S22 y se difirió a propósito: en ese momento solo habría repetido
+«desconectar» y «about», que están a la vista en la barra de estado, y un lugar
+de más donde buscar lo mismo no es descubrimiento, es ruido. Con S23 hecho tiene
+contenido propio: ajustes, dónde se guarda todo, y salir.
+
+**«Dónde se guarda todo» abre la carpeta, no muestra la ruta.** Quien pregunta
+eso quiere respaldar el archivo o copiarlo a otra máquina, y para eso hay que
+llegar a la carpeta. El método de Go **no recibe la ruta**, y es la única
+decisión de seguridad del archivo: si la recibiera del frontend, esto sería
+«ejecutá el explorador sobre lo que yo te diga». Sale del store, y va como
+argumento y no como línea de comandos, así que no hay shell que interprete nada.
+
+Y un error que ningún test habría visto: estaba escrito con
+`exec.CommandContext`, que **mata al hijo cuando el contexto termina** — y el
+contexto de un binding de Wails es el de LA LLAMADA, que se cancela apenas el
+método devuelve. El explorador se lanzaba y moría en el mismo instante: el
+método contestaba sin error y la persona apretaba y no pasaba nada. `Start()`
+devuelve `nil` igual, así que solo se ve probando. La ventana que se abre es del
+usuario y no tiene por qué vivir atada a una llamada que ya terminó.
+
+**Y «Salir» pregunta si hay trabajo sin guardar.** La entrada nueva era una
+segunda forma de perder el texto de un editor —y más rápida que la primera:
+cerrar una pestaña avisa, y salir se llevaba todas—. Es la misma regla de S24 y
+por la misma razón: ese texto no está en la base, ni en el changeset, ni en el
+historial.
 
 **El tema claro pintaba con los colores del oscuro, y las cuatro pantallas que
 el plan señalaba no tenían nada que ver.** S05, S06, S12 y S15 estaban bien: todo

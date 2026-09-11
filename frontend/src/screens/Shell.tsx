@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
+import * as SettingsSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/settings";
+import { Application } from "@wailsio/runtime";
 import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Splitter } from "../components/Splitter";
@@ -7,14 +9,16 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  ContextMenu,
   EnvBadge,
   PillTabs,
   SearchInput,
   ShortcutChip,
   Spinner,
   TabStrip,
+  ToastStack,
 } from "../components/ui";
-import type { TabItem } from "../components/ui";
+import type { MenuAnchor, MenuEntry, TabItem } from "../components/ui";
 import type { $Object as DBObject } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { glifoDe, idDe as idDeObjeto } from "../lib/objetos";
 import { CommandPalette } from "./CommandPalette";
@@ -28,6 +32,7 @@ import { ErdScreen } from "./ErdScreen";
 import { PendingChanges } from "./PendingChanges";
 import { DevSignature } from "../components/DevSignature";
 import { cx } from "../lib/cx";
+import { textoDe } from "../lib/dialogos";
 import { DumpDialog } from "./DumpDialog";
 import styles from "./Shell.module.css";
 
@@ -133,6 +138,58 @@ export function Shell({
   const [esquemaSel, setEsquemaSel] = useState<string | null>(null);
 
   const [paleta, setPaleta] = useState(false);
+
+  // Dónde se abrió el menú de desborde, o null si está cerrado.
+  const [desborde, setDesborde] = useState<MenuAnchor | null>(null);
+  const [errorCarpeta, setErrorCarpeta] = useState("");
+  const [saliendo, setSaliendo] = useState(false);
+
+  /**
+   * Lo que va en el botón de desborde: lo de la APLICACIÓN, no lo de la base.
+   *
+   * Nada que se haga a diario. Lo frecuente ya tiene su lugar —los botones de
+   * esta misma barra, el menú contextual del árbol, la paleta— y meterlo también
+   * acá solo agrega un segundo sitio donde buscarlo.
+   */
+  const entradasDeDesborde: MenuEntry[] = [
+    { id: "ajustes", label: "Ajustes…", onSelect: onOpenSettings },
+    { id: "about", label: "Acerca de Kaname", onSelect: onOpenAbout },
+    { kind: "separator", id: "sep1" },
+    {
+      id: "carpeta",
+      label: "Dónde se guarda todo",
+      onSelect: () => {
+        setErrorCarpeta("");
+        SettingsSvc.OpenConfigFolder().catch((err: unknown) =>
+          setErrorCarpeta(textoDe(err)),
+        );
+      },
+    },
+    { kind: "separator", id: "sep2" },
+    {
+      id: "desconectar",
+      label: "Desconectar",
+      disabled: !session?.connected,
+      onSelect: () => {
+        void SessionSvc.Disconnect().then(onDisconnect);
+      },
+    },
+    {
+      id: "salir",
+      label: "Salir de Kaname",
+      destructive: true,
+      onSelect: () => {
+        // Con trabajo sin guardar pregunta, igual que cerrar una pestaña.
+        //
+        // Es la misma regla de S24 y por la misma razón: el texto de un editor
+        // no está en la base, ni en el changeset, ni en el historial. Esta
+        // entrada del menú era una segunda forma de perderlo, y encima más
+        // rápida — cerrar una pestaña avisa y salir se llevaba todas.
+        if (sucias.size > 0) setSaliendo(true);
+        else void Application.Quit();
+      },
+    },
+  ];
 
   // Sube cuando algo pudo haber tocado el historial o las guardadas. El panel
   // no se puede refrescar solo: el registro lo hace Go cuando corre la
@@ -430,6 +487,29 @@ export function Shell({
           title="Buscar una acción, una tabla o un objeto"
         >
           <ShortcutChip>Ctrl K</ShortcutChip>
+        </button>
+        {/* El botón de desborde, y NO una barra de menús.
+         *
+         * Una barra resuelve tres problemas distintos y acá cada uno va por su
+         * lado: encontrar cualquier acción es la paleta; actuar sobre un objeto
+         * es el menú contextual sobre el objeto; y esto —lo de la aplicación que
+         * nadie hace a diario— es un solo botón. Ver el registro de la § 6. */}
+        <button
+          type="button"
+          className={styles.desborde}
+          aria-label="Más opciones"
+          aria-haspopup="menu"
+          aria-expanded={desborde !== null}
+          title="Ajustes, dónde se guarda todo, salir"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            // Se ancla al BORDE del botón y no al puntero: es un menú de barra,
+            // no un contextual, y tiene que caer siempre en el mismo lugar
+            // aunque uno le pegue al botón de costado.
+            setDesborde({ x: r.right - 4, y: r.bottom + 4 });
+          }}
+        >
+          ⋯
         </button>
       </header>
 
@@ -761,6 +841,43 @@ export function Shell({
         changeset, ni en el historial —que guarda lo que se corrió, no lo que se está
         escribiendo—. Cerrarla lo pierde y no hay forma de recuperarlo.
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={saliendo}
+        severidad="aviso"
+        title="Hay pestañas con cambios sin guardar"
+        etiqueta="Salir y descartar"
+        onClose={() => setSaliendo(false)}
+        onConfirm={() => {
+          setSaliendo(false);
+          void Application.Quit();
+        }}
+      >
+        {sucias.size === 1
+          ? "Una pestaña tiene trabajo que no está en ningún lado: ni en la base, ni en el changeset, ni en el historial."
+          : ` pestañas tienen trabajo que no está en ningún lado: ni en la base, ni en el changeset, ni en el historial.`}{" "}
+        Salir lo pierde y no hay forma de recuperarlo.
+      </ConfirmDialog>
+
+      <ContextMenu
+        anchor={desborde}
+        entries={entradasDeDesborde}
+        onClose={() => setDesborde(null)}
+      />
+
+      {errorCarpeta ? (
+        <ToastStack
+          toasts={[
+            {
+              id: "carpeta",
+              tone: "error",
+              title: "No se pudo abrir la carpeta",
+              detail: errorCarpeta,
+            },
+          ]}
+          onDismiss={() => setErrorCarpeta("")}
+        />
+      ) : null}
 
       <CommandPalette
         abierta={paleta}
