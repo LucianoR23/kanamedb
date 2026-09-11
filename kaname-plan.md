@@ -1314,6 +1314,27 @@ fijó la implementación:
   tests de integración de los cuatro motores. La licencia era el último
   ítem que se podía marcar desde el código.
 
+**Dos tests que no probaban lo que decían, encontrados por la matriz de CI.**
+El primer push después de los builds puso en rojo las cuatro patas de
+integración, y ninguna por el código:
+
+- `TestExportarEncimaDeLaLibretaSeNiega` exigía negarse a exportar sobre la
+  ruta de la libreta EN MAYÚSCULAS. Eso es la libreta solo donde el sistema
+  de archivos no distingue mayúsculas —Windows, y macOS por defecto—; en
+  Linux es otro archivo, que además no existe, y negarse ahí sería un bug.
+  Ahora le pregunta al sistema: la variante entra solo si `os.Stat` de la
+  ruta en mayúsculas resuelve. No es `runtime.GOOS == "windows"` a propósito:
+  la pregunta es del sistema de archivos, no del sistema operativo.
+- `TestLaVistaNoPierdeSusOpcionesAlVolverAEscribirla` creaba la vista con
+  `security_invoker`, que existe desde Postgres 15, y la 14 sigue en la
+  matriz porque es el mínimo soportado. En 14 prueba `check_option`, que es
+  lo que la 14 sabe; en 15+ las dos, como antes. Verificado acá contra un
+  Postgres 14 levantado para eso, con el paquete entero en verde.
+
+De paso el README dice, en una tabla, desde qué versión de cada motor se puede
+usar Kaname: la pregunta la hizo el usuario y la respuesta estaba repartida
+entre `engine.minimas` y tres comentarios.
+
 **Automatizar los bumps de dependencias: postergado.** Decisión del usuario:
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
 `bumps-de-dependencias.md`, breve y con las siete reglas que la herramienta

@@ -60,7 +60,15 @@ func TestExportarEncimaDeLaLibretaSeNiega(t *testing.T) {
 		}
 	}
 	libreta := s.store.Path()
-	for _, path := range []string{libreta, strings.ToUpper(libreta), filepath.Join(filepath.Dir(libreta), ".", "connections.toml")} {
+	rutas := []string{libreta, filepath.Join(filepath.Dir(libreta), ".", "connections.toml")}
+	// La misma ruta en mayúsculas es la libreta SOLO donde el sistema de
+	// archivos no distingue mayúsculas —Windows, y macOS por defecto—. En
+	// Linux es otro archivo, que además no existe, y negarse ahí sería un
+	// error: se pregunta al sistema, no al GOOS.
+	if _, err := os.Stat(strings.ToUpper(libreta)); err == nil {
+		rutas = append(rutas, strings.ToUpper(libreta))
+	}
+	for _, path := range rutas {
 		if _, err := s.ExportConnections([]string{"una"}, path); err == nil || !strings.Contains(err.Error(), "tu libreta") {
 			t.Errorf("exportar a %q dio %v, se esperaba negarse", path, err)
 		}

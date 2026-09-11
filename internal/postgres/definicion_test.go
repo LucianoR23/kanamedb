@@ -41,10 +41,17 @@ func TestLaVistaNoPierdeSusOpcionesAlVolverAEscribirla(t *testing.T) {
 	exec("CREATE SCHEMA " + esq)
 	t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+esq+" CASCADE") })
 
+	// `security_invoker` existe desde Postgres 15. En la 14, que sigue en la
+	// matriz, se prueba lo que la 14 sabe: `check_option`.
+	opciones := []string{"security_invoker = true", "check_option = cascaded"}
+	if c.Server().VersionNum < 150000 {
+		opciones = opciones[1:]
+	}
+
 	exec(fmt.Sprintf("CREATE TABLE %s.t (id integer PRIMARY KEY)", esq))
 	exec(fmt.Sprintf(
-		"CREATE VIEW %s.v WITH (security_invoker = true, check_option = cascaded) "+
-			"AS SELECT id FROM %s.t WHERE id > 0", esq, esq))
+		"CREATE VIEW %s.v WITH (%s) AS SELECT id FROM %s.t WHERE id > 0",
+		esq, strings.Join(opciones, ", "), esq))
 
 	def, err := c.ObjectDefinition(ctx, schema.Object{
 		Kind: schema.ObjView, Schema: esq, Name: "v",
@@ -52,9 +59,10 @@ func TestLaVistaNoPierdeSusOpcionesAlVolverAEscribirla(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ObjectDefinition(): %v", err)
 	}
-	for _, q := range []string{"security_invoker", "check_option"} {
-		if !strings.Contains(def.SQL, q) {
-			t.Errorf("la definición perdió %q:\n%s", q, def.SQL)
+	for _, q := range opciones {
+		nombre, _, _ := strings.Cut(q, " ")
+		if !strings.Contains(def.SQL, nombre) {
+			t.Errorf("la definición perdió %q:\n%s", nombre, def.SQL)
 		}
 	}
 
@@ -80,7 +88,8 @@ func TestLaVistaNoPierdeSusOpcionesAlVolverAEscribirla(t *testing.T) {
 	if v := b.Results[0].Rows[0][0]; v != nil {
 		vueltas = *v
 	}
-	for _, q := range []string{"security_invoker=true", "check_option=cascaded"} {
+	for _, q := range opciones {
+		q = strings.ReplaceAll(q, " ", "")
 		if !strings.Contains(vueltas, q) {
 			t.Errorf("la vista recreada no tiene %q; el catálogo dice: %q", q, vueltas)
 		}

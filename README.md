@@ -3,7 +3,17 @@
 Gestor de bases de datos de escritorio con diagrama ERD editable.
 Editás el diagrama, Kaname te muestra el SQL que va a correr, y recién ahí lo aplicás.
 
-Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
+Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite. No hace falta
+una versión concreta: cada motor tiene un **mínimo**, y de ahí para arriba
+cualquiera. El criterio es el mismo en los cuatro —la más vieja con soporte
+oficial vigente—, la app lo verifica al conectar y lo dice si no alcanza.
+
+| Motor | Mínimo | Probado en cada corrida | Por qué ahí |
+|---|---|---|---|
+| PostgreSQL | **14** | 18, 17, 16 y 14 en CI | En 13 y anteriores `reltuples` vale 0 para una tabla nunca analizada, y el árbol diría «0 filas» para una de millones. |
+| MySQL | **8.4** LTS | 9.7 y 8.4 | La 8.0 salió de soporte premier en abril de 2026. |
+| MariaDB | **10.11** LTS | 12.3 y 10.11 | La más vieja de las series mantenidas. |
+| SQLite | — | 3.53, la que va adentro | El motor viene **embebido** en Kaname: no hay nada que instalar. Abre cualquier archivo `.db`/`.sqlite` que SQLite 3 lea. |
 
 > **Estado: Iteración 7 — la grilla editable.** Habla con los cuatro motores
 > —PostgreSQL, MySQL, MariaDB y SQLite— directo o a través de un bastión SSH,
