@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Combobox, Dialog, Field, Input } from "../components/ui";
+import { Button, Combobox, Dialog, Field, Input, DialogClose } from "../components/ui";
 import { useColumnTypes } from "../lib/useColumnTypes";
 import styles from "./NewTableDialog.module.css";
 
@@ -44,9 +44,9 @@ export function NewTableDialog({
       onClose={onCerrar}
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={onCerrar}>
+          <DialogClose variant="secondary" size="sm" onClose={onCerrar}>
             Cancelar
-          </Button>
+          </DialogClose>
           <Button
             size="sm"
             disabled={!puede}

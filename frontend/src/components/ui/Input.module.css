@@ -98,7 +98,7 @@
   height: 12px;
   border-radius: 50%;
   background: var(--text-3);
-  transition: left .12s ease, background .12s ease;
+  transition: left var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 .toggle[aria-checked="true"] .knob { left: 13px; background: var(--text-on-accent); }
 

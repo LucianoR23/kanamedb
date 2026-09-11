@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "./Button";
-import { Dialog } from "./Dialog";
+import { Dialog, DialogClose } from "./Dialog";
 import { Input } from "./Input";
 import { cx } from "../../lib/cx";
 import styles from "./ConfirmDialog.module.css";
@@ -51,12 +51,16 @@ export function ConfirmDialog({
       size="md"
       title={title}
       production={severidad === "produccion"}
+      // Lo que toca datos aparece, no llega: un modal rojo que entra suave se
+      // lee como menos serio que uno que aparece. Ver el pase de movimiento
+      // en la § 6 del plan.
+      abrupto={severidad !== "normal"}
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={onClose}>
+          <DialogClose variant="secondary" size="sm" onClose={onClose}>
             Cancelar
-          </Button>
+          </DialogClose>
           <Button
             size="sm"
             variant={severidad === "normal" ? "primary" : "danger"}

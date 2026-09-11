@@ -37,6 +37,7 @@
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-menu);
+  animation: global(kn-slidein) var(--dur-fast) var(--ease);
 }
 
 .opcion {

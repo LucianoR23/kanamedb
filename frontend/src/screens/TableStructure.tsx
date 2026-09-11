@@ -15,7 +15,7 @@ import type {
   TableDetail,
   Trigger,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import { Button, ContextMenu, Dialog, Glyph, Spinner, Textarea } from "../components/ui";
+import { Button, ContextMenu, Dialog, Glyph, Spinner, Textarea, DialogClose } from "../components/ui";
 import { columnasElegibles, tablasElegibles, sinPendientes } from "../lib/pendientesDeTabla";
 import type { PendientesDeTabla } from "../lib/pendientesDeTabla";
 import type { MenuAnchor, MenuEntry } from "../components/ui";
@@ -414,9 +414,9 @@ function Columnas({
         onClose={() => setComentandoTabla(false)}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setComentandoTabla(false)}>
+            <DialogClose variant="ghost" onClose={() => setComentandoTabla(false)}>
               Cancelar
-            </Button>
+            </DialogClose>
             <Button
               variant="primary"
               onClick={() => {

@@ -23,7 +23,7 @@ export type {
   MenuSubmenu,
 } from "./ContextMenu";
 
-export { Dialog } from "./Dialog";
+export { Dialog, DialogClose } from "./Dialog";
 export type { DialogSize } from "./Dialog";
 
 export { Glyph } from "./Glyph";

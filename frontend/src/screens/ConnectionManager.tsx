@@ -10,6 +10,7 @@ import {
   Field,
   Input,
   SearchInput,
+  DialogClose,
 } from "../components/ui";
 import type { MenuAnchor, MenuEntry, MenuLeaf } from "../components/ui";
 import { DevSignature } from "../components/DevSignature";
@@ -529,6 +530,7 @@ export function ConnectionManager({
       <Dialog
         open={confirmDelete !== null}
         title={`¿Borrar ${confirmDelete?.connection.name ?? ""}?`}
+        abrupto
         onClose={() => setConfirmDelete(null)}
         footer={
           <>
@@ -555,7 +557,7 @@ export function ConnectionManager({
         onClose={() => setNuevaCarpeta(null)}
         footer={
           <>
-            <Button onClick={() => setNuevaCarpeta(null)}>Cancelar</Button>
+            <DialogClose onClose={() => setNuevaCarpeta(null)}>Cancelar</DialogClose>
             <Button
               variant="primary"
               disabled={(nuevaCarpeta?.nombre.trim() ?? "") === ""}

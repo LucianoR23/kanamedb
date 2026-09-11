@@ -54,7 +54,7 @@
   border: 1.5px solid var(--text-3);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: kn-spin .8s linear infinite;
+  animation: global(kn-spin) .8s linear infinite;
 }
 .primary .spinner,
 .danger .spinner { border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; }

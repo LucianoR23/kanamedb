@@ -4,7 +4,7 @@ import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/inter
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Column, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
-import { Button, ContextMenu, Dialog, Input, PillTabs, Spinner } from "../components/ui";
+import { Button, ContextMenu, Dialog, Input, PillTabs, Spinner, DialogClose } from "../components/ui";
 import type { MenuAnchor } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
@@ -595,9 +595,9 @@ export function SqlEditorScreen({
         onClose={() => setGuardando(false)}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setGuardando(false)}>
+            <DialogClose variant="ghost" onClose={() => setGuardando(false)}>
               Cancelar
-            </Button>
+            </DialogClose>
             <Button variant="primary" onClick={() => void guardar()} disabled={nombre.trim() === ""}>
               Guardar
             </Button>

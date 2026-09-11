@@ -32,7 +32,7 @@
   width: 8px;
   font-size: 8px;
   color: var(--text-3);
-  transition: transform .1s ease;
+  transition: transform var(--dur-fast) var(--ease);
 }
 .open { transform: rotate(90deg); }
 

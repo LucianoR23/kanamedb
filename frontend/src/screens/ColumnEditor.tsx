@@ -7,6 +7,7 @@ import {
   Dialog,
   Field,
   Input,
+  DialogClose,
 } from "../components/ui";
 import { useColumnTypes } from "../lib/useColumnTypes";
 import styles from "./ColumnEditor.module.css";
@@ -110,9 +111,9 @@ export function ColumnEditor({
       onClose={onCerrar}
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={onCerrar}>
+          <DialogClose variant="secondary" size="sm" onClose={onCerrar}>
             Cancelar
-          </Button>
+          </DialogClose>
           <Button
             size="sm"
             disabled={!puede}

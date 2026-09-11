@@ -678,7 +678,15 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   Ordena espacios, saltos y sangría con el dialecto del motor conectado y no
   cambia mayúsculas de nada; si no puede interpretar el texto, lo dice y no lo
   toca. Ver la § 6.
-- **Pase de movimiento.** Ver § 6.
+- ✅ **Pase de movimiento.** Las tres duraciones de los tokens y nada fuera
+  de ellas: los diálogos entran con `@starting-style` y **salen** —velo que
+  funde, panel que baja seis píxeles— gracias a `display` y `overlay` con
+  `allow-discrete`, y a que el diálogo dibuja la salida antes de avisarle al
+  padre que cierre; los toasts entran desde el borde derecho y se van por el
+  mismo lado; menús, desplegables, globos de ayuda y el panel de filtros en
+  `--dur-fast`; la paleta y el editor de conexión en `--dur`. Las
+  confirmaciones destructivas y todo diálogo de producción **aparecen, no
+  llegan**. Ver la § 6 (2026-09-11).
 - ✅ **S02 Carpetas.** Pedido del usuario el 2026-09-11, y estaba en el artboard
   desde el principio —«New folder», «Move to folder»— aunque la implementación
   agrupaba por entorno. Una carpeta es un proyecto: adentro conviven local, dev
@@ -1005,6 +1013,77 @@ implementación:
   negocia solo cuando el servidor lo ofrece, y con un modo que verifica el
   certificado da lo mismo, que es lo que la pestaña ahora deja configurar
   bien. Una clave de cliente cifrada, ídem: espera a que alguien la tenga.
+
+**Pase de movimiento, hecho: entra lo que aparece, sale lo que se cierra sin
+desmontarse, y producción aparece de golpe.** Lo que fijó la implementación,
+sobre las tres duraciones y la regla escritas el 2026-09-08:
+
+- **Los diálogos salen, y cómo.** Un `<dialog>` cerrado se va de la capa
+  superior y deja de dibujarse en el mismo instante: no hay nada que animar.
+  `display` y `overlay` con `transition-behavior: allow-discrete` posponen ese
+  cambio al final de la transición, y `@starting-style` da el estado del
+  primer frame para la entrada. Pero casi todos los diálogos de la aplicación
+  se **desmontan** cuando el padre recibe `onClose`, y un elemento desmontado
+  tampoco anima: por eso `Dialog` dibuja la salida ANTES de avisar —clase
+  `saliendo` mientras sigue abierto, y `onClose` cuando la transición del
+  panel terminó, con un tope de 220 ms por si `transitionend` no llega—. Vale
+  para lo que pide la persona: Esc, ✕, el clic en el velo. Lo que cierra el
+  padre por su cuenta —guardó, aplicó— desaparece en el acto, que es lo que
+  corresponde a algo que se acaba de accionar. Comprobado por CDP frame a
+  frame: el diálogo sigue con `open` mientras la opacidad baja, y se cierra
+  cuando llega el `transitionend` del panel.
+- **Los toasts, igual y por lo mismo**: `ToastStack` saca el toast de la lista
+  al recibir `onDismiss`, así que `Toast` se va primero y avisa después. Entran
+  y salen por el borde derecho, que es donde viven. Es el único movimiento de
+  la aplicación que hace trabajo de verdad: aparecen sin que nadie los pida.
+- **Lo destructivo aparece, no llega.** `ConfirmDialog` con severidad `aviso`
+  o `produccion` pasa `abrupto`; el diálogo de borrar una conexión y la vista
+  previa de SQL contra producción también; y todo `Dialog` con `production`
+  lo es sin que la pantalla lo pida —una clave de host que cambió entra por
+  ahí, y es una alarma—. Sin transición de entrada ni de salida: `¿Borrar
+  demo?` se cierra en el mismo frame.
+- **Todo lo demás usa los tokens y nada más**: menús, submenús, la lista del
+  combobox, los globos de ayuda y el panel de filtros en `--dur-fast`; la
+  paleta, el editor de conexión y el velo de «Conectando» en `--dur`; el
+  interruptor y las flechas de plegar, que cambian de posición, en
+  `--dur-fast`. Quedaban cinco duraciones escritas a mano —`.1s`, `.12s`—
+  con `ease` y `ease-out` sueltos; ya no hay ninguna. La barra de progreso
+  del apply conserva su `linear`: no es una entrada, es una medida.
+- **Lo que no se movió**, tal como estaba escrito: grillas, el lienzo del ERD,
+  pestañas, paneles laterales. Y `prefers-reduced-motion` sigue apagando todo
+  desde los tokens: ahí `transitionend` llega en el acto y la salida diferida
+  de diálogos y toasts se vuelve inmediata sola.
+- **Lo que encontró el review, y el más viejo de los bugs de la interfaz.**
+  Leyendo el CSS compilado: CSS Modules localiza TODO nombre de animación que
+  aparece en una declaración de un `.module.css` —lo reescribe como
+  `_kn-slidein_hash_1`— aunque los keyframes vivan globales en `tokens.css`,
+  y el navegador busca una animación que no existe. Así estuvieron **desde la
+  iteración 0** el spinner de los botones, el pulso del punto de producción,
+  el destello del contador de cambios —el que se «adelantó» el 2026-09-08
+  porque hacía trabajo de verdad— y la entrada de menús, diálogos y toasts:
+  con la duración puesta y sin moverse un píxel. El arreglo es
+  `animation: global(kn-slidein)`, que es la forma que CSS Modules da para
+  decir «este nombre es global»; los keyframes que cada módulo define para sí
+  —el cursor de la firma, el spinner del preview— siguen locales. Comprobado
+  en el CSS compilado antes y después.
+- **Los otros tres del review.** «Cancelar» y «Cerrar» del pie son la persona
+  pidiendo cerrar y salían en el acto mientras Esc salía suave: `DialogClose`
+  es el botón del pie que pasa por la misma salida —un componente y no un
+  hook, porque el pie lo escribe la pantalla que abre el diálogo, que está
+  FUERA de él, y un hook ahí no vería el contexto—; va en `ConfirmDialog` y en
+  los seis diálogos cuyo Cancelar solo cierra. Los que cancelan un trabajo en
+  curso —volcado, exportación, importación— cierran en el acto: es accionar.
+  `SqlPreview` pasaba, mientras corría, un `onClose` que no cerraba, y con la
+  salida diferida eso dejaba el diálogo abierto e invisible tapando la
+  aplicación: ahora no pasa `onClose` mientras corre, que es lo que los otros
+  hacían, y además `Dialog` vuelve a mostrarse si a los 50 ms de avisar nadie
+  cerró. Y `saliendo` se limpia cuando el padre cierra, con un efecto de
+  layout para que no haya un frame en que el panel empiece a volver.
+- **Con la ventana minimizada se cierra en el acto.** Salió de probar con el
+  diálogo abierto y la ventana minimizada: el navegador congela las
+  transiciones y estira los temporizadores hasta un minuto, y el `Cancelar`
+  tardó sesenta segundos en cerrar. No hay nada que dibujar ahí: `Dialog` y
+  `Toast` miran `document.hidden` y se van sin salida.
 
 **S03 Advanced, hecha: search_path, nombre de aplicación, pool y SQL de
 sesión — y la SQL de sesión no le gana a Safety.** Lo que fijó la

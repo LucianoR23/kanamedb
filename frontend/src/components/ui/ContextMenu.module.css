@@ -7,7 +7,7 @@
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-menu);
-  animation: kn-slidein .1s ease-out;
+  animation: global(kn-slidein) var(--dur-fast) var(--ease);
 }
 
 .item {

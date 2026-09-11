@@ -273,10 +273,29 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
   --ease: cubic-bezier(.2, .8, .2, 1);
 }
 
+/* Desde un .module.css se referencian como `animation: global(kn-slidein)`.
+ * No es decoración: CSS Modules localiza TODO nombre de animación que aparece
+ * en una declaración —lo reescribe como `_kn-slidein_hash_1`— aunque los
+ * keyframes vivan acá, globales, y el navegador busca una animación que no
+ * existe. Así estuvieron desde la iteración 0 el spinner de los botones, el
+ * pulso del punto de producción, el destello del contador y la entrada de
+ * menús, diálogos y toasts: con la duración puesta y sin moverse. Lo encontró
+ * el review del pase de movimiento leyendo el CSS compilado. */
 @keyframes kn-spin   { to { transform: rotate(360deg); } }
 @keyframes kn-pulse  { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes kn-caret  { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
 @keyframes kn-slidein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes kn-fade    { from { opacity: 0; } }
+
+/* Qué se mueve, y a qué velocidad. Lo que entra a existir se desliza seis
+ * píxeles y funde: `--dur-fast` para lo que sale de un clic —menús,
+ * desplegables, globos de ayuda—, `--dur` para lo que tapa la pantalla
+ * —diálogos, la paleta, el editor de conexión— y para los toasts. La salida
+ * solo la tienen los diálogos y los toasts, que son lo único que se cierra
+ * sin desmontarse en el acto; un menú desaparece al elegir, y eso es «lo que
+ * se está por accionar», que no se anima. Lo que NO se mueve está escrito en
+ * la § 6 del plan: grillas, el lienzo del ERD, pestañas, paneles laterales y
+ * las confirmaciones destructivas. */
 
 /* Destello de atención: algo cambió en otra parte de la pantalla.
  *

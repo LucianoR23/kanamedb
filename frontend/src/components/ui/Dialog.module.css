@@ -18,13 +18,40 @@
   padding: 24px;
   background: var(--scrim);
   border: 0;
+  /* Entra y sale en `--dur`. El velo funde; el panel además se desliza (más
+     abajo). `display` y `overlay` con allow-discrete son lo que permite la
+     SALIDA: sin eso, al cerrar el <dialog> se va de la capa superior y deja
+     de dibujarse en el mismo instante, y no hay nada que animar. Con eso, el
+     cambio a `display: none` se aplica al final de la transición. */
+  opacity: 1;
+  transition:
+    opacity var(--dur) var(--ease),
+    display var(--dur) allow-discrete,
+    overlay var(--dur) allow-discrete;
 }
 
 /* El navegador oculta un <dialog> sin el atributo `open` con
    `display: none`, y el `display: grid` de arriba lo pisaba: el diálogo se
    veía siempre. Hay que devolvérselo explícitamente. */
-.scrim:not([open]) { display: none; }
+.scrim:not([open]) { display: none; opacity: 0; }
 .scrim::backdrop { background: transparent; }
+
+/* De dónde viene al aparecer. @starting-style es el estado ANTES del primer
+   frame: sin él, un elemento que recién se muestra no tiene desde dónde
+   transicionar y aparece de golpe. */
+@starting-style {
+  .scrim[open] { opacity: 0; }
+  .scrim[open] .dialog { opacity: 0; transform: translateY(6px); }
+}
+
+/* Saliendo: la persona pidió cerrar y el diálogo sigue abierto —y en la capa
+   superior— mientras se va. Ver Dialog.tsx. */
+.saliendo { opacity: 0; }
+.saliendo .dialog { opacity: 0; transform: translateY(6px); }
+.scrim:not([open]) .dialog { opacity: 0; transform: translateY(6px); }
+
+/* Aparece, no llega. Para las confirmaciones destructivas. */
+.abrupto, .abrupto .dialog { transition: none; }
 
 .dialog {
   width: 100%;
@@ -39,7 +66,9 @@
   box-shadow: var(--shadow-dialog);
   overflow: hidden;
   color: var(--text-1);
-  animation: kn-slidein .12s ease-out;
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 
 /* Variante de escritura en producción: franja roja arriba, encabezado teñido.

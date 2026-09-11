@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ImportCandidate, ImportPreview } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
-import { Badge, Button, Checkbox, Dialog, EnvBadge } from "../components/ui";
+import { Badge, Button, Checkbox, Dialog, EnvBadge, DialogClose } from "../components/ui";
 import { cx } from "../lib/cx";
 import { nombreDeMotor, plural } from "../lib/motor";
 import styles from "./ImportConnectionsDialog.module.css";
@@ -62,9 +62,9 @@ export function ImportConnectionsDialog({
             </span>
           ) : null}
           <span className={styles.grow} />
-          <Button onClick={onCancel} disabled={importing}>
+          <DialogClose onClose={onCancel} disabled={importing}>
             Cancelar
-          </Button>
+          </DialogClose>
           <Button
             variant="primary"
             disabled={n === 0 || importing}

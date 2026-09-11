@@ -48,6 +48,7 @@
   color: var(--text-2);
   text-align: left;
   white-space: normal;
+  animation: global(kn-slidein) var(--dur-fast) var(--ease);
 }
 .globo code {
   font: 400 11px var(--font-mono);

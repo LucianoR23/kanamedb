@@ -10,13 +10,7 @@
   justify-content: center;
   background: var(--scrim);
   backdrop-filter: blur(3px);
-  animation: kn-fade 0.12s ease-out;
-}
-
-@keyframes kn-fade {
-  from {
-    opacity: 0;
-  }
+  animation: global(kn-fade) var(--dur) var(--ease);
 }
 
 .panel {

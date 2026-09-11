@@ -16,6 +16,7 @@
      tema claro oscurecían la pantalla como si fuera de noche y la caja flotaba
      sobre una sombra que ningún otro panel de la app tiene. */
   background: var(--scrim);
+  animation: global(kn-fade) var(--dur) var(--ease);
 }
 
 .caja {
@@ -28,6 +29,7 @@
   background: var(--bg-elev);
   box-shadow: var(--shadow-dialog);
   overflow: hidden;
+  animation: global(kn-slidein) var(--dur) var(--ease);
 }
 
 .campo {

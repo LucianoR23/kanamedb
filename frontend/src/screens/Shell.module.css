@@ -141,7 +141,7 @@
 
 /* Producción late. Es el único lugar de la app con animación permanente, y
    está ahí para que no se pueda olvidar contra qué estás trabajando. */
-.env_production .statusDot { animation: kn-pulse 2.4s ease-in-out infinite; }
+.env_production .statusDot { animation: global(kn-pulse) 2.4s ease-in-out infinite; }
 .env_production.statusbar { background: var(--prod-wash); }
 .statusLink { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
 .statusLink:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -219,7 +219,7 @@
 
 /* Destello del contador de cambios pendientes. Ver tokens.css. */
 .destello {
-  animation: kn-flash var(--dur-slow) var(--ease);
+  animation: global(kn-flash) var(--dur-slow) var(--ease);
 }
 
 /* El chip «Ctrl K» es un botón de verdad: el atajo no se descubre solo, y quien

@@ -164,7 +164,14 @@ export function SqlPreview({
       open
       size="xl"
       title={`Aplicar ${r.included} ${r.included === 1 ? "sentencia" : "sentencias"}`}
-      onClose={corriendo ? () => {} : onClose}
+      // Contra producción aparece, no llega: es la confirmación que exige
+      // escribir el nombre de la base, y un modal que entra suave se lee
+      // como menos serio que uno que aparece.
+      abrupto={vista.needsConfirmation}
+      // Mientras corre no se puede cerrar, y eso se dice sin `onClose` —no
+      // con uno que no cierra—: Dialog dibuja la salida antes de avisar, y
+      // un aviso que no cierra dejaba el diálogo abierto e invisible.
+      {...(corriendo ? {} : { onClose })}
     >
       <div className={cx(styles.marco, vista.needsConfirmation && styles.produccion)}>
         <div className={styles.izquierda}>

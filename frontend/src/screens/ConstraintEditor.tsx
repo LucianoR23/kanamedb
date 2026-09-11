@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Type as OpType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
 import type { Change } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
-import { Button, Checkbox, Combobox, Dialog, Field, Input } from "../components/ui";
+import { Button, Checkbox, Combobox, Dialog, Field, Input, DialogClose } from "../components/ui";
 import type { ColumnaElegible } from "../lib/pendientesDeTabla";
 import { cx } from "../lib/cx";
 import styles from "./ConstraintEditor.module.css";
@@ -113,9 +113,9 @@ export function ConstraintEditor({
       onClose={onCerrar}
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={onCerrar}>
+          <DialogClose variant="secondary" size="sm" onClose={onCerrar}>
             Cancelar
-          </Button>
+          </DialogClose>
           <Button size="sm" disabled={!puede} onClick={guardar}>
             Preparar
           </Button>

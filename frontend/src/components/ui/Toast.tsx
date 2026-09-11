@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { TransitionEvent } from "react";
 import { cx } from "../../lib/cx";
 import styles from "./Toast.module.css";
 
@@ -23,6 +24,9 @@ const TONE: Record<ToastTone, string | undefined> = {
 /** Cuánto dura una confirmación antes de irse sola. */
 const DURACION_CONFIRMACION = 8000;
 
+/** Tope de espera para la salida, por si `transitionend` no llega. */
+const TOPE_DE_SALIDA = 220;
+
 export function Toast({
   toast,
   onDismiss,
@@ -44,17 +48,59 @@ export function Toast({
   useEffect(() => {
     descartar.current = onDismiss;
   });
+
+  // La salida se dibuja antes de avisar: quien muestra el toast lo saca de su
+  // lista al recibir `onDismiss`, y un elemento que ya no está no puede irse
+  // suave. Es el mismo arreglo que en Dialog. El toast es el único lugar
+  // donde la animación es funcional y no decorativa: aparece sin que nadie lo
+  // pida y en el borde de la vista, y el movimiento es lo que hace que se vea.
+  const [saliendo, setSaliendo] = useState(false);
+  const tope = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function terminar() {
+    if (tope.current) clearTimeout(tope.current);
+    tope.current = null;
+    descartar.current(toast.id);
+  }
+  function irse() {
+    if (saliendo) return;
+    // Con la ventana minimizada no hay salida que dibujar, y los
+    // temporizadores se estiran: se va en el acto. Ver Dialog.
+    if (document.hidden) {
+      terminar();
+      return;
+    }
+    setSaliendo(true);
+    tope.current = setTimeout(terminar, TOPE_DE_SALIDA);
+  }
+  // El temporizador de los ocho segundos llama a la versión más reciente,
+  // por lo mismo que `descartar`: no se reinicia con cada render.
+  const irseAhora = useRef(irse);
+  useEffect(() => {
+    irseAhora.current = irse;
+  });
+  useEffect(
+    () => () => {
+      if (tope.current) clearTimeout(tope.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!seVaSolo) return;
-    const t = setTimeout(() => descartar.current(toast.id), DURACION_CONFIRMACION);
+    const t = setTimeout(() => irseAhora.current(), DURACION_CONFIRMACION);
     return () => clearTimeout(t);
   }, [seVaSolo, toast.id]);
 
+  function alTerminarLaTransicion(e: TransitionEvent<HTMLDivElement>) {
+    if (saliendo && e.target === e.currentTarget && e.propertyName === "opacity") terminar();
+  }
+
   return (
     <div
-      className={cx(styles.toast, TONE[toast.tone])}
+      className={cx(styles.toast, TONE[toast.tone], saliendo && styles.saliendo)}
       // Los errores interrumpen al lector de pantalla; el resto espera turno.
       role={toast.tone === "error" ? "alert" : "status"}
+      onTransitionEnd={alTerminarLaTransicion}
     >
       <div className={styles.content}>
         <div className={styles.title}>{toast.title}</div>
@@ -69,7 +115,7 @@ export function Toast({
         type="button"
         className={styles.close}
         aria-label="Descartar"
-        onClick={() => onDismiss(toast.id)}
+        onClick={irse}
       >
         ✕
       </button>

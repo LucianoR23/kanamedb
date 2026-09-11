@@ -20,8 +20,18 @@
   border-radius: var(--r-md);
   box-shadow: var(--shadow-menu);
   pointer-events: auto;
-  animation: kn-slidein .12s ease-out;
+  /* Entra desde el borde derecho, que es donde vive, y se va por el mismo
+     lado. Es el único movimiento de la aplicación que hace trabajo de verdad:
+     el toast aparece sin que nadie lo pida, en el borde de la vista, y sin el
+     movimiento no se registra. */
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
+@starting-style {
+  .toast { opacity: 0; transform: translateX(12px); }
+}
+.saliendo { opacity: 0; transform: translateX(12px); }
 .success { border-left-color: var(--success); }
 .error   { border-left-color: var(--danger); }
 .warning { border-left-color: var(--warning); }

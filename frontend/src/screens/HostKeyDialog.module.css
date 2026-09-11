@@ -102,7 +102,7 @@
 .comoFlecha {
   font-size: 8px;
   color: var(--text-3);
-  transition: transform 0.12s ease-out;
+  transition: transform var(--dur-fast) var(--ease);
 }
 .comoFlechaAbierta {
   transform: rotate(90deg);
