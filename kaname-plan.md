@@ -876,6 +876,11 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
   de Chromium compilados en el binario no lo cambian, y el host no está
   identificado (`pktmon` con admin lo mostraría por el SNI). Ver § 6
   (2026-09-11)
+- Android: un APK propio, acotado a leer y consultar, con las contraseñas
+  cifradas por una clave del Keystore atada a biometría. Qué viaja del núcleo
+  (casi todo), qué no (el keychain, la interfaz, cgo), el alcance por pantalla
+  y el orden si se hace, en `kaname-android.md`. No ahora: es un segundo
+  producto, semanas, y después del 1.0.0 de escritorio. (2026-09-11)
 - Si el keychain guarda la contraseña de la base y falla al guardar la del
   bastión, la conexión no se guarda —correcto— pero la primera credencial
   queda en el keychain bajo un ID que ninguna conexión referencia. No es un

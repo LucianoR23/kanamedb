@@ -422,6 +422,7 @@ scripts/             sockets.ps1: lo que el binario abre de verdad cuando corre.
 staticcheck.conf     Qué comprobaciones corre staticcheck y por qué falta una.
 .github/dependabot.yml  Un PR por dependencia con versión nueva; nunca mergea solo.
 firma-de-codigo.md   Cómo firmar el .exe gratis (SignPath Foundation), para cuando toque.
+kaname-android.md    Qué sería un Kaname para Android y por qué todavía no.
 .github/workflows/   CI: lint, typecheck, secretos en el historial, integración,
                      builds de los tres sistemas y release en borrador con tag.
 CLAUDE.md            Convenciones de código y reglas de seguridad.
