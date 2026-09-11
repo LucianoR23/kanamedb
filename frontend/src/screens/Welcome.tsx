@@ -1,4 +1,4 @@
-import { Button, ShortcutChip } from "../components/ui";
+import { Button } from "../components/ui";
 import { DevSignature } from "../components/DevSignature";
 import styles from "./Welcome.module.css";
 
@@ -25,7 +25,14 @@ export function Welcome({ onNew, onOpenFile, onAbout, connectionsPath }: Props) 
         <span className={styles.divider} />
         <span className={styles.section}>Sin conexión</span>
         <span className={styles.spacer} />
-        <ShortcutChip>Ctrl K</ShortcutChip>
+        {/* Acá NO va el chip de la paleta. Estuvo desde la Iteración 1 y no
+            hacía nada: prometer un atajo que no existe es peor que no tenerlo,
+            porque quien lo prueba concluye que la aplicación está rota.
+            Tampoco se le pone una paleta: las tres cosas que esta pantalla hace
+            —conexión nueva, abrir un archivo, acerca de— están las tres a la
+            vista, y una paleta para buscar entre tres botones visibles no
+            agrega nada. El chip vive en el workspace, donde hay doscientas
+            tablas que encontrar. */}
       </header>
 
       <div className={styles.body}>

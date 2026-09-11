@@ -16,6 +16,8 @@ import {
 import type { TabItem } from "../components/ui";
 import type { $Object as DBObject } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { glifoDe, idDe as idDeObjeto } from "../lib/objetos";
+import { CommandPalette } from "./CommandPalette";
+import type { Accion } from "./CommandPalette";
 import { ObjectScreen } from "./ObjectScreen";
 import { SchemaTree } from "./SchemaTree";
 import { SqlEditorScreen } from "./SqlEditorScreen";
@@ -126,6 +128,37 @@ export function Shell({
   // El esquema de lo último que se eligió en el árbol. Ver esquemaPrincipal().
   const [esquemaSel, setEsquemaSel] = useState<string | null>(null);
 
+  const [paleta, setPaleta] = useState(false);
+
+  // Ctrl+K abre y cierra la paleta. Va en `window` y en la fase de CAPTURA
+  // porque el foco casi siempre está adentro de algo que ya escucha teclas —la
+  // grilla, CodeMirror— y un handler en burbuja llegaría después de que el
+  // editor SQL se haya quedado con el evento.
+  useEffect(() => {
+    function alTeclado(e: KeyboardEvent) {
+      // `toLowerCase` porque con Shift o con Bloq Mayús el navegador manda
+      // «K», y el atajo tiene que funcionar igual.
+      //
+      // `!altKey` porque en Windows AltGr ES Ctrl+Alt: sin esto, escribir un
+      // carácter con AltGr+K en el editor SQL abría la paleta y se comía la
+      // tecla.
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== "k") return;
+
+      // Con un diálogo modal abierto NO se abre. `<dialog>.showModal()` pone al
+      // diálogo en la TOP LAYER del navegador y deja inerte al resto del
+      // documento: la paleta se dibujaría detrás —ningún z-index le gana a la
+      // top layer—, el foco al campo fallaría en silencio por la inercia, y al
+      // cerrar el diálogo aparecería abierta y muerta, sin nada enfocado.
+      if (document.querySelector("dialog[open]")) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      setPaleta((v) => !v);
+    }
+    window.addEventListener("keydown", alTeclado, true);
+    return () => window.removeEventListener("keydown", alTeclado, true);
+  }, []);
+
   function openObject(o: DBObject) {
     const id = `objeto:${idDeObjeto(o)}`;
     setSelected(idDeObjeto(o));
@@ -212,6 +245,47 @@ export function Shell({
     return conTablas?.name ?? snapshot?.schemas?.[0]?.name ?? "public";
   }
 
+  // Las acciones de la paleta salen de las MISMAS funciones que los botones de
+  // la barra. Una lista paralela de comandos se separa de los botones en cuanto
+  // alguien agrega uno de los dos, y la que queda vieja es siempre la que menos
+  // se mira.
+  //
+  // Solo entran las que se PUEDEN hacer ahora: una paleta con entradas muertas
+  // es la misma promesa vacía que el chip «Ctrl K» sin handler, repetida.
+  const acciones: Accion[] = [];
+  if (session?.connected) {
+    acciones.push({
+      id: "consulta", label: "Nueva consulta", kind: "query", correr: openQuery,
+    });
+    if (totalTablas > 0) {
+      acciones.push({
+        id: "erd", label: "Ver el diagrama", kind: "erd",
+        meta: esquemaPrincipal(),
+        correr: () => openErd(esquemaPrincipal()),
+      });
+      acciones.push({
+        id: "volcar", label: "Volcar la base…", kind: "table",
+        correr: () => setVolcando(true),
+      });
+    }
+    if (!loading) {
+      // La misma guarda que el botón de la barra, que va `loading`. Sin ella,
+      // Ctrl+K → Enter dos veces lanzaba dos `load(true)` a la vez: el primero
+      // en volver apagaba `loading` con el segundo en vuelo, cada pestaña
+      // abierta se recargaba dos veces, y el snapshot más viejo podía ganar.
+      acciones.push({
+        id: "refrescar", label: "Refrescar el esquema", kind: "schema",
+        correr: () => void load(true),
+      });
+    }
+    if (pendientes > 0) {
+      acciones.push({
+        id: "cambios", label: "Cambios pendientes", kind: "query",
+        meta: `${pendientes}`, correr: openCambios,
+      });
+    }
+  }
+
   return (
     <div className={cx(styles.shell, envClass)}>
       <header className={styles.titlebar}>
@@ -268,7 +342,15 @@ export function Shell({
           Refrescar
         </Button>
         <span className={styles.divider} />
-        <ShortcutChip>Ctrl K</ShortcutChip>
+        <button
+          type="button"
+          className={styles.chipBoton}
+          onClick={() => setPaleta(true)}
+          aria-label="Abrir la paleta de comandos"
+          title="Buscar una acción, una tabla o un objeto"
+        >
+          <ShortcutChip>Ctrl K</ShortcutChip>
+        </button>
       </header>
 
       <div className={styles.body}>
@@ -572,6 +654,15 @@ export function Shell({
           onClose={() => setVolcando(false)}
         />
       ) : null}
+
+      <CommandPalette
+        abierta={paleta}
+        acciones={acciones}
+        snapshot={snapshot}
+        onCerrar={() => setPaleta(false)}
+        onAbrirTabla={openTable}
+        onAbrirObjeto={openObject}
+      />
     </div>
   );
 }

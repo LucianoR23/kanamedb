@@ -568,10 +568,10 @@ Vistas, funciones, procedures, triggers y enums como editor de definición.
 
 Historial, atajos, drift check, builds Linux/macOS, firma de código.
 
-- **S22 Command palette** — primero: es lo que más se usa. Hoy el chip
-  «Ctrl K» ya está en la barra de título de S01 y S05 y **no hay ningún handler
-  de teclado en el frontend**: promete algo que no existe. Es lo primero que la
-  paleta arregla.
+- ✅ **S22 Command palette** — acciones, tablas y objetos, con Ctrl K. El chip
+  llevaba desde la Iteración 1 prometiendo un atajo que no existía; en la
+  pantalla de bienvenida se sacó en vez de cumplirlo, porque ahí no hay nada que
+  buscar. Ver el registro de la § 6.
 - **Botón de desborde en la barra de título**, junto con S22. Se decidió
   expresamente **no hacer una barra de menús** —Archivo / Edición / Vista—: es
   la respuesta de 1984 a descubrir acciones, obliga a inventar categorías para
@@ -828,6 +828,78 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 9 — 2026-09-10
+
+**El chip «Ctrl K» estaba desde la Iteración 1 y no hacía nada.** No había
+ningún handler de teclado en el frontend: la barra de título de S01 y de S05
+prometía un atajo que no existía. Eso es peor que no tenerlo, porque quien lo
+prueba concluye que la aplicación está rota, no que la función falta.
+
+La paleta lo arregla en el workspace. **En la pantalla de bienvenida el chip se
+sacó y no se reemplazó por nada**: las tres cosas que esa pantalla hace
+—conexión nueva, abrir un archivo, acerca de— están las tres a la vista, y una
+paleta para buscar entre tres botones visibles no agrega nada. Arreglar una
+promesa vacía puede ser cumplirla o retirarla, y de qué lado cae depende de si
+hay algo que buscar.
+
+**Las acciones salen de las mismas funciones que los botones.** Una lista
+paralela de comandos se separa de la barra en cuanto alguien agrega uno de los
+dos, y la que queda vieja es siempre la que menos se mira. Y solo entran las que
+se pueden hacer AHORA: sin conexión no hay ninguna, sin tablas no aparecen
+«Diagrama» ni «Volcar», y «Cambios pendientes» aparece cuando hay alguno. Una
+paleta llena de entradas muertas es la misma promesa vacía del chip, repetida
+veinte veces.
+
+**Las acciones van siempre arriba, sin mezclar puntajes con los objetos.** Son
+cinco contra doscientas tablas: ordenarlas juntas hace que una tabla llamada
+`consultas_guardadas` —que EMPIEZA con lo buscado— le gane a «Nueva consulta»,
+y la paleta deje de servir para lo que más se usa. Comprobado escribiendo
+`consulta` con las dos cosas en la base.
+
+**El puntaje es explicable a propósito, no difuso.** Cuatro casos en orden: es
+exactamente lo buscado, empieza con lo buscado, alguna PALABRA empieza con lo
+buscado, aparece en algún lado. Una búsqueda difusa —donde `nc` encuentra «Nueva
+consulta»— se siente mágica hasta que ordena mal y nadie puede decir por qué:
+cuál de dos resultados sale primero pasa a ser una propiedad emergente de los
+pesos. Los separadores de palabra son espacio, guion bajo, punto y guion, que
+son los cuatro que aparecen en un nombre de tabla.
+
+**El atajo se escucha en `window` y en fase de CAPTURA.** El foco casi siempre
+está adentro de algo que ya escucha teclas —la grilla, CodeMirror— y un handler
+en burbuja llegaría después de que el editor SQL se quedara con el evento.
+
+**Del review, el hallazgo que no se veía venir: el atajo y los diálogos.**
+`<dialog>.showModal()` pone al diálogo en la TOP LAYER del navegador y deja
+inerte al resto del documento. El handler de `window` seguía disparando, así que
+con el diálogo de volcado abierto Ctrl+K prendía la paleta: se dibujaba DETRÁS
+—ningún z-index le gana a la top layer—, el foco al campo fallaba en silencio
+por la inercia, y al cerrar el diálogo la paleta aparecía abierta y muerta, sin
+nada enfocado y sin responder a ninguna tecla. El arreglo es no abrirla: si hay
+un `dialog[open]`, el atajo no hace nada.
+
+Y el teclado estaba colgado del `<input>`. Un solo clic adentro de la caja —en el
+pie, en el relleno de la lista, en el borde— lo desenfocaba, y desde ahí las
+flechas, Enter y Escape quedaban muertos: la única salida era clickear afuera.
+Ahora se escucha en `window` mientras está abierta.
+
+De los otros diez, tres valen como recordatorio de que la interfaz tiene sus
+propias trampas. El `onMouseMove` de cada fila peleaba con las flechas: con el
+mouse quieto sobre la lista, bajar hace scrollear las filas debajo del cursor y
+el navegador manda `mousemove`, así que la selección saltaba de vuelta a donde
+estaba el puntero —ahora solo se hace caso si las coordenadas cambiaron—. Cerrar
+la paleta dejaba el foco en `body`, y la grilla y el editor SQL manejan sus
+teclas mirando el foco: quedaban sordos hasta que alguien les clickeara encima.
+Y en Windows AltGr ES Ctrl+Alt, así que escribir un carácter con AltGr+K en el
+editor abría la paleta y se comía la tecla.
+
+**No se agregó un runner de tests al frontend para probar el puntaje**, y eso es
+una decisión y no un olvido. El proyecto no tiene ninguno después de ocho
+iteraciones, y meter el primero como efecto colateral de esta unidad va contra
+la regla de subir una dependencia por vez y en su propio commit. El
+ordenamiento, además, es de los que molestan cuando fallan y no de los que
+pierden datos: la energía de los tests va a lo segundo. Queda anotado que este
+es el primer pedazo de lógica del frontend que justificaría uno.
 
 ### Iteración 8 — 2026-09-10
 

@@ -221,3 +221,13 @@
 .destello {
   animation: kn-flash var(--dur-slow) var(--ease);
 }
+
+/* El chip «Ctrl K» es un botón de verdad: el atajo no se descubre solo, y quien
+   no lo conoce tiene que poder llegar a la paleta con el mouse. Sin piel
+   propia — la ficha del atajo ya la tiene. */
+.chipBoton {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
