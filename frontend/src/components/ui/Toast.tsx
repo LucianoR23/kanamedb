@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { cx } from "../../lib/cx";
 import styles from "./Toast.module.css";
 
@@ -19,6 +20,9 @@ const TONE: Record<ToastTone, string | undefined> = {
   info: styles.info,
 };
 
+/** Cuánto dura una confirmación antes de irse sola. */
+const DURACION_CONFIRMACION = 8000;
+
 export function Toast({
   toast,
   onDismiss,
@@ -26,6 +30,26 @@ export function Toast({
   toast: ToastItem;
   onDismiss: (id: string) => void;
 }) {
+  // Los de éxito e información se van solos: son confirmaciones, y una
+  // confirmación que se queda hasta que alguien la cierre se vuelve un cartel.
+  // Los de error y advertencia se quedan: un error de SQL que desaparece antes
+  // de que lo leas es peor que no mostrarlo. La regla vive acá y no en quien
+  // muestra el toast, para que el próximo no nazca sin ella.
+  //
+  // El temporizador depende del toast y no de `onDismiss`: quien lo muestra
+  // suele pasar una función nueva en cada render, y atarse a ella reiniciaría
+  // los ocho segundos con cada cambio de estado de la pantalla.
+  const seVaSolo = toast.tone === "success" || toast.tone === "info";
+  const descartar = useRef(onDismiss);
+  useEffect(() => {
+    descartar.current = onDismiss;
+  });
+  useEffect(() => {
+    if (!seVaSolo) return;
+    const t = setTimeout(() => descartar.current(toast.id), DURACION_CONFIRMACION);
+    return () => clearTimeout(t);
+  }, [seVaSolo, toast.id]);
+
   return (
     <div
       className={cx(styles.toast, TONE[toast.tone])}
@@ -53,8 +77,8 @@ export function Toast({
   );
 }
 
-/** Los toasts nunca se autodescartan solos acá: un error de SQL que desaparece
- *  antes de que lo leas es peor que no mostrarlo. Quien los use decide. */
+/** Los de error y advertencia no se van solos; los de éxito e información sí.
+ *  Ver Toast. */
 export function ToastStack({
   toasts,
   onDismiss,

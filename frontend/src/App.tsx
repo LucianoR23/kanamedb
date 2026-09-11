@@ -108,16 +108,9 @@ export default function App() {
   }
 
   // Un aviso de algo que salió bien: «exportadas en…», «se agregaron…». Es un
-  // toast y no el banner rojo porque no es un error. Se va solo a los ocho
-  // segundos: es una confirmación, y una confirmación que se queda hasta que
-  // alguien la cierre se vuelve un cartel. Los de error no se van solos —ver
-  // Toast—, por eso el temporizador mira el tono.
+  // toast y no el banner rojo porque no es un error; se va solo porque es de
+  // éxito (la regla vive en Toast).
   const [aviso, setAviso] = useState<ToastItem | null>(null);
-  useEffect(() => {
-    if (!aviso || aviso.tone !== "success") return;
-    const t = setTimeout(() => setAviso(null), 8000);
-    return () => clearTimeout(t);
-  }, [aviso]);
 
   // La vista previa de un archivo compartido, esperando decisión.
   const [importacion, setImportacion] = useState<{
@@ -135,7 +128,9 @@ export default function App() {
       if (!ruta) return;
       const info = await Connections.ExportConnections(ids, ruta);
       setAviso({
-        id: "export",
+        // Un id por aviso, no por tipo: dos exportaciones seguidas son dos
+        // toasts, y el segundo tiene que arrancar sus ocho segundos de cero.
+        id: `export-${Date.now()}`,
         tone: "success",
         title: `${info.count === 1 ? "Conexión exportada" : `${info.count} conexiones exportadas`} · sin contraseñas`,
         detail: info.path,
@@ -184,7 +179,7 @@ export default function App() {
     }
     setScreen("manager");
     setAviso({
-      id: "import",
+      id: `import-${Date.now()}`,
       tone: "success",
       title:
         nuevas.length === 1 ? "Se agregó 1 conexión" : `Se agregaron ${nuevas.length} conexiones`,

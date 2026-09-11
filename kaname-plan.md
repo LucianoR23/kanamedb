@@ -1150,9 +1150,14 @@ implementación, además de la decisión de arriba:
   «Exportar carpeta…» exporta lo que la carpeta muestra, con el mismo número
   que su cabecera.
 - **Dos cosas que el usuario vio al probar**, arregladas aparte (`fix(s00)`):
-  el toast de «Se agregó 1 conexión» no se iba nunca —los de éxito ahora se
-  van solos a los ocho segundos; los de error siguen quedándose, porque un
-  error que desaparece antes de leerlo es peor— y el velo de los diálogos
+  el toast de «Se agregó 1 conexión» no se iba nunca —los de éxito y de
+  información ahora se van solos a los ocho segundos; los de error y de
+  advertencia siguen quedándose, porque un error que desaparece antes de
+  leerlo es peor. La regla vive en `Toast`, no en quien lo muestra, para que
+  el próximo no nazca sin ella; el temporizador depende del id del toast y
+  no de `onDismiss`, que suele ser una función nueva por render y lo
+  reiniciaría con cada cambio de estado (medido por CDP: 8 s exactos con la
+  lista re-renderizando)— y el velo de los diálogos
   era un rectángulo oscuro alrededor del diálogo en vez de tapar la
   pantalla. Lo segundo venía desde S00: el `<dialog>` nativo se dibuja del
   tamaño de su contenido (`fit-content`, `margin: auto`, máximo `100% -
