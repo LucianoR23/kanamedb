@@ -649,6 +649,10 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   valores coinciden exactamente, así que no se ve nada mal — pero cambiar el
   color de una cascada exige saber que se llama como un entorno de staging. Es
   un renombre, no un rediseño.
+- **Plan de ejecución y Formatear** — los dos botones grises del editor SQL, que
+  el plan nombraba una sola vez y no agendaba nunca. Agendados acá, con el
+  diseño decidido en la § 6. **El plan de ejecución no necesita ninguna
+  dependencia; Formatear sí, y por eso van en dos commits separados.**
 - **Pase de movimiento.** Ver § 6.
 - **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
   (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
@@ -861,6 +865,49 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**Los dos botones grises del editor: qué hacer con cada uno.** Se agendan, y no
+son la misma clase de trabajo — uno no necesita nada y el otro necesita una
+dependencia, así que van en dos commits.
+
+**Plan de ejecución: se hace, y sin dependencia.** Los cuatro motores lo dan
+gratis, y lo importante es que la variante que se usa **NO ejecuta la consulta**:
+
+| Motor | Sentencia | ¿Ejecuta? |
+|---|---|---|
+| PostgreSQL | `EXPLAIN <consulta>` | No |
+| MySQL · MariaDB | `EXPLAIN <consulta>` | No |
+| SQLite | `EXPLAIN QUERY PLAN <consulta>` | No |
+
+La distinción es la única decisión de seguridad del ítem: **`EXPLAIN ANALYZE` sí
+ejecuta**, incluido un `DELETE`, así que no entra. Ni como opción escondida:
+un botón que a veces corre la consulta y a veces no es exactamente la clase de
+cosa que esta aplicación no hace. Si alguna vez se quiere, va por el camino
+largo —confirmación de producción, respeto del solo lectura— y no por este botón.
+
+Los cuatro devuelven FILAS, así que el plan no necesita un tipo nuevo: es un
+`query.Result` más, y se dibuja en una pestaña «Plan» al lado de Resultados y
+Mensajes. El prefijo por motor va en `engine.Caps`, que es donde ya viven las
+diferencias entre motores; el resto del camino es el de `Run`, con su `runID`
+para poder cancelar.
+
+Una sola sentencia por vez: `EXPLAIN` toma una. El editor ya sabe partir el texto
+desde la iteración 6, así que se explica **la que está bajo el cursor** y, si no
+se puede saber cuál es, se dice en vez de adivinar.
+
+**Formatear: se hace, pero con una dependencia y nunca a mano.** Es lo que
+respondía a la pregunta de si alguno traería problema: escribir un formateador
+de SQL a mano lo trae. Formatear mal el texto del editor no es un botón que no
+anda, es **el texto de la persona alterado** —una comilla mal cerrada, un
+comentario movido adentro de una cadena— y en el editor no hay de dónde
+recuperarlo; es lo mismo que S24 protege al cerrar una pestaña. Un formateador
+correcto necesita un parser por dialecto, y eso no se improvisa.
+
+Así que va con `sql-formatter`, que cubre los cuatro dialectos, **en su propio
+commit, con versión exacta y el changelog leído**, y midiendo lo que agrega al
+bundle: el binario se distribuye copiando y pegando. Si al mirarlo de cerca no
+cierra —tamaño, dialectos, mantenimiento— el botón se saca en vez de quedarse
+gris, que es la regla que el chip «Ctrl K» dejó escrita.
 
 **«Explain» estaba en inglés, y al lado había un botón muerto.** Lo vio el
 usuario. La etiqueta era el nombre de la sentencia de Postgres puesto como texto
