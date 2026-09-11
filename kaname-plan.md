@@ -637,12 +637,14 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   estaban bien —todo lo suyo sale de tokens— y lo que fallaba era transversal:
   dieciocho colores escritos a mano en otros componentes, con el valor del tema
   OSCURO. Ver el registro de la § 6.
-- **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
+- ⏳ **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
   (`Icon=kaname`, el nombre tiene que coincidir), y el ícono de macOS, que desde
   macOS 26 **no es un PNG plano**: se compone por capas en Icon Composer con las
   apariencias `default`, `dark`, `clear` y `tinted`. El brand kit ya entrega las
   capas separadas y sin efectos horneados, que es como Apple las pide. No se
-  puede adelantar: esos builds no existen hasta esta iteración.
+  puede adelantar: esos builds no existen hasta esta iteración. **No hace falta
+  una Mac ni una Linux**: los builds y la firma van en CI; lo único que una
+  máquina física da es probar el resultado. Ver la § 6 (2026-09-11).
 - ✅ **Renombrar los tokens de color del ERD y del preview.** El kit define
   `--erd-rel-cascade`, `--erd-pk`, `--schema-drop`… y el código usa genéricos:
   hoy la línea de cascada es `--env-stage` y la clave foránea es `--accent`. Los
@@ -654,12 +656,12 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   diseño decidido en la § 6. **El plan de ejecución no necesita ninguna
   dependencia; Formatear sí, y por eso van en dos commits separados.**
 - **Pase de movimiento.** Ver § 6.
-- **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
+- ⏳ **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
   (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
   abren PRs solos; son funciones de la plataforma, no telemetría de la app, así
-  que no chocan con la regla de no phone-home. **Buscar en el momento si hay una
-  alternativa mejor**: para cuando lleguemos, el panorama puede haber cambiado y
-  elegir hoy una herramienta para dentro de seis iteraciones es elegir a ciegas.
+  que no chocan con la regla de no phone-home. **Postergado el 2026-09-11** por
+  decisión del usuario: lo de hoy alcanza por un tiempo. Qué tiene que cumplir
+  la herramienta y cuál elegir si nada cambió, en `bumps-de-dependencias.md`.
 
 ---
 
@@ -863,6 +865,57 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 9 — 2026-09-11
+
+**Builds de Linux y macOS, y firma: qué hace falta y qué no.** La pregunta era
+si había que conseguir una Mac y una Linux. No para construir ni para firmar;
+sí, o alguien que la tenga, para probar lo que salió.
+
+- **Construir.** Wails en Linux necesita GTK/WebKitGTK y en macOS Cocoa/WebKit,
+  los dos por cgo, así que no se cross-compila desde Windows. Se agregan a la
+  matriz de `build.yml` un `ubuntu-latest` y un `macos-latest`, que hoy es
+  Apple Silicon. En beta.17 el backend de Linux por defecto es **GTK4 +
+  WebKitGTK 6.0** (`libgtk-4-dev`, `libwebkitgtk-6.0-dev`; visto en el
+  `pkg-config` de `linux_cgo.go`); GTK3 queda detrás del tag `gtk3`. Elegir uno
+  es elegir qué distros lo corren: 6.0 pide Ubuntu 24.04 o más nuevo. Los Taskfiles por plataforma ya están en `build/`; lo que
+  hay que corregir es la marca: `build/darwin/Info.plist` dice
+  `CFBundleExecutable = kaname.exe` y `build/linux/desktop` apunta a
+  `/usr/local/bin/kaname.exe`, porque los generó el template con el nombre del
+  binario de Windows.
+- **Linux no se firma.** No existe una cadena de confianza como SmartScreen o
+  Gatekeeper; lo que se distribuye es un AppImage o un `.deb`/`.rpm` (nfpm ya
+  está en `build/linux/`) más el `SHA256SUMS` del release. Nada que comprar.
+- **macOS: Developer ID + notarización, sin Mac.** Apple Developer Program,
+  USD 99 por año, disponible en Argentina. Con eso se emite un certificado
+  «Developer ID Application» —el CSR se genera con `openssl` en cualquier
+  sistema— y se guarda como `.p12` en un secret de GitHub. El runner de macOS
+  hace `codesign`, `notarytool submit --wait` y `stapler`. Sin esto, desde
+  macOS 15 no alcanza con clic derecho → Abrir: el usuario tiene que ir a
+  Ajustes → Privacidad y seguridad → «Abrir de todos modos», y la mayoría no
+  llega.
+- **Windows: la opción barata no está disponible acá.** Azure Artifact Signing
+  (ex Trusted Signing) es lo que Microsoft recomienda y lo que cuesta menos,
+  pero **los desarrolladores individuales tienen que estar en Estados Unidos o
+  Canadá**, y las organizaciones en una lista que no incluye a la Argentina.
+  Queda el certificado OV de una CA (Sectigo, DigiCert, GlobalSign, SSL.com,
+  Certum), del orden de USD 200–400 por año, con la clave en un token de
+  hardware o en el HSM en la nube de la CA —desde 2023 el CA/B Forum no permite
+  clave en archivo—. Para CI sirve solo la variante en la nube. Si el proyecto
+  se publica como código abierto con licencia, hay dos caminos más baratos que
+  vale la pena mirar en el momento: el certificado «Open Source» de Certum y
+  SignPath Foundation, que firma gratis proyectos abiertos desde su propio
+  pipeline. La firma OV **no da reputación instantánea** en SmartScreen: se
+  gana con descargas de releases firmados con la misma identidad.
+- **Probar.** Un runner de CI construye y firma pero no muestra una ventana.
+  Antes de publicar un build de macOS o Linux alguien lo tiene que abrir: una
+  Mac prestada, una Mac mini usada, o una VM de Linux —esa sí se puede tener
+  en esta máquina—.
+
+**Automatizar los bumps de dependencias: postergado.** Decisión del usuario:
+con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
+`bumps-de-dependencias.md`, breve y con las siete reglas que la herramienta
+tiene que cumplir, para no rehacerlo cuando llegue el momento.
 
 ### Iteración 9 — 2026-09-10
 
