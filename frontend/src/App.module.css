@@ -1,0 +1,21 @@
+/* About y Ajustes van ENCIMA del workspace, no en su lugar.
+ *
+ * Reemplazarlo desmonta el Shell, y con él se van las pestañas abiertas, el
+ * árbol cargado y —lo peor— el texto sin guardar de cualquier editor, sin
+ * preguntar nada. Es justo lo que S24 existe para que no pase al cerrar una
+ * pestaña, y pasaba por abrir «about».
+ *
+ * Cubrir en vez de esconder tiene una segunda razón: el Shell queda montado Y
+ * medido. Con `display:none` CodeMirror mide cero y al volver aparece con el
+ * alto viejo y el texto cortado, que es el mismo problema que las pestañas
+ * escondidas ya tenían. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--bg-app);
+}
+
+.debajo {
+  height: 100%;
+}

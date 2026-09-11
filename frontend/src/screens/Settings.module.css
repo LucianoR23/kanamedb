@@ -1,0 +1,188 @@
+/* S23 Settings. Mismo esqueleto que About —barra fija arriba, una columna
+   angosta que scrollea— porque son las dos pantallas «de la aplicación» y
+   conviene que se sientan del mismo lugar. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-app);
+  color: var(--text-1);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: var(--h-toolbar);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+.marca {
+  font: 700 12px/1 var(--font-ui);
+  letter-spacing: .14em;
+  color: var(--text-2);
+}
+.spacer { flex: 1; }
+
+/* El que scrollea es el ANCHO, no la columna. Con `overflow` en la columna
+   angosta, la barra de scroll aparecía flotando en el medio de la ventana, a
+   mil píxeles del borde donde la mano la busca. */
+.inner {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.columna {
+  /* Angosta a propósito: una línea de texto de ochenta caracteres se lee; una
+     de doscientos, no. El ancho de la ventana es para las grillas. */
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 18px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.titulo {
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  font: 600 12px/1.4 var(--font-ui);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fila {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* El Toggle del design system solo lleva `aria-label`: no dibuja texto. El
+   rótulo visible va al lado, dentro del mismo <label>, así que clickear la
+   palabra también conmuta. */
+.rotulo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 400 12.5px/1.4 var(--font-ui);
+  color: var(--text-1);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.ayuda {
+  margin: 0;
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-3);
+  max-width: 62ch;
+}
+
+.nota {
+  margin: 0;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 12px var(--font-ui);
+  color: var(--text-3);
+}
+
+.ruta {
+  margin: 0;
+  font: 400 11.5px/1.5 var(--font-mono);
+  color: var(--text-2);
+  user-select: text;
+  word-break: break-all;
+}
+
+/* Lo que NO se puede cambiar. Sin viñetas de lista y con el guion del tema:
+   son afirmaciones sobre la aplicación, no opciones. */
+.duras {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-3);
+  max-width: 62ch;
+}
+.duras li { padding-left: 14px; position: relative; }
+.duras li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  color: var(--text-dim);
+}
+
+.aviso {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warning);
+  border-radius: var(--r-md);
+  background: var(--warning-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-1);
+}
+.detalle {
+  display: block;
+  margin-top: 5px;
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-3);
+  user-select: text;
+}
+
+.novedad {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--success);
+  border-radius: var(--r-md);
+  background: var(--success-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-1);
+}
+
+.error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-1);
+  user-select: text;
+}
+
+/* Es un <button> y no un <a>: adentro de un webview un href navega la ventana
+   entera. Se lo viste de enlace porque eso es lo que hace. */
+.enlace {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  word-break: break-all;
+}
+.enlace:hover { color: var(--accent-hover); }

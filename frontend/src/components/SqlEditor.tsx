@@ -4,10 +4,12 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { sql } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import { EditorView, keymap, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { dialectoDe } from "../lib/motor";
+import { usarPreferencias } from "../lib/preferencias";
 import styles from "./SqlEditor.module.css";
 
 /**
@@ -35,16 +37,16 @@ const tema = EditorView.theme({
     height: "100%",
     backgroundColor: "var(--bg-inset)",
     color: "var(--text-1)",
-    font: "400 13px/20px var(--font-mono)",
+    font: "400 var(--sql-font-size)/var(--sql-line-height) var(--font-mono)",
   },
   ".cm-content": { padding: "10px 0", caretColor: "var(--text-1)" },
-  ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "20px" },
+  ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "var(--sql-line-height)" },
   ".cm-gutters": {
     backgroundColor: "var(--bg-app)",
     color: "var(--text-dim)",
     border: "none",
     borderRight: "1px solid var(--border-subtle)",
-    font: "400 12px/20px var(--font-mono)",
+    font: "400 calc(var(--sql-font-size) - 1px)/var(--sql-line-height) var(--font-mono)",
   },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 9px 0 14px", minWidth: "48px" },
   ".cm-activeLine": { backgroundColor: "var(--bg-hover)" },
@@ -99,6 +101,20 @@ function esquemaParaCompletado(snap: Snapshot | null): Record<string, string[]> 
   return salida;
 }
 
+/**
+ * Las dos extensiones que dependen de una preferencia.
+ *
+ * Se arman juntas porque van en el mismo compartimento: `reconfigure` reemplaza
+ * TODO lo que el compartimento contiene, así que devolver una sola apagaría la
+ * otra sin que nadie lo haya pedido.
+ */
+function extensionesDeAspecto(numeros: boolean, ajuste: boolean): Extension[] {
+  const ext: Extension[] = [];
+  if (numeros) ext.push(lineNumbers());
+  if (ajuste) ext.push(EditorView.lineWrapping);
+  return ext;
+}
+
 export function SqlEditor({
   value,
   onChange,
@@ -130,6 +146,14 @@ export function SqlEditor({
   cb.current = { onChange, onRun, onCursor };
 
   const lenguaje = useRef(new Compartment());
+  // Los números de línea y el ajuste son preferencias de S23, y las dos son
+  // extensiones: cambiarlas es reconfigurar el editor, no repintar CSS. Van en
+  // su propio compartimento —uno solo, porque siempre cambian juntas— para no
+  // recrear la vista, que perdería el cursor, el deshacer y el foco.
+  const aspecto = useRef(new Compartment());
+  const prefs = usarPreferencias();
+  const numeros = !prefs?.editor.hideLineNumbers;
+  const ajuste = !prefs?.editor.noWrap;
 
   useEffect(() => {
     if (!host.current) return;
@@ -137,7 +161,7 @@ export function SqlEditor({
     const state = EditorState.create({
       doc: value,
       extensions: [
-        lineNumbers(),
+        aspecto.current.of(extensionesDeAspecto(numeros, ajuste)),
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),
@@ -152,7 +176,6 @@ export function SqlEditor({
         ),
         syntaxHighlighting(resaltado),
         tema,
-        EditorView.lineWrapping,
         EditorState.readOnly.of(readOnly),
         keymap.of([
           // Va antes que defaultKeymap para ganarle a cualquier atajo que use
@@ -206,6 +229,13 @@ export function SqlEditor({
       ),
     });
   }, [snapshot, engine]);
+
+  // Lo mismo con las preferencias del editor: se reconfigura, no se recrea.
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: aspecto.current.reconfigure(extensionesDeAspecto(numeros, ajuste)),
+    });
+  }, [numeros, ajuste]);
 
   // Mientras la pestaña está escondida el editor mide cero, y al reaparecer
   // CodeMirror no se entera solo: queda con el alto viejo y el texto cortado o

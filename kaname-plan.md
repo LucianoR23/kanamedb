@@ -597,8 +597,11 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   registrar en `main.go` y no se anotaba nada; ahora hay un test que compara la
   lista de servicios contra lo que el frontend importa. Ver el registro § 6.
 - **S20 Drift check** — reutiliza S15 para la SQL de reconciliación.
-- **S23 Settings** — completa, incluido el panel de seguridad y el check de
-  updates manual.
+- ✅ **S23 Settings** — completa, con el panel de seguridad y el check de
+  updates manual. `config.toml` era hasta ahora una ruta que About mostraba y
+  que nadie escribía nunca. Se guarda sola, y no tiene ni un control que no haga
+  algo. De paso, About dejó de mentir: decía que la aplicación todavía no se
+  conectaba a ninguna base.
 - ⏳ **S03** — **Safety** ✅, TLS y Advanced pendientes. Los tres límites se
   eligen entre «por defecto», «un valor» y «sin límite» en vez de editar el
   número crudo, porque en el archivo el cero significa «usá el default» y no
@@ -836,6 +839,101 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**S23: el archivo de preferencias existía como promesa.** `config.toml` era una
+ruta que About mostraba, y nada la escribía nunca. Ahora es `internal/config`,
+con las dos reglas que ordenan el paquete entero:
+
+- **Ahí no entra ningún secreto**, y hay un test que recorre la estructura por
+  reflexión para que agregar un campo llamado `token` falle en CI, más otro que
+  mira el archivo escrito de verdad — un campo puede llamarse bien y llevar un
+  secreto igual.
+- **El valor cero es lo que la aplicación ya hacía.** Por eso los campos se
+  llaman `HideLineNumbers` y `NoWrap` y no `LineNumbers` y `Wrap`: con el cero,
+  esos dos apagarían cosas que hoy están prendidas. Es la misma regla que
+  `connection.Safety`, y por el mismo motivo: el archivo se edita a mano y una
+  build nueva lee archivos viejos.
+
+**La pantalla se guarda sola y no tiene un solo control que no haga algo.** Sin
+botón de «Guardar»: cada control es una decisión discreta y la escritura es
+atómica, así que no hay estado intermedio que confirmar; un botón ahí solo
+agrega una forma de perder lo que uno ya creía cambiado. Las escrituras se
+agrupan 350 ms porque el número de un límite se teclea dígito a dígito.
+
+Y un ajuste a medio conectar no entra. Una pantalla de preferencias llena de
+interruptores que no hacen nada enseña a desconfiar también de los que sí.
+
+**Los defaults de una conexión nueva son la MISMA pantalla que la pestaña
+Safety**, con el mismo tipo de Go detrás. Dos formularios para los mismos seis
+campos se separan, y un default que se separa del valor real empieza a mentir.
+Solo tocan el borrador: ninguna conexión existente cambia. Y si el archivo de
+preferencias no se puede leer, el borrador nace con el cero —el lado protegido—:
+un error de lectura no puede terminar creando conexiones menos seguras que las
+de fábrica.
+
+**El check de versiones es lo único que sale a internet por su cuenta**, así que
+las reglas son estrechas: solo al apretar el botón, un GET sin query string, sin
+cookies, y con `User-Agent: Kaname` a secas —sin la versión, que es el único dato
+de esta máquina que la petición podría llevar; la comparación se hace acá—. La
+respuesta viene de afuera, así que tiene tope de tamaño, timeout y redirecciones
+que no pueden salir del host. Nada se descarga ni se instala.
+
+Tres cosas que el resultado distingue y que es fácil confundir: «hay una más
+nueva», «tenés la última» y **«no pude comparar»**. Si `Comparable` no existiera,
+una versión con un tag raro se mostraría como «estás al día» — que es exactamente
+la respuesta que esconde una actualización para siempre.
+
+**El tema y el cuerpo de letra se aplican por la raíz del documento, no por
+estado de React.** El tema lo consume CSS (`[data-theme]`) y el cuerpo lo consume
+CodeMirror, que arma su hoja de estilos UNA vez al montarse: con estado de React
+habría que redibujar la aplicación entera para cambiar un color y recrear el
+editor para cambiarle el tamaño, perdiendo cursor, deshacer y foco. Los números
+de línea y el ajuste sí son extensiones, así que van en un compartimento —los
+dos juntos, porque `reconfigure` reemplaza todo lo que el compartimento
+contiene—.
+
+**Abrir About o Ajustes borraba el workspace.** Las dos reemplazaban al Shell, y
+desmontarlo se lleva las pestañas, el árbol y —lo peor— el texto sin guardar de
+cualquier editor, sin preguntar nada. Es exactamente lo que S24 existe para
+evitar al cerrar una pestaña, y pasaba por apretar «about» desde la iteración 0.
+Ahora se dibujan ENCIMA, con el Shell montado debajo e `inert`.
+
+Cubrir y no esconder: con `display:none` CodeMirror mide cero y al volver aparece
+con el alto viejo y el texto cortado, que es el mismo problema que ya tenían las
+pestañas escondidas. Y Ctrl+K tuvo que aprender a callarse con el panel encima
+—el handler vive en `window` y el Shell sigue escuchando—, que es el mismo error
+que el `<dialog>` modal, por otra vía.
+
+Tres cosas que salieron de probar y del review, todas de la misma familia —una
+pantalla que se guarda sola tiene que guardar de verdad—:
+
+- **Dos interruptores cambiados en el mismo lote** partían los dos de la
+  configuración de la renderización anterior, y el segundo pisaba al primero.
+  Se parte de lo último pedido, no de lo dibujado.
+- **Salir antes de que venciera el agrupado perdía el cambio**, y en silencio:
+  la pantalla ya estaba pintada con el tema nuevo y el archivo tenía el viejo,
+  así que volvía al anterior al reabrir la aplicación sin ninguna explicación.
+  Al desmontar se GUARDA lo que quedaba, no se cancela. Reproducido: elegir
+  «Claro» y apretar «Volver» dejaba `theme = "system"`.
+- **Consultar versiones borraba la constancia de haber consultado.** `Check`
+  escribe —anota cuándo fue, releyendo el archivo para no pisar nada— y la
+  pantalla se quedaba con una copia que acababa de envejecer; el próximo cambio
+  de cualquier ajuste la guardaba y se llevaba puesto el `last_check`. Ahora la
+  consulta devuelve el resultado Y las preferencias releídas: una sola fuente.
+
+Y del review, dos del lado de Go:
+
+- **`Save` pisaba un archivo de una versión que esta build no entiende.** La
+  guarda estaba solo en `Load`, y eso cubre la mitad tranquila: la pantalla
+  muestra el cartel de que no se pudo leer y deja todos los controles vivos, así
+  que el primer clic escribía un archivo viejo encima del nuevo. El test que
+  existía probaba únicamente la lectura, así que daba confianza de más.
+- **`rc10` se ordenaba antes que `rc9`**, porque los sufijos se comparaban como
+  texto. Publicar una rc10 con una rc9 corriendo reportaba «tenés la última»:
+  exactamente el error que el paquete dice existir para evitar. De paso, los
+  metadatos de build (`1.0.0+20260911`) se tomaban por prelanzamiento y quedaban
+  por DEBAJO de la misma versión sin fecha; semver dice que no cuentan para la
+  precedencia.
 
 **El historial guardaba valores de fila, y nadie los había puesto ahí a
 propósito.** Lo encontró el `/code-review high`. `anotar` escribía

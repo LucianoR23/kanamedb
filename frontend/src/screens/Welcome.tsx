@@ -7,6 +7,7 @@ interface Props {
   /** Atajo: elegir un archivo de SQLite y abrirlo sin pasar por el formulario. */
   onOpenFile: () => void;
   onAbout: () => void;
+  onSettings: () => void;
   /** Ruta del archivo de conexiones, para la barra de estado. */
   connectionsPath: string;
 }
@@ -17,7 +18,7 @@ interface Props {
  * No están "Import connections" ni la detección de motores locales: el plan no
  * las pide y escanear puertos, aunque sea local, es alcance que nadie pidió.
  */
-export function Welcome({ onNew, onOpenFile, onAbout, connectionsPath }: Props) {
+export function Welcome({ onNew, onOpenFile, onAbout, onSettings, connectionsPath }: Props) {
   return (
     <div className={styles.screen}>
       <header className={styles.titlebar}>
@@ -100,6 +101,9 @@ export function Welcome({ onNew, onOpenFile, onAbout, connectionsPath }: Props) 
               <span className={styles.offlineDot} />
               Sin conexión a internet. Sin telemetría, sin cuenta.
             </div>
+            <button type="button" className={styles.link} onClick={onSettings}>
+              Ajustes
+            </button>
             <button type="button" className={styles.link} onClick={onAbout}>
               Acerca de Kaname
             </button>

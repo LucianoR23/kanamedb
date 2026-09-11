@@ -64,6 +64,29 @@
   --success:       #58c98a;
   --success-quiet: rgba(88,201,138,.14);
 
+  /* Tintes y bordes de los acentos.
+   *
+   * Existen porque los componentes los escribían como `rgba(240,85,75,.4)`, o
+   * sea el rojo del tema OSCURO con alfa, y eso no sigue al tema: en claro el
+   * peligro es #c72c22 y el borde quedaba salmón al lado de un texto más
+   * oscuro. Un color con alfa sigue siendo un color, y acá los colores salen de
+   * un token o no salen.
+   *
+   * Tres niveles y nada más: `-quiet` para un fondo apenas teñido, `-border`
+   * para un borde que se tiene que ver, y `--prod-wash` para el lavado de las
+   * cabeceras de producción — que estaba escrito con tres alfas distintas
+   * (.05, .08 y .09) que nadie puede distinguir. */
+  --danger-border:    rgba(240,85,75,.42);
+  --warning-border:   rgba(226,163,60,.42);
+  --env-local-quiet:  rgba(79,195,217,.16);
+  --env-local-border: rgba(79,195,217,.42);
+  --env-dev-quiet:    rgba(88,201,138,.16);
+  --env-dev-border:   rgba(88,201,138,.42);
+  --env-stage-quiet:  rgba(226,163,60,.16);
+  --env-prod-quiet:   rgba(240,85,75,.16);
+  --env-prod-border:  rgba(240,85,75,.45);
+  --prod-wash:        rgba(240,85,75,.09);
+
   /* semánticas de la grilla de datos */
   --cell-modified: rgba(226,163,60,.20);
   --cell-added:    rgba(88,201,138,.16);
@@ -90,6 +113,19 @@
 
   /* radios */
   --r-sm: 3px;  --r-md: 5px;  --r-lg: 8px;  --r-xl: 12px;
+
+  /* Tamaño del texto del editor SQL, de S23.
+   *
+   * Es un token y no una constante en el componente porque CodeMirror arma su
+   * hoja de estilos UNA vez, al montarse: cambiar el número ahí adentro exigiría
+   * recrear el editor —y con él perder el cursor, el deshacer y el foco— o
+   * manejar un compartimento más. Con una variable, cambiarla en la raíz
+   * repinta el editor abierto sin tocarlo.
+   *
+   * El interlineado va aparte y no como múltiplo porque CodeMirror mide alturas
+   * en píxeles para virtualizar: un valor sin unidad le sirve peor. */
+  --sql-font-size:   13px;
+  --sql-line-height: 20px;
 
   /* alturas de densidad — S00: nunca por debajo de 11px ni por encima de 22px */
   --h-tree-row:   24px;
@@ -141,6 +177,20 @@
   --warning-quiet: rgba(154,103,18,.12);
   --success:       #14713f;
   --success-quiet: rgba(28,139,83,.12);
+
+  /* Los mismos tintes, con los colores de ESTE tema. Los alfas son un poco más
+     bajos: sobre un fondo claro, el mismo porcentaje de un color oscuro pesa
+     bastante más que sobre uno oscuro. */
+  --danger-border:    rgba(199,44,34,.38);
+  --warning-border:   rgba(125,82,12,.38);
+  --env-local-quiet:  rgba(13,100,115,.12);
+  --env-local-border: rgba(13,100,115,.38);
+  --env-dev-quiet:    rgba(20,113,63,.12);
+  --env-dev-border:   rgba(20,113,63,.38);
+  --env-stage-quiet:  rgba(125,82,12,.12);
+  --env-prod-quiet:   rgba(199,44,34,.12);
+  --env-prod-border:  rgba(199,44,34,.40);
+  --prod-wash:        rgba(199,44,34,.07);
 
   --cell-modified: rgba(226,163,60,.28);
   --cell-added:    rgba(28,139,83,.15);

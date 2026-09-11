@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import * as AppInfo from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo/service";
 import type { Info } from "../../bindings/github.com/LucianoR23/kanamedb/internal/appinfo";
-import { Button } from "../components/ui";
+import { Button, ShortcutChip } from "../components/ui";
 import { DevSignature } from "../components/DevSignature";
 import styles from "./About.module.css";
 
 /** Motores y plataformas: `on` es lo que funciona hoy en el binario que estás
  *  corriendo, no lo que está planificado. Ver kaname-plan.md. */
 const ENGINES = [
-  { label: "PostgreSQL", on: false },
-  { label: "MySQL · MariaDB", on: false },
-  { label: "SQLite", on: false },
+  { label: "PostgreSQL", on: true },
+  { label: "MySQL · MariaDB", on: true },
+  { label: "SQLite", on: true },
 ] as const;
 
 const PLATFORMS = [
@@ -21,7 +21,38 @@ const PLATFORMS = [
 
 /** Dependencias de terceros que están efectivamente en el binario hoy. La lista
  *  crece con cada iteración; no se adelanta. */
-const THIRD_PARTY = ["Wails v3", "React 19", "Inter", "JetBrains Mono"];
+const THIRD_PARTY = [
+  "Wails v3",
+  "React 19",
+  "pgx v5",
+  "go-sql-driver/mysql",
+  "modernc.org/sqlite",
+  "x/crypto/ssh",
+  "go-keyring",
+  "CodeMirror 6",
+  "xyflow",
+  "dagre",
+  "TanStack Virtual",
+  "BurntSushi/toml",
+  "Inter",
+  "JetBrains Mono",
+];
+
+/**
+ * Los atajos que EXISTEN, no los que estarían bien.
+ *
+ * Esta lista arrancó vacía con la promesa de que cada atajo se documenta cuando
+ * la función que dispara existe de verdad. Los de acá abajo se pueden apretar
+ * hoy; el resto no está.
+ */
+const SHORTCUTS = [
+  { teclas: "Ctrl K", que: "Abrir la paleta de comandos" },
+  { teclas: "Ctrl Enter", que: "Correr lo que hay en el editor SQL" },
+  { teclas: "Ctrl C", que: "Copiar la celda seleccionada de la grilla" },
+  { teclas: "Enter · F2", que: "Editar la celda seleccionada" },
+  { teclas: "Esc", que: "Cerrar la paleta, un diálogo o la edición de una celda" },
+  { teclas: "Tab", que: "Indentar en el editor SQL" },
+] as const;
 
 function StatusList({
   items,
@@ -112,9 +143,9 @@ export function About({ onBack }: { onBack: () => void }) {
             </p>
 
             <p className={styles.earlyNote}>
-              Esta es una build temprana. Todavía no se conecta a ninguna base:
-              lo que existe es el esqueleto de la ventana y el sistema de
-              componentes. El gestor de conexiones es lo siguiente.
+              Esta es una build temprana: los cuatro motores andan, con esquema,
+              datos, diagrama y changeset, pero todavía no hay ninguna versión
+              publicada ni builds de Linux y macOS.
             </p>
 
             {error ? (
@@ -156,13 +187,32 @@ export function About({ onBack }: { onBack: () => void }) {
             <div className={`${styles.card} ${styles.cardWide}`}>
               <div className={styles.sideLabel}>Dónde se guarda cada cosa</div>
               <div className={styles.paths}>
+                {/* Cada archivo por separado y no un directorio para varios.
+                    Decían «conexiones y preferencias» sobre la ruta de las
+                    preferencias —que hasta S23 ni siquiera se escribía— y
+                    «historial y layouts» sobre una sola de las dos: los layouts
+                    viajan con la libreta y el historial no, que es justamente lo
+                    que hay que poder ver de un vistazo para saber qué se
+                    sincroniza. */}
                 <div>
-                  <div className={styles.pathName}>Conexiones y preferencias</div>
+                  <div className={styles.pathName}>Conexiones</div>
+                  <div className={styles.pathValue}>{info?.paths.connections ?? "—"}</div>
+                </div>
+                <div>
+                  <div className={styles.pathName}>Preferencias</div>
                   <div className={styles.pathValue}>{info?.paths.config ?? "—"}</div>
                 </div>
                 <div>
-                  <div className={styles.pathName}>Historial y layouts</div>
-                  <div className={styles.pathValue}>{info?.paths.state ?? "—"}</div>
+                  <div className={styles.pathName}>Consultas guardadas</div>
+                  <div className={styles.pathValue}>{info?.paths.savedQueries ?? "—"}</div>
+                </div>
+                <div>
+                  <div className={styles.pathName}>Historial (solo esta máquina)</div>
+                  <div className={styles.pathValue}>{info?.paths.history ?? "—"}</div>
+                </div>
+                <div>
+                  <div className={styles.pathName}>Diagramas</div>
+                  <div className={styles.pathValue}>{info?.paths.layouts ?? "—"}</div>
                 </div>
                 <div>
                   <div className={styles.pathName}>Diagnósticos</div>
@@ -190,11 +240,14 @@ export function About({ onBack }: { onBack: () => void }) {
             <span className={styles.rule} />
             <span className={styles.sectionMeta}>Windows</span>
           </div>
-          <p className={styles.shortcutsEmpty}>
-            Todavía no hay ninguno. Cada atajo se documenta acá cuando la función
-            que dispara existe de verdad, para que esta pantalla nunca prometa
-            una tecla que no hace nada.
-          </p>
+          <div className={styles.shortcuts}>
+            {SHORTCUTS.map((s) => (
+              <div key={s.teclas} className={styles.shortcut}>
+                <ShortcutChip>{s.teclas}</ShortcutChip>
+                <span className={styles.shortcutQue}>{s.que}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <DevSignature variant="animada" />

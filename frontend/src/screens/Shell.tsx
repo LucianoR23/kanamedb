@@ -49,9 +49,11 @@ const NAV = [
  */
 export function Shell({
   onOpenAbout,
+  onOpenSettings,
   onDisconnect,
 }: {
   onOpenAbout: () => void;
+  onOpenSettings: () => void;
   onDisconnect: () => void;
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
@@ -198,6 +200,13 @@ export function Shell({
       // top layer—, el foco al campo fallaría en silencio por la inercia, y al
       // cerrar el diálogo aparecería abierta y muerta, sin nada enfocado.
       if (document.querySelector("dialog[open]")) return;
+
+      // Ni con About o Ajustes encima. El Shell sigue montado debajo —es lo que
+      // salva las pestañas y el texto sin guardar— así que este handler de
+      // `window` sigue escuchando, y sin esta línea Ctrl+K abriría la paleta
+      // abajo del panel: invisible, sin foco y esperando en la pantalla a la que
+      // se vuelve. Es el mismo error que el `<dialog>` de arriba, por otra vía.
+      if (document.querySelector("[data-overlay-app]")) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -348,6 +357,14 @@ export function Shell({
       });
     }
   }
+  // Las dos de la aplicación van SIEMPRE, con o sin conexión: son justamente
+  // las que uno busca cuando no se acuerda de dónde estaban.
+  acciones.push({
+    id: "ajustes", label: "Ajustes", kind: "schema", correr: onOpenSettings,
+  });
+  acciones.push({
+    id: "about", label: "Acerca de Kaname", kind: "schema", correr: onOpenAbout,
+  });
 
   return (
     <div className={cx(styles.shell, envClass)}>
@@ -711,6 +728,9 @@ export function Shell({
           }}
         >
           desconectar
+        </button>
+        <button type="button" className={styles.statusLink} onClick={onOpenSettings}>
+          ajustes
         </button>
         <button type="button" className={styles.statusLink} onClick={onOpenAbout}>
           about

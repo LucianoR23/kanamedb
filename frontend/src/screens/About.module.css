@@ -62,7 +62,7 @@
 .earlyNote {
   margin-top: 16px;
   padding: 11px 12px;
-  border: 1px solid rgba(226,163,60,.4);
+  border: 1px solid var(--warning-border);
   border-left: 2px solid var(--warning);
   border-radius: var(--r-md);
   background: var(--warning-quiet);
@@ -118,47 +118,36 @@
 .tagOn { color: var(--success); }
 .tagOff { color: var(--text-dim); }
 
-.shortcutsEmpty {
-  padding: 20px 16px;
+/* Dos columnas: la tecla alineada a la derecha contra su descripción, así el
+   ojo baja por el borde de los chips en vez de por texto de ancho variable. */
+.shortcuts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px 12px;
+  align-items: center;
+  padding: 16px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  font: 400 12px/1.65 var(--font-ui);
-  color: var(--text-dim);
   max-width: 72ch;
-  text-wrap: pretty;
 }
-.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
-.group { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
-.groupHead {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 12px;
-  background: var(--bg-inset);
-  border-bottom: 1px solid var(--border);
-  font: 600 10.5px var(--font-ui);
-  letter-spacing: .09em;
-  text-transform: uppercase;
-  color: var(--text-3);
+.shortcut {
+  display: contents;
 }
-.shortcut { display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); }
-.shortcut:last-child { border-bottom: 0; }
-.shortcutLabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px var(--font-ui); color: var(--text-2); }
-.key {
-  flex: none;
-  white-space: nowrap;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--bg-inset);
-  font: 500 11px var(--font-mono);
-  color: var(--text-1);
+.shortcutQue {
+  font: 400 12px/1.5 var(--font-ui);
+  color: var(--text-2);
 }
+/* El bloque de la lista de atajos VIEJA —.groups, .group, .groupHead, .key,
+   .shortcutLabel— se fue: ninguna clase se usaba desde que la sección decía
+   «todavía no hay ninguno», y `.shortcut` estaba definida DOS veces. La segunda
+   ganaba por estar más abajo, así que la grilla de dos columnas de arriba se
+   dibujaba como una fila con borde. Un selector muerto no molesta hasta que le
+   pisa el nombre a uno vivo. */
 
 .error {
   padding: 11px 12px;
-  border: 1px solid rgba(240,85,75,.4);
+  border: 1px solid var(--danger-border);
   border-left: 2px solid var(--danger);
   border-radius: var(--r-md);
   background: var(--danger-quiet);

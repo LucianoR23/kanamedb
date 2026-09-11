@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LucianoR23/kanamedb/internal/config"
 	"github.com/LucianoR23/kanamedb/internal/connection"
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
@@ -42,12 +43,24 @@ type Connections struct {
 	// known hace falta para probar una conexión con túnel: la prueba abre el
 	// salto, y abrirlo exige que la clave del bastión esté aceptada.
 	known *tunnel.KnownHosts
+
+	// prefs son las preferencias de la aplicación. Solo se usan para el
+	// BORRADOR de una conexión nueva. Nil las apaga, que es lo que pasa en los
+	// tests que no las necesitan.
+	prefs *config.Store
 }
 
 // NewConnections arma el servicio.
 func NewConnections(st *store.Store, kr Keyring, known *tunnel.KnownHosts) *Connections {
 	return &Connections{store: st, keyring: kr, known: known}
 }
+
+// UsarPreferencias le dice de dónde sacar los defaults de una conexión nueva.
+//
+// Va por un setter y no por el constructor por lo mismo que `UsarHistorial`:
+// agregarlo al constructor obliga a tocar todos los tests que arman el servicio
+// y que no tienen nada que ver con las preferencias.
+func (s *Connections) UsarPreferencias(p *config.Store) { s.prefs = p }
 
 // ConnectionView es una conexión tal como la ve la interfaz: la configuración,
 // más lo que la UI necesita saber y no está en el modelo.
@@ -137,8 +150,28 @@ func (s *Connections) Draft() (ConnectionView, error) {
 		Engine: connection.Postgres,
 		// Local es el default seguro: nunca asumir producción.
 		Environment: connection.Local,
+		// Las protecciones con las que NACE, de los ajustes. El valor cero de
+		// Safety ya es el lado seguro, así que sin preferencias —o con las de
+		// fábrica— esto es exactamente lo que había antes.
+		Safety: s.safetyPorDefecto(),
 	}.Normalize()
 	return s.view(c), nil
+}
+
+// safetyPorDefecto son las protecciones con las que arranca una conexión nueva.
+//
+// Cualquier problema al leer las preferencias devuelve el cero, que es el lado
+// protegido: un archivo de preferencias roto no puede terminar creando
+// conexiones MENOS seguras que las de fábrica.
+func (s *Connections) safetyPorDefecto() connection.Safety {
+	if s.prefs == nil {
+		return connection.Safety{}
+	}
+	c, err := s.prefs.Load()
+	if err != nil {
+		return connection.Safety{}
+	}
+	return c.NewConnection
 }
 
 // DraftSQLite arma la conexión de un archivo que el usuario acaba de elegir.

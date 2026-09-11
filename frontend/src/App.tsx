@@ -5,6 +5,7 @@ import * as SessionSvc from "../bindings/github.com/LucianoR23/kanamedb/internal
 import { PasswordAction } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { ConnectionView } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { About } from "./screens/About";
+import { Settings } from "./screens/Settings";
 import { ConnectionEditor } from "./screens/ConnectionEditor";
 import { ConnectionManager } from "./screens/ConnectionManager";
 import { Shell } from "./screens/Shell";
@@ -17,8 +18,10 @@ import { Verdict } from "../bindings/github.com/LucianoR23/kanamedb/internal/tun
 import type { Inspection } from "../bindings/github.com/LucianoR23/kanamedb/internal/tunnel";
 import type { ConnectionFailure } from "./screens/ConnectionError";
 import { elegirArchivoSQLite } from "./lib/archivoSQLite";
+import { cargar as cargarPreferencias } from "./lib/preferencias";
+import styles from "./App.module.css";
 
-type Screen = "loading" | "welcome" | "manager" | "shell" | "about";
+type Screen = "loading" | "welcome" | "manager" | "shell" | "about" | "settings";
 
 interface EditorState {
   view: ConnectionView;
@@ -45,6 +48,12 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
+        // Las preferencias van en el mismo viaje que lo demás y NO se esperan
+        // aparte: el tema se pinta en cuanto llegan, y hacer que la primera
+        // pantalla espere por ellas sería un rato de ventana vacía por un color.
+        // Si no se pueden leer, la aplicación arranca con lo de siempre —tema
+        // oscuro, cuerpo 13— y los ajustes explican el problema cuando se abran.
+        void cargarPreferencias().catch(() => {});
         const [raw, info] = await Promise.all([Connections.List(), AppInfo.Get()]);
         if (cancelled) return;
         const list = raw ?? [];
@@ -202,6 +211,32 @@ export default function App() {
     }
   }
 
+  /**
+   * De dónde se entró a About o a Ajustes, para saber a dónde vuelve «Volver».
+   *
+   * Antes About volvía siempre al gestor de conexiones, así que abrirla con una
+   * sesión abierta te dejaba afuera del workspace —con las pestañas, el árbol y
+   * el changeset como estaban del lado de Go, pero sin forma de volver a ellos
+   * salvo reconectando—. Son pantallas que se abren, se miran y se cierran: el
+   * lugar al que vuelven es aquel del que se salió.
+   */
+  const [desdeDonde, setDesdeDonde] = useState<"welcome" | "manager" | "shell">("manager");
+
+  function abrirPantallaDeLaApp(cual: "about" | "settings") {
+    if (screen === "welcome" || screen === "manager" || screen === "shell") {
+      setDesdeDonde(screen);
+    }
+    setScreen(cual);
+  }
+
+  function volver() {
+    if (desdeDonde === "shell") {
+      setScreen("shell");
+      return;
+    }
+    setScreen(connections.length === 0 ? "welcome" : "manager");
+  }
+
   async function run(action: () => Promise<unknown>) {
     setError(null);
     try {
@@ -217,19 +252,39 @@ export default function App() {
     return <div style={{ padding: 24, color: "var(--text-3)" }}>Cargando…</div>;
   }
 
-  if (screen === "about") {
+  // About y Ajustes abiertas DESDE el workspace se dibujan encima, con el Shell
+  // montado debajo. Ver App.module.css: reemplazarlo perdía las pestañas y el
+  // texto sin guardar de cualquier editor, sin preguntar.
+  const encimaDelShell =
+    desdeDonde === "shell" && (screen === "about" || screen === "settings");
+
+  if (screen === "shell" || encimaDelShell) {
     return (
-      <About onBack={() => setScreen(connections.length === 0 ? "welcome" : "manager")} />
+      <>
+        {/* `inert` mientras hay algo encima: sin eso el tabulador entra al
+            workspace tapado y el foco se va a controles que no se ven. */}
+        <div className={styles.debajo} inert={encimaDelShell}>
+          <Shell
+            onOpenAbout={() => abrirPantallaDeLaApp("about")}
+            onOpenSettings={() => abrirPantallaDeLaApp("settings")}
+            onDisconnect={() => setScreen(connections.length === 0 ? "welcome" : "manager")}
+          />
+        </div>
+        {encimaDelShell ? (
+          <div className={styles.overlay} data-overlay-app="">
+            {screen === "about" ? <About onBack={volver} /> : <Settings onBack={volver} />}
+          </div>
+        ) : null}
+      </>
     );
   }
 
-  if (screen === "shell") {
-    return (
-      <Shell
-        onOpenAbout={() => setScreen("about")}
-        onDisconnect={() => setScreen(connections.length === 0 ? "welcome" : "manager")}
-      />
-    );
+  if (screen === "about") {
+    return <About onBack={volver} />;
+  }
+
+  if (screen === "settings") {
+    return <Settings onBack={volver} />;
   }
 
   return (
@@ -238,7 +293,8 @@ export default function App() {
         <Welcome
           onNew={() => void openNew()}
           onOpenFile={() => void abrirArchivoSQLite()}
-          onAbout={() => setScreen("about")}
+          onAbout={() => abrirPantallaDeLaApp("about")}
+          onSettings={() => abrirPantallaDeLaApp("settings")}
           connectionsPath={connectionsPath}
         />
       ) : (
@@ -260,7 +316,8 @@ export default function App() {
           }
           onDuplicate={(id) => void run(() => Connections.Duplicate(id))}
           onDelete={(id) => void run(() => Connections.Delete(id))}
-          onAbout={() => setScreen("about")}
+          onAbout={() => abrirPantallaDeLaApp("about")}
+          onSettings={() => abrirPantallaDeLaApp("settings")}
         />
       )}
 

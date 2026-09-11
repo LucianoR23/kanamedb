@@ -11,12 +11,14 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/LucianoR23/kanamedb/internal/appinfo"
+	"github.com/LucianoR23/kanamedb/internal/config"
 	"github.com/LucianoR23/kanamedb/internal/history"
 	"github.com/LucianoR23/kanamedb/internal/layout"
 	"github.com/LucianoR23/kanamedb/internal/secrets"
 	"github.com/LucianoR23/kanamedb/internal/service"
 	"github.com/LucianoR23/kanamedb/internal/store"
 	"github.com/LucianoR23/kanamedb/internal/tunnel"
+	"github.com/LucianoR23/kanamedb/internal/update"
 )
 
 // Los assets del frontend se embeben en el binario: no hay archivos sueltos que
@@ -87,9 +89,15 @@ func servicios(rutas appinfo.Paths) []application.Service {
 	historial := history.New(rutas.History, rutas.SavedQueries)
 	consultas.UsarHistorial(historial)
 
+	// Las preferencias las lee la pantalla de ajustes y, de las conexiones,
+	// SOLO el borrador de una nueva.
+	preferencias := config.New(rutas.Config)
+	libreta := service.NewConnections(connections, keyring, known)
+	libreta.UsarPreferencias(preferencias)
+
 	return []application.Service{
 		application.NewService(appinfo.New()),
-		application.NewService(service.NewConnections(connections, keyring, known)),
+		application.NewService(libreta),
 		application.NewService(sesion),
 		application.NewService(consultas),
 		application.NewService(service.NewHosts(known)),
@@ -97,5 +105,7 @@ func servicios(rutas appinfo.Paths) []application.Service {
 		application.NewService(service.NewImports(consultas)),
 		application.NewService(service.NewDumps(exportaciones, consultas)),
 		application.NewService(service.NewHistory(historial, sesion)),
+		application.NewService(service.NewSettings(
+			preferencias, update.New(), historial, appinfo.Version, appinfo.BuildDate)),
 	}
 }

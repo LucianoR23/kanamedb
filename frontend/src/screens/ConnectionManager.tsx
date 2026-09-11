@@ -40,6 +40,7 @@ interface Props {
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onAbout: () => void;
+  onSettings: () => void;
   /** Error de la última acción, si hubo. */
   error?: string | null;
 }
@@ -54,6 +55,7 @@ export function ConnectionManager({
   onDuplicate,
   onDelete,
   onAbout,
+  onSettings,
   error,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -264,6 +266,9 @@ export function ConnectionManager({
         <span className={styles.spacer} />
         <DevSignature />
         <span className={styles.statusSep} />
+        <button type="button" className={styles.statusLink} onClick={onSettings}>
+          ajustes
+        </button>
         <button type="button" className={styles.statusLink} onClick={onAbout}>
           about
         </button>

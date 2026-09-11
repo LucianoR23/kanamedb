@@ -46,7 +46,29 @@ marcados. Contra producción, eso no es una comodidad — es la diferencia entre
   Un servidor en `127.0.0.1` es alcanzable desde cualquier pestaña del navegador.
 - **Los secretos viven en el keychain del SO.** Nunca en disco, nunca en logs.
 - **Nada se aplica sin preview.** El DDL se muestra antes de ejecutarse, siempre.
-- **Sin phone-home.** Sin telemetría, sin update checks automáticos.
+- **Sin phone-home.** Sin telemetría, sin update checks automáticos. Lo único
+  que sale a internet por su cuenta es el botón «Buscar actualizaciones» de los
+  ajustes, y solo cuando lo apretás: un GET a la API de releases de GitHub, sin
+  query string, sin cookies y sin la versión instalada —la comparación se hace
+  del lado de la app—. No descarga ni instala nada.
+
+---
+
+## Dónde guarda sus cosas
+
+Ninguno de estos archivos tiene contraseñas: viven en el keychain del sistema.
+La pantalla **Ajustes** muestra la ruta del archivo de preferencias y **About**
+las de todos. En Windows el directorio de estado es el mismo que el de
+configuración; en Linux y macOS no.
+
+| Archivo | Qué es | ¿Conviene sincronizarlo? |
+|---|---|---|
+| `connections.toml` | La libreta de conexiones | Sí |
+| `consultas.json` | Las consultas guardadas con nombre | Sí |
+| `layouts/` | Dónde quedó cada tabla en el diagrama | Sí |
+| `known_hosts` | Claves públicas de bastiones SSH aceptadas | Es tu decisión |
+| `config.toml` | Preferencias de la aplicación (S23) | Da igual |
+| `historial.json` | Qué consultas corriste **en esta máquina** | No |
 
 ---
 
