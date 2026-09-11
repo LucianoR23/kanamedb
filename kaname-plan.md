@@ -661,6 +661,20 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   diseño decidido en la § 6. **El plan de ejecución no necesita ninguna
   dependencia; Formatear sí, y por eso van en dos commits separados.**
 - **Pase de movimiento.** Ver § 6.
+- ⏳ **S02 Carpetas.** Pedido del usuario el 2026-09-11, y estaba en el artboard
+  desde el principio —«New folder», «Move to folder»— aunque la implementación
+  agrupa por entorno. Una carpeta es un proyecto: adentro conviven local, dev y
+  producción del mismo sistema, cada una con su color y su etiqueta de entorno.
+  Campo `folder` en la conexión, que viaja en la libreta; **planas, un solo
+  nivel**; una carpeta existe mientras una conexión la tenga. Se asigna en la
+  pestaña General del editor y con «Mover a carpeta ▸» en el menú contextual y
+  en el ⋯. Ver la § 6.
+- ⏳ **S02 Exportar e importar conexiones.** Mismo pedido. «Exportar para
+  compartir…» en el ⋯ y en el menú contextual —un `.toml` con el formato de
+  la libreta, **sin ningún secreto**—, «Exportar carpeta…» sobre la cabecera
+  de una carpeta, e «Importar…» en la cabecera de la pantalla, donde el
+  diseño lo pone. Review `high`: lee archivos, y hay que probar que un secreto
+  no puede salir. Ver la § 6.
 - ⏳ **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
   (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
   abren PRs solos; son funciones de la plataforma, no telemetría de la app, así
@@ -998,6 +1012,43 @@ juntarlas en un archivo.
 - Y una de orden: la clave primaria va con las columnas, antes que las
   foráneas. Una foránea hacia una tabla que recién recibe su primaria en la
   misma migración falla en Postgres y MySQL.
+
+**Carpetas de conexiones: planas, sin atajo para el trío, y sin secretos al
+exportar.** El usuario pidió agrupar conexiones por proyecto —local, dev y
+producción de un mismo sistema juntas— y poder compartir una conexión sin
+abrir el editor. Las dos cosas están en el artboard de S02 desde la
+iteración 1 («New folder», «Move to folder», «Import…»); la implementación
+las había dejado afuera y agrupa por entorno, que corta cada proyecto en
+tres. Tres decisiones, tomadas con el usuario:
+
+- **Planas.** Una carpeta es un nombre en la conexión, no una entidad: existe
+  mientras alguna conexión la tenga, como una etiqueta, y las que no tienen
+  carpeta van al final. El campo «Carpeta» del editor es un desplegable con
+  las existentes o lo que se escriba; «Mover a carpeta» es un submenú de
+  nombres; exportar una carpeta es un archivo con sus conexiones. Anidar
+  costaría una ruta en vez de un nombre, un árbol para elegir destino, y
+  persistir carpetas aparte —una intermedia vacía no tendría conexión que la
+  sostenga—. Se justifica con muchas más conexiones de las que una persona
+  sostiene sola, y el cambio de plano a anidado es barato después —el nombre
+  pasa a ser una ruta—, mientras que el inverso obliga a aplanar lo de
+  alguien. El plegado de cada carpeta se guarda en esta máquina, no en la
+  libreta: es cómo se mira, no qué hay.
+- **Sin «Duplicar como ▸ producción».** Se evaluó un atajo que abriera el
+  duplicado ya marcado como producción con las protecciones puestas, para
+  que no se pueda olvidar el entorno. El usuario decidió que no: con las tres
+  conexiones diferenciadas dentro de la carpeta ya tiene lo que necesita, y
+  duplicar y cambiar el entorno son pantallas que existen. Queda anotado por
+  si el olvido aparece en la práctica: son quince líneas, y la mitad es lo que
+  lo evita.
+- **Exportar nunca lleva un secreto.** El archivo es el formato de la libreta
+  —así el que lo recibe puede hasta pegarlo a mano— con la contraseña y la
+  passphrase afuera, porque nunca estuvieron ahí: viven en el keychain. La
+  ruta de la clave privada SSH sí viaja, porque es una ruta y no la clave.
+  Importar da un ID nuevo, para no chocar con una entrada del keychain que
+  no es suya, muestra qué trae antes de agregar —nombre, motor, host,
+  entorno, si es producción— y la contraseña se pide al conectar. El test
+  que lo protege inyecta una contraseña en la conexión y exige que el archivo
+  no la contenga.
 
 ### Iteración 9 — 2026-09-10
 
