@@ -149,18 +149,21 @@ func resolvePaths() (Paths, error) {
 		}
 	}
 
-	return rutasDe(base, state), nil
+	return PathsIn(base, state), nil
 }
 
-// rutasDe reparte los archivos entre los dos directorios raíz.
+// PathsIn reparte los archivos entre los dos directorios raíz.
 //
 // Está separada de resolvePaths —que es la mitad que depende del sistema— para
-// que se pueda probar con dos raíces DISTINTAS. En Windows las dos son la misma
+// que se pueda probar con dos raíces DISTINTAS, y es exportada para que el
+// test que recorre todo lo que la aplicación escribe buscando una contraseña
+// —en `internal/service`— use el reparto real y no una copia que se
+// desactualice. En Windows las dos son la misma
 // carpeta, así que un test que use las rutas reales no puede distinguir "esto
 // va al estado local" de "esto se sincroniza": las dos ubicaciones coinciden y
 // cualquier afirmación sobre el reparto pasa sola. Y Windows es justamente la
 // plataforma donde se desarrolla y donde corre el test.
-func rutasDe(base, state string) Paths {
+func PathsIn(base, state string) Paths {
 	return Paths{
 		Connections:  filepath.Join(base, "connections.toml"),
 		Layouts:      filepath.Join(base, "layouts"),

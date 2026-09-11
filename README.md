@@ -343,6 +343,14 @@ tablas visibles ve las que creó otro paquete y falla de manera intermitente.
 
 Es lo mismo que corre CI en cada push.
 
+`go test .` —el paquete de la raíz— incluye además los tests estructurales:
+que ningún paquete abra un socket ni ignore la clave de un host SSH, que
+ningún Taskfile compile el modo servidor de Wails, que la versión sea la misma
+en todos lados. Para la parte que un test no puede ver —lo que el binario
+abre de verdad cuando corre, WebView2 incluido— está `scripts/sockets.ps1`:
+lanza `bin/kaname.exe`, espera, lista cada socket del árbol de procesos y
+falla si alguno escucha o si `kaname.exe` abrió alguno. Solo Windows por ahora.
+
 > En un clon recién bajado, `go vet` y `go test` fallan con
 > `pattern all:frontend/dist: no matching files found`. No es un error tuyo: el
 > paquete `main` embebe el frontend construido y `frontend/dist/` es un artefacto
@@ -383,6 +391,7 @@ frontend/
   .npmrc             Filtro de supply chain. Leer antes de tocar.
 internal/            Paquetes de Go. Cada servicio expuesto al frontend vive acá.
 design/             Artboards bajados de Claude Design. No se commitea.
+scripts/             sockets.ps1: lo que el binario abre de verdad cuando corre.
 .gitleaks.toml       Reglas de gitleaks: las de fábrica más las DSN y `password = "…"`.
 .github/workflows/   CI: lint, typecheck, secretos en el historial, integración,
                      builds de los tres sistemas y release en borrador con tag.

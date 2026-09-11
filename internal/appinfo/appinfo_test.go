@@ -93,13 +93,13 @@ func TestPathsNoExponeNingunaRutaDeSecretos(t *testing.T) {
 // que separa "esta máquina" de "lo que se sincroniza", y ésa es toda la razón
 // por la que son dos archivos. Si alguna vez caen en el mismo directorio, el
 // historial de lo que corriste empieza a viajar a la otra máquina.
-// Se prueba contra `rutasDe` con dos raíces distintas, no contra las rutas
+// Se prueba contra `PathsIn` con dos raíces distintas, no contra las rutas
 // reales: en Windows el directorio de estado ES el de configuración, así que
 // con las reales los dos lados de la afirmación coinciden y el caso pasa diga
 // lo que diga el código.
 func TestElHistorialEsLocalYLasGuardadasViajanConLaLibreta(t *testing.T) {
 	const base, state = "/libreta", "/estado"
-	p := rutasDe(base, state)
+	p := PathsIn(base, state)
 
 	if dir := filepath.Dir(p.History); dir != filepath.Clean(state) {
 		t.Errorf("Paths.History está en %q y el estado local es %q: "+

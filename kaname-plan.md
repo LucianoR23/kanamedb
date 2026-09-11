@@ -826,7 +826,9 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
 - ✅ **`modernc.org/sqlite` v1.58.0 anda en windows/arm64.** No solo compila:
   corre (SQLite 3.53.4), sin cgo, y cross-compila a amd64. Riesgo descartado.
 - ✅ **Sin sockets.** Se removió del template de Wails el modo servidor HTTP
-  (`build:server`, `run:server`, `build:docker`). Ver registro de decisiones.
+  (`build:server`, `run:server`, `build:docker`). *Con corrección: el
+  `build/docker/` sí se había borrado, las tareas no; salieron el 2026-09-11,
+  con un test que impide que vuelvan.* Ver registro de decisiones.
 - WebView2 (Windows) se actualiza y reporta a Microsoft por su cuenta, y no lo
   controlás desde la app. Es el precio de no embeber Chromium.
 - El resto (xyflow, CodeMirror, TanStack Virtual, Wails, pgx) no hace phone-home.
@@ -865,6 +867,14 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
 - Tests de integración con Docker Compose de los cuatro motores desde el día uno;
   el differ se rompe en silencio
 - Exportar ERD a SQL y a imagen
+- WebView2 abre dos o tres HTTPS salientes a Microsoft al arrancar, antes de
+  que la app conecte a nada. No es de Kaname y no es un puerto escuchando; no
+  se encontró la combinación de flags que lo apague del todo. Ver § 6
+  (2026-09-11)
+- Si el keychain guarda la contraseña de la base y falla al guardar la del
+  bastión, la conexión no se guarda —correcto— pero la primera credencial
+  queda en el keychain bajo un ID que ninguna conexión referencia. No es un
+  secreto en disco; es una entrada huérfana en el gestor del sistema.
 
 ---
 
@@ -1393,6 +1403,84 @@ la comprobación de que camelCase sigue afuera.
 El job `release` pasa a llamarse «Release» a secas: con `${{ github.ref_name
 }}` en el nombre, GitHub lo mostraba sin evaluar en cada push que no es un
 tag, y parecía un error.
+
+**Keychain, sockets y TOFU: de «así está diseñado» a «así se comprueba».**
+Los tres ítems siguientes del checklist. Ninguno cambió el diseño; cada uno
+ganó el test que faltaba, y uno encontró que el plan mentía.
+
+- **Los secretos solo van al keychain.** `TestLosSecretosVanAlKeychainYANingunArchivo`
+  arma los mismos stores que `main.servicios` sobre el reparto real de rutas
+  —`appinfo.PathsIn`, exportada para eso— en dos raíces temporales, hace todo
+  lo que la app hace con el disco (guardar, editar y duplicar una conexión con
+  contraseña y bastión, preferencias, diagrama, historial, consultas guardadas,
+  known_hosts) y después lee cada archivo **byte a byte** buscando tres
+  centinelas. Byte a byte y no por formato: `json.Unmarshal` no ve un campo que
+  el tipo no declara. Exige además que el keychain sí los tenga —un Save que
+  tirara la contraseña pasaría un test que solo mira el disco— y que haya
+  mirado por lo menos seis archivos. `TestSiElKeychainFallaNoSeGuardaNadaEnNingunLado`
+  es Linux sin Secret Service: el `Set` falla con el error de D-Bus, la
+  conexión no se guarda y nada toca el disco. Ese caso estaba afirmado en un
+  comentario y `failSet` existía en el fake desde la iteración 1 **sin que
+  ningún test lo usara**. Las dos inyecciones que los ponen en rojo: escribir
+  el secreto a un archivo al lado de la libreta, y guardar la conexión antes
+  que el secreto. Dato que respalda la afirmación sobre Linux:
+  `go-keyring` v0.2.8 no tiene ni un `os.WriteFile`; sin Secret Service
+  devuelve error, nunca un archivo.
+- **Ningún socket, en ninguna configuración.** Tres capas. La estática es
+  `sockets_test.go`, en la raíz: recorre `main.go` e `internal/` por el árbol
+  sintáctico —no `strings.Contains`, para que un comentario no lo rompa— y
+  prohíbe `net.Listen*`, `http.ListenAndServe*`, `http.Serve*`,
+  `httptest.New*Server`, `.ListenAndServe()` con cualquier receptor y
+  `ssh.InsecureIgnoreHostKey`. Es la generalización a todo el módulo del que
+  `internal/tunnel` ya tenía para su paquete. La dinámica es
+  `scripts/sockets.ps1`: lanza el binario limpio —rechaza el de debug, que
+  abre el 9222—, espera, y le pregunta al sistema por cada socket del árbol de
+  procesos, WebView2 incluido; falla con un TCP en Listen, un endpoint UDP o
+  cualquier socket de `kaname.exe`. Corrido el 2026-09-11 contra el build
+  limpio: siete procesos, cero Listen, cero UDP, cero sockets de
+  `kaname.exe`. Comprobado que falla: contra un binario de cinco líneas que
+  escucha en loopback, sale con 1. La tercera capa es lo que encontró el
+  test de Taskfiles: **el plan decía desde la iteración 0 que `build:server`,
+  `run:server` y `build:docker` se habían borrado, y no era cierto** —`git
+  log -S` muestra que entraron con el esqueleto y nunca salieron—. Son la app
+  compilada como servidor HTTP sin ventana, con los bindings y las
+  credenciales detrás de un puerto. Ahora sí están borradas, y
+  `TestNingunTaskfileCompilaElModoServidor` falla si vuelven por nombre o si
+  algún Taskfile compila con `-tags server` o `mcp`, que son los dos
+  listeners que Wails v3 trae detrás de build tags. El `build:docker` de cada
+  sistema —cross-compilar dentro de una imagen— no se busca por nombre porque
+  no levanta nada.
+- **Lo que el script muestra y no es de la app.** `msedgewebview2.exe` abre
+  dos o tres HTTPS salientes a Microsoft (52.97.x.x) al arrancar, con la app
+  sin haber conectado a nada. Es el runtime de WebView2 reportando y buscando
+  configuración, que la sección 3 ya tenía anotado como el precio de no
+  embeber Chromium. Se intentó apagarlo con `--disable-background-networking`,
+  `--disable-component-update` y una lista de `--disable-features=ms…` vía
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`: bajó de tres conexiones a dos, no a
+  cero. No se identificó el host —Chromium resuelve por su cuenta y no pasa
+  por el caché de DNS de Windows— y se dejó ahí: no es un puerto escuchando,
+  no es de Kaname, y perseguirlo no cambia el checklist. Queda en la sección 4.
+- **TOFU sin servidor.** `verificador` es la única puerta entre «el servidor
+  presentó una clave» y «se manda una credencial», y es una función pura:
+  `TestElVerificadorSoloAceptaLaClaveQueSeAcepto` la prueba con las seis
+  combinaciones de known_hosts × aceptación de una vez × clave presentada,
+  con claves ed25519 generadas en el test. Los de integración cubrían dos de
+  las seis; las otras cuatro no se pueden provocar contra un servidor que no
+  cambia de clave, y la que importa es esa: la persona aceptó una huella en
+  el diálogo y al conectar el servidor presenta OTRA. «Conectar una vez»
+  acepta **esa** huella, no la que venga. Dos inyecciones, dos rojos: la rama
+  «cambió» devolviendo nil, y `AcceptOnce` aceptando cualquier huella.
+
+Review high, cuatro hallazgos, los cuatro huecos en los guardias nuevos y no
+en la app: el test del código miraba el NOMBRE del identificador y no la ruta
+del import, así que `import n "net"` lo esquivaba —ahora resuelve
+`f.Imports`, y `.Serve(l)` sobre un `*http.Server` entró a la lista—; los
+tags se cortaban solo por coma, y Go acepta `-tags "server production"` con
+espacio; el recorrido de Taskfiles miraba todo el repo, con lo que un worktree
+viejo en `.claude/` lo ponía en rojo —ahora solo el de la raíz y `build/`—; y
+el script daba por bueno un binario que muere al arrancar, porque un proceso
+muerto no tiene sockets —ahora exige que siga vivo y que el árbol tenga los
+procesos de WebView2—. Cada uno verificado con su inyección.
 
 **Automatizar los bumps de dependencias: postergado.** Decisión del usuario:
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
@@ -5069,6 +5157,8 @@ Wails v3 trae de fábrica `build:server`, `run:server` y `build:docker`, que
 levantan la app como servidor HTTP sin GUI. Es exactamente el agujero descrito
 en la sección 3. Se borraron las tareas y `build/docker/`. También se removió el
 scaffolding de Android e iOS: no es plataforma objetivo y es superficie muerta.
+*(2026-09-11: las tareas no se habían borrado —solo el directorio—; ver la
+iteración 9, «Keychain, sockets y TOFU».)*
 
 **El build de producción va por `wails3 task build`, no por `go build`.**
 `go build` a mano omite dos cosas que importan: el tag `production` —sin él el
@@ -5125,11 +5215,19 @@ público. Nada se marca por confianza, todo con evidencia.
       propias para las DSN y los `password = "…"` que las de fábrica no ven.
 - [ ] Verificar que ningún log, mensaje de error ni evento hacia el frontend
       contenga credenciales, connection strings ni valores de filas.
-- [ ] Confirmar que los secretos viven solo en el keychain y que el SQLite de
-      estado local y el archivo de config no tienen ninguno.
-- [ ] Confirmar que la app no abre ningún socket en ninguna configuración.
-- [ ] Revisar que `known_hosts` haga TOFU real y que no exista ninguna ruta con
-      `InsecureIgnoreHostKey`.
+- [x] Confirmar que los secretos viven solo en el keychain y que el estado
+      local —TOML y JSON; no hay SQLite de estado— y el archivo de config no
+      tienen ninguno. `TestLosSecretosVanAlKeychainYANingunArchivo` y
+      `TestSiElKeychainFallaNoSeGuardaNadaEnNingunLado`, 2026-09-11.
+- [x] Confirmar que la app no abre ningún socket en ninguna configuración.
+      `sockets_test.go` (código y Taskfiles) y `scripts/sockets.ps1` contra el
+      binario limpio, 2026-09-11: cero Listen, cero UDP, cero sockets de
+      `kaname.exe`. Las tareas del modo servidor, que seguían en el
+      Taskfile, borradas.
+- [x] Revisar que `known_hosts` haga TOFU real y que no exista ninguna ruta con
+      `InsecureIgnoreHostKey`. `TestElVerificadorSoloAceptaLaClaveQueSeAcepto`
+      (seis casos) y la prohibición de `ssh.InsecureIgnoreHostKey` en
+      `sockets_test.go`, 2026-09-11.
 - [ ] Tests de integración de los cuatro motores en verde.
 - [x] Elegir y agregar la licencia. Apache 2.0, 2026-09-11.
 
