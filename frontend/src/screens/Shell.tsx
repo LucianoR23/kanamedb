@@ -420,7 +420,16 @@ export function Shell({
                       }}
                     />
                   ) : objetos[t.id] ? (
-                    <ObjectScreen objeto={objetos[t.id]!} recarga={recarga} />
+                    <ObjectScreen
+                      objeto={objetos[t.id]!}
+                      recarga={recarga}
+                      snapshot={snapshot}
+                      motor={session?.server?.engine ?? ""}
+                      soloLectura={session?.readOnly ?? false}
+                      onStaged={() => {
+                        void SessionSvc.Changeset().then((v) => setPendientes(v.summary.total));
+                      }}
+                    />
                   ) : t.id === ID_CAMBIOS ? (
                     <PendingChanges
                       active={t.id === activeTab}

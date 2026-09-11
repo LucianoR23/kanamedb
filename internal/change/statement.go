@@ -68,6 +68,23 @@ type Statement struct {
 	// Vacía cuando no hay nada que avisar.
 	Note string `json:"note,omitempty"`
 
+	// Steps son las sentencias que hay que mandar POR SEPARADO, en orden.
+	//
+	// `SQL` sigue siendo lo que se lee en la vista previa —las mismas
+	// sentencias, una debajo de la otra— y esto es lo que se ejecuta. Cuando
+	// está vacío se ejecuta `SQL`, que es el caso de casi todo.
+	//
+	// Existe por MySQL y MariaDB: su DSN lleva `multiStatements=false` a
+	// propósito —ver internal/query/split.go— así que un `DROP …; CREATE …`
+	// mandado como una sola cadena es un ERROR DE SINTAXIS, no dos sentencias.
+	// El reemplazo de un objeto que hay que borrar y volver a crear es
+	// exactamente eso, y sin esto no se podía ejecutar en esos dos motores.
+	//
+	// Partir `SQL` por el `;` en el momento de ejecutar no sirve: el cuerpo de
+	// un procedimiento está lleno de puntos y comas. Las partes las sabe quien
+	// armó la sentencia, y las deja dichas acá.
+	Steps []string `json:"-"`
+
 	// Bound es la MISMA sentencia con los valores como parámetros, y es lo que
 	// se ejecuta cuando la operación es de datos. Nil en un DDL.
 	//

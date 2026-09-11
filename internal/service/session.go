@@ -528,7 +528,12 @@ func (s *Session) ObjectDefinition(ctx context.Context, o schema.Object) (schema
 	// objeto y dicen qué pasó. Un prefijo acá daba «leer la definición: sin
 	// definición: kn_s05.positivo es un dominio…», con dos encabezados antes de
 	// la frase que explica algo —probando a mano se ve enseguida—.
-	return sesion.db.ObjectDefinition(ctx, o)
+	def, err := sesion.db.ObjectDefinition(ctx, o)
+	if err != nil {
+		return def, err
+	}
+	def.Replaceable = change.PuedeReemplazarEnElLugar(string(sesion.db.Kind()), o.Kind)
+	return def, nil
 }
 
 // ObjectDependents lista lo que se rompe si este objeto deja de existir.

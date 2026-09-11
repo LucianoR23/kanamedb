@@ -172,6 +172,9 @@ func renderDDL(ctx context.Context, db *sql.DB, c change.Change) (change.Stateme
 		change.DropConstraint:
 		return rebuildDDL(ctx, db, c)
 
+	case change.ReplaceObject:
+		return objetoDDL(c)
+
 	default:
 		return st, &engine.ErrUnsupported{Engine: engine.SQLite, Operation: string(c.Type)}
 	}
@@ -301,4 +304,40 @@ var dialectoDML = dml.Dialect{
 		}
 		return "INSERT INTO "
 	},
+}
+
+// objetoDDL escribe el reemplazo de la definición de un objeto.
+//
+// SQLite no tiene OR REPLACE para vistas ni para triggers, así que siempre es
+// borrar y crear. A cambio, su DDL SÍ es transaccional: las dos sentencias van
+// en la misma transacción y un CREATE que falla revierte el DROP. Es lo
+// contrario de MySQL, donde el mismo par puede perder el objeto.
+func objetoDDL(c change.Change) (change.Statement, error) {
+	st := change.Statement{ChangeID: c.ID, Destructive: c.Destructive()}
+
+	// El esquema se ignora: en SQLite es siempre `main` y calificar con él un
+	// DROP lo haría fallar contra una base abierta por archivo.
+	nombre := QuoteIdent(c.Name)
+	drop, definicion, err := change.ObjetoAReemplazar(c, "sqlite", nombre, "")
+	if err != nil {
+		return st, err
+	}
+
+	st.Impact = change.ImpactMetadata
+	if drop == "" {
+		st.SQL = definicion
+		st.Lock = change.LockNone
+		return st, nil
+	}
+	st.Steps = []string{drop, definicion}
+	st.SQL = drop + ";\n" + definicion
+	st.Lock = change.LockAll
+	// La nota NO promete atomicidad a secas, y eso es una corrección: el DDL de
+	// SQLite es transaccional, pero solo si el apply corre EN una transacción.
+	// Con «una sola transacción» destildado el tramo va sin ella, y un CREATE
+	// que falle deja el objeto borrado —comprobado— que es justo lo que la
+	// versión anterior de esta nota decía que no podía pasar.
+	st.Note = "El objeto se borra y se vuelve a crear. Con «una sola transacción» puesto, un " +
+		"CREATE que falle revierte el DROP; sin ella, el objeto queda borrado."
+	return st, nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
@@ -51,6 +52,15 @@ func Definition(ctx context.Context, db *sql.DB, o schema.Object) (schema.Object
 	sqlTexto, err := showCreate(ctx, db, "SHOW CREATE "+que+" "+nombre)
 	if err != nil {
 		return def, fmt.Errorf("leer la definición de %s: %w", o.Completo(), err)
+	}
+	// `SHOW CREATE VIEW` devuelve `CREATE ALGORITHM=… VIEW`, sin OR REPLACE, y
+	// correr eso sobre la vista que existe falla con «already exists». Como
+	// esta definición ES la que el editor va a ejecutar, se muestra ya en la
+	// forma re-ejecutable. Solo para vistas: las rutinas y los triggers de esta
+	// familia no admiten OR REPLACE —MariaDB sí, pero ver la nota de
+	// PuedeReemplazarEnElLugar—.
+	if o.Kind == schema.ObjView {
+		sqlTexto = change.ConOrReplace(sqlTexto)
 	}
 	def.SQL = sqlTexto
 	return def, nil

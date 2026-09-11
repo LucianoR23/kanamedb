@@ -1039,6 +1039,16 @@ var ErrRowCount = errors.New("la sentencia no tocó exactamente la fila que ten�
 // revierte, en vez de terminar en «aplicado» sobre nada. Y si una clave que
 // se creía única alcanzó dos filas, la segunda no se pierde en silencio.
 func ejecutar(ctx context.Context, ej ejecutor, st change.Statement) error {
+	// Los pasos se mandan de a uno: hay motores donde dos sentencias en la
+	// misma cadena son un error de sintaxis. Ver Statement.Steps.
+	if len(st.Steps) > 0 {
+		for _, paso := range st.Steps {
+			if err := ej.Exec(ctx, paso); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if st.Bound == nil {
 		return ej.Exec(ctx, st.SQL)
 	}

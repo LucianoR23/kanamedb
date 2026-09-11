@@ -545,9 +545,9 @@ Vistas, funciones, procedures, triggers y enums como editor de definición.
 - ✅ **El contrato de objetos** — `Conn.Objects` y `Conn.ObjectDefinition` en los
   cuatro motores, probados con el ciclo borrar → volver a correr. Es la base de
   las tres pantallas de abajo.
-- ⏳ **S16 Object editor** — la lista de dependientes está ✅; falta editar la
-  definición, con el aviso de DROP + CREATE y el cambio pasando por el
-  changeset.
+- ✅ **S16 Object editor** — completa: la definición se edita, el cambio pasa
+  por el changeset con su vista previa, y la lista de dependientes y el aviso de
+  DROP + CREATE están al lado del botón que los necesita.
 - ⏳ **S17 Enum / type editor** — completa.
 - ✅ **S05** — nodos de vistas, materialized views, funciones, procedures,
   triggers, enums, dominios, tipos compuestos, secuencias, políticas y eventos
@@ -827,6 +827,116 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 8 — 2026-09-10
+
+**Reemplazar un objeto es UNA operación del changeset, no dos.** Un `dropObject`
+y un `createObject` sueltos dejarían un changeset en el que alguien puede
+excluir la segunda mitad y aplicar la primera: el objeto borrado y nada en su
+lugar. `replaceObject` lleva la definición entera y una bandera, y el
+renderizador decide cuántas sentencias hacen falta —que van juntas en la misma
+`Statement`, como ya hace la reconstrucción de tablas de SQLite—.
+
+**La definición se ejecuta TAL CUAL, sin reescribirla.** Es la promesa del
+editor —lo que se ve es lo que se ejecuta— y es además lo único defendible:
+para agregarle un `OR REPLACE` al texto habría que parsearlo, y un cuerpo de
+PL/pgSQL con `$$` adentro no se parsea con una expresión regular. Donde el
+motor sabe reemplazar en el lugar, la definición que Kaname muestra ya viene
+en esa forma; donde no sabe, va precedida de un DROP que se ve en la vista
+previa.
+
+**Reemplazar en el lugar contra borrar y crear no es una preferencia: es la
+diferencia entre no poder romper nada y poder perder el objeto.** Si un `CREATE
+OR REPLACE` falla —SQL mal escrita, o en Postgres una vista que cambió su lista
+de columnas— el objeto queda exactamente como estaba y el error se ve. Borrar y
+crear rompe lo que dependa del objeto, y **en MySQL y MariaDB cada sentencia de
+DDL hace commit sola**: un CREATE que falla después de un DROP que funcionó deja
+el objeto PERDIDO, sin transacción que lo devuelva. Por eso reemplazar es el
+valor por defecto, borrar y crear es una escalada que se pide con la lista de
+dependientes a la vista, y la nota de la vista previa dice cosas distintas según
+el motor. En Postgres y en SQLite el DDL es transaccional y el par se revierte
+entero; la nota lo dice y no miente por comodidad.
+
+Qué sabe reemplazar cada motor: Postgres, vistas, funciones, procedimientos y
+triggers —`CREATE OR REPLACE TRIGGER` existe desde la 14, que es el mínimo que
+soportamos—; MySQL y MariaDB, solo vistas; SQLite, nada. Las vistas
+materializadas y las secuencias de Postgres tampoco: recrear una matview pierde
+sus filas hasta el próximo REFRESH, y recrear una secuencia le devuelve el valor
+inicial, así que la próxima fila puede recibir un id que ya se usó. Lo que el
+motor no sabe reemplazar se EXIGE recrear; sin ese candado el CREATE chocaba con
+un «already exists» que no dice qué hacer.
+
+MariaDB sí tiene `CREATE OR REPLACE` para rutinas y triggers y **no se
+aprovecha**: distinguirla de MySQL ahí haría que la misma pantalla se comportara
+distinto contra dos motores que se presentan como compatibles, y el caso que
+importa —perder el objeto si el CREATE falla— se cubre igual avisando.
+
+**Lo único que se valida de la definición es que empiece con CREATE**, y eso no
+es pereza sino el límite deliberado. Es el error que de verdad pasa: pegar un
+SELECT, o el cuerpo suelto de una función, donde iba el CREATE entero. Con
+«borrar y volver a crear» puesto eso es un DROP seguido de una sentencia que no
+crea nada, y **ningún motor se queja**: un SELECT es SQL perfectamente válida,
+corre, devuelve filas y no deja nada. El objeto desaparece y el apply termina en
+verde. Más allá de eso no se valida: decidir si un CREATE entero es correcto es
+trabajo del servidor, y adivinarlo acá terminaría rechazando SQL válida que
+Kaname no entendió.
+
+**El caso de los cuatro motores no mira que la sentencia corra sino que la vista
+devuelva OTRA COSA después.** Se parte de una vista que deja pasar una fila de
+tres y se reemplaza por una que deja pasar dos: un reemplazo que corre sin error
+y deja la definición vieja se ve idéntico a uno que funcionó, y es un fallo
+posible —un `CREATE OR REPLACE VIEW` sobre un nombre distinto crea una vista
+nueva y deja la vieja intacta—. Después se relee la definición, porque un motor
+que devolviera el texto viejo dejaría el editor mostrando lo que ya no es.
+
+**El review `high` de esta mitad encontró dos fallos que hacían el editor
+inservible en caminos enteros, y los dos estaban tapados por el mismo agujero de
+test.** El caso compartido reemplazaba una VISTA, y una vista se reemplaza en el
+lugar en tres de los cuatro motores: el camino de borrar y volver a crear —el
+que tiene todo el riesgo— solo se ejercitaba en SQLite.
+
+El primero: **recrear un trigger en Postgres fallaba siempre.** La gramática es
+`DROP TRIGGER nombre ON tabla`, donde el nombre es un identificador PELADO —el
+esquema va del lado de la tabla— y Kaname lo escribía calificado. `DROP TRIGGER
+"s"."t" ON "s"."tabla"` es un error de sintaxis, comprobado contra el servidor.
+
+El segundo es peor porque no se arreglaba cambiando una línea: **en MySQL y
+MariaDB el par DROP + CREATE no se podía ejecutar nunca.** El DSN lleva
+`multiStatements=false` a propósito, así que las dos sentencias en una sola
+cadena no son dos sentencias: son un error de sintaxis. Y como en esa familia lo
+único que se reemplaza en el lugar son las vistas, eso era **toda** edición de
+rutina o de trigger. Partir la cadena por el `;` al ejecutar no sirve: el cuerpo
+de un procedimiento está lleno de puntos y comas.
+
+La salida fue `Statement.Steps`: las sentencias que hay que mandar por separado,
+en orden. `SQL` sigue siendo lo que se lee en la vista previa —las mismas, una
+debajo de la otra— y los pasos son lo que corre. Las sabe quien armó la
+sentencia, que es el único que puede saberlas.
+
+**Dos notas de la vista previa decían cosas que no eran ciertas.** La de Postgres
+prometía que el DROP se podía arrastrar con CASCADE y el renderizador nunca lo
+escribía —ahora sí—. Y la de SQLite prometía atomicidad a secas: el DDL de SQLite
+es transaccional, pero **solo si el apply corre en una transacción**, y con «una
+sola transacción» destildado el tramo va sin ella y un CREATE que falla deja el
+objeto borrado. Comprobado. Las dos notas ahora dicen la condición en vez de la
+conclusión.
+
+**Y la pantalla se saltaba la confirmación de producción.** Llamaba a `Stage`
+directo en vez de pasar por `useStage`, así que contra una conexión marcada como
+producción el «falta confirmar» de Go caía como texto en un aviso y no había
+dónde escribir el nombre de la base: reemplazar un objeto era imposible. En
+SQLite, donde toda edición es borrar y crear, eso era **cualquier** edición de
+objeto. Es exactamente lo que el comentario de ese hook advierte —«una pantalla
+nueva que prepare cambios queda protegida sin acordarse de nada»— y la pantalla
+nueva se acordó mal.
+
+Los tres chicos: la firma de una función se concatena en el `DROP FUNCTION` y
+venía del frontend **sin validar**, así que un `Args` con un `;` adentro entraba
+como sentencias extra —pgx manda el Exec por el protocolo simple—; ahora pasa por
+la misma disciplina que un nombre de tipo, que no comprueba que exista sino que
+no pueda ser otra cosa. Refrescar pisaba el texto sin guardar del editor, y
+«refrescar» pasa después de cada apply, así que una vista a medio editar se
+perdía por aplicar un cambio de otra pestaña. Y para una política o una
+extensión el error mandaba a «borrarla y volver a crearla», consejo que llevaba
+derecho a un segundo error distinto porque tampoco se sabe borrarlas.
 
 **S16 se parte en dos, y el orden no es casual: primero los dependientes.** La
 pantalla del objeto ya existía en solo lectura, así que la lista de qué se rompe

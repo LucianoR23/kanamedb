@@ -59,6 +59,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("dice qué no sabe volcar", func(t *testing.T) { cobertura(t, f) })
 	t.Run("la definición de un objeto se puede volver a correr", func(t *testing.T) { definicion(t, f) })
 	t.Run("una lista de dependientes vacía no es lo mismo que no saber", func(t *testing.T) { dependientes(t, f) })
+	t.Run("reemplazar la definición de un objeto", func(t *testing.T) { reemplazarObjeto(t, f) })
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
@@ -1304,5 +1305,87 @@ func dependientes(t *testing.T, f Fixture) {
 	// Si el motor dice saber, nadie cuelga de una vista recién creada.
 	if !dep.Vacio() {
 		t.Errorf("una vista recién creada tiene dependientes: %+v", dep.Objects)
+	}
+}
+
+// reemplazarObjeto comprueba el ciclo completo del editor de objetos: leer la
+// definición, cambiarla y aplicarla, en los cuatro motores.
+//
+// Lo que se mira NO es que la sentencia corra sino que la vista **devuelva otra
+// cosa** después. Un reemplazo que corre sin error y deja la definición vieja
+// se ve exactamente igual que uno que funcionó, y es un fallo perfectamente
+// posible: `CREATE OR REPLACE VIEW` sobre un nombre distinto crea una vista
+// nueva y deja la vieja intacta.
+func reemplazarObjeto(t *testing.T, f Fixture) {
+	c := abrir(t, f)
+	ctx := context.Background()
+	esq := f.Esquema(c)
+	tabla := crearTabla(t, c, f, esq, "kn_repl")
+	nomTabla := califica(c, esq, tabla)
+
+	for _, id := range []int{1, 2, 3} {
+		exec(t, c, fmt.Sprintf("INSERT INTO %s (id, nombre) VALUES (%d, 'x')", nomTabla, id))
+	}
+
+	vista := "kn_repl_vista"
+	nombreVista := califica(c, esq, vista)
+	_ = c.Exec(ctx, "DROP VIEW IF EXISTS "+nombreVista)
+	exec(t, c, fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s WHERE id = 1", nombreVista, nomTabla))
+	t.Cleanup(func() { _ = c.Exec(context.Background(), "DROP VIEW IF EXISTS "+nombreVista) })
+
+	if got := unaCelda(t, c, "SELECT count(*) FROM "+nombreVista); got != "1" {
+		t.Fatalf("la vista de partida devuelve %q y no 1: el caso no probaría nada", got)
+	}
+
+	esqObjeto := esq
+	if esqObjeto == "" {
+		esqObjeto = "main"
+	}
+	// La definición nueva deja pasar DOS filas en vez de una. El número es lo
+	// que distingue «se aplicó» de «corrió sin hacer nada».
+	nueva := fmt.Sprintf("CREATE VIEW %s AS SELECT id FROM %s WHERE id <= 2", nombreVista, nomTabla)
+	cambio := change.Change{
+		Type:       change.ReplaceObject,
+		ObjectKind: schema.ObjView,
+		Schema:     esqObjeto,
+		Name:       vista,
+		Definition: nueva,
+	}
+	// Donde el motor sabe reemplazar en el lugar se usa esa forma —es la que la
+	// pantalla ofrece por defecto— y donde no, se recrea.
+	if !change.PuedeReemplazarEnElLugar(string(c.Kind()), schema.ObjView) {
+		cambio.Recreate = true
+	} else {
+		cambio.Definition = strings.Replace(nueva, "CREATE VIEW", "CREATE OR REPLACE VIEW", 1)
+	}
+
+	st, err := c.RenderDDL(ctx, cambio)
+	if err != nil {
+		t.Fatalf("RenderDDL(): %v", err)
+	}
+	if cambio.Recreate && !strings.Contains(strings.ToUpper(st.SQL), "DROP ") {
+		t.Errorf("se pidió recrear y no hay DROP:\n%s", st.SQL)
+	}
+	if !cambio.Recreate && strings.Contains(strings.ToUpper(st.SQL), "DROP ") {
+		t.Errorf("hay un DROP sin que nadie lo pidiera:\n%s", st.SQL)
+	}
+	if err := aplicar(ctx, c, st); err != nil {
+		t.Fatalf("aplicar %q: %v", st.SQL, err)
+	}
+
+	if got := unaCelda(t, c, "SELECT count(*) FROM "+nombreVista); got != "2" {
+		t.Errorf("la vista sigue devolviendo %q: el reemplazo corrió sin cambiar nada", got)
+	}
+
+	// Y la definición que se lee de vuelta es la nueva: sin esto, un motor que
+	// guardara el texto viejo dejaría el editor mostrando lo que ya no es.
+	def, err := c.ObjectDefinition(ctx, schema.Object{
+		Kind: schema.ObjView, Schema: esqObjeto, Name: vista,
+	})
+	if err != nil {
+		t.Fatalf("ObjectDefinition(): %v", err)
+	}
+	if !strings.Contains(def.SQL, "2") {
+		t.Errorf("la definición leída no es la nueva:\n%s", def.SQL)
 	}
 }

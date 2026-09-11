@@ -1,24 +1,63 @@
-import { useEffect, useState } from "react";
-import type { $Object as DBObject, Dependents, ObjectDefinition } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
+import { useEffect, useRef, useState } from "react";
+import { Type as ChangeType } from "../../bindings/github.com/LucianoR23/kanamedb/internal/change";
+import type { $Object as DBObject, Dependents, ObjectDefinition, Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
-import { Badge, CopyButton, Glyph, Spinner } from "../components/ui";
+import { SqlEditor } from "../components/SqlEditor";
+import { Badge, Button, CopyButton, Glyph, Spinner } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
-import { conArticulo, glifoDe, nombreDeClase } from "../lib/objetos";
+import { useStage } from "../lib/useStage";
+import { glifoDe, nombreDeClase } from "../lib/objetos";
 import styles from "./ObjectScreen.module.css";
 
 /**
- * S16, primera mitad: la definición de un objeto, para leer.
+ * S16: la definición de un objeto, para leer y para editar.
  *
- * Editarla —con la lista de dependientes y el aviso de DROP + CREATE— es lo que
- * falta. Se separa a propósito: poder VER qué hace una vista o una función ya
- * es la mitad del valor y no arriesga nada, mientras que guardarla implica
- * borrar y volver a crear el objeto, que es destructivo y tiene que pasar por
- * el changeset y su vista previa como todo lo demás.
+ * Guardar NO aplica nada: prepara un cambio en el changeset, que se revisa y se
+ * aplica en la pantalla de pendientes como cualquier otro. Es lo mismo que hace
+ * la grilla y el editor de estructura, y no es burocracia: reemplazar un objeto
+ * puede ser destructivo, y la vista previa con la SQL exacta es la garantía de
+ * fondo de todo el apply.
  *
- * El texto se muestra tal como lo devuelve el motor. Es la promesa del editor
- * cuando exista: lo que se ve es lo que se ejecuta.
+ * El texto se muestra y se ejecuta TAL CUAL. Nada lo reescribe.
  */
-export function ObjectScreen({ objeto, recarga }: { objeto: DBObject; recarga: number }) {
+export function ObjectScreen({
+  objeto,
+  recarga,
+  snapshot,
+  motor,
+  soloLectura,
+  onStaged,
+}: {
+  objeto: DBObject;
+  recarga: number;
+  snapshot: Snapshot | null;
+  motor: string;
+  soloLectura: boolean;
+  onStaged: () => void;
+}) {
+  // El texto del editor y el que vino del motor, por separado. La comparación
+  // entre los dos es lo único que decide si hay algo para guardar: un botón
+  // habilitado sobre un texto idéntico prepara un cambio que no cambia nada y
+  // ensucia el changeset.
+  const [texto, setTexto] = useState("");
+  // Lo último que trajo el motor. Compararlo con lo que hay en el editor es lo
+  // que distingue «no lo toqué» de «estoy a medio escribir» cuando llega una
+  // recarga.
+  const textoAnterior = useRef("");
+  const [recrear, setRecrear] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState("");
+
+  // Se prepara con el MISMO camino que la grilla y el diagrama, no llamando a
+  // Stage a mano. Es lo que hace aparecer la confirmación de producción cuando
+  // Go la exige: sin esto, en una conexión marcada como producción el error de
+  // «falta confirmar» caía como texto en el aviso y no había dónde escribir el
+  // nombre de la base —así que reemplazar un objeto era imposible, y en SQLite
+  // eso es CUALQUIER edición de objeto, porque todas son borrar y crear—.
+  const staging = useStage(() => {
+    setAviso("Listo. El cambio quedó en «Cambios pendientes» — todavía no se aplicó.");
+    onStaged();
+  });
   const [def, setDef] = useState<ObjectDefinition | null>(null);
   const [deps, setDeps] = useState<Dependents | null>(null);
   const [error, setError] = useState("");
@@ -32,6 +71,17 @@ export function ObjectScreen({ objeto, recarga }: { objeto: DBObject; recarga: n
       .then((d) => {
         if (!vigente) return;
         setDef(d);
+        // El texto del editor NO se pisa si hay una edición sin guardar. Este
+        // efecto también corre con «Refrescar» y después de cada apply, así
+        // que sin esta guarda una vista a medio editar se perdía por aplicar un
+        // cambio de otra pestaña, sin aviso y sin forma de recuperarla.
+        setTexto((actual) => (actual === "" || actual === textoAnterior.current ? d.sql : actual));
+        textoAnterior.current = d.sql;
+        // Lo que el motor no sabe reemplazar en el lugar arranca —y queda— en
+        // «borrar y volver a crear»: ofrecer la otra opción sería ofrecer algo
+        // que el renderizador rechaza.
+        setRecrear(!d.replaceable);
+        setAviso("");
       })
       .catch((err: unknown) => {
         if (!vigente) return;
@@ -69,6 +119,35 @@ export function ObjectScreen({ objeto, recarga }: { objeto: DBObject; recarga: n
   }, [objeto, recarga]);
 
   const clase = nombreDeClase(objeto.kind);
+  // Se compara con lo que vino del motor y no se guarda un booleano aparte:
+  // escribir y deshacer deja el texto igual, y un «sucio» pegajoso habilitaría
+  // preparar un cambio que no cambia nada.
+  const sucio = def !== null && texto !== def.sql;
+
+  async function guardar() {
+    if (!def || !sucio) return;
+    setGuardando(true);
+    setAviso("");
+    try {
+      await staging.stage(
+        {
+          type: ChangeType.ReplaceObject,
+          objectKind: objeto.kind,
+          schema: objeto.schema,
+          name: objeto.name,
+          args: objeto.args,
+          // La tabla solo la lleva un trigger, y es lo único que permite
+          // borrarlo: `DROP TRIGGER x` sin ella no es SQL válida en Postgres.
+          table: objeto.table,
+          definition: texto,
+          recreate: recrear,
+          source: "object",
+        } as never,
+      );
+    } finally {
+      setGuardando(false);
+    }
+  }
 
   return (
     <div className={styles.pane} aria-busy={cargando}>
@@ -114,20 +193,59 @@ export function ObjectScreen({ objeto, recarga }: { objeto: DBObject; recarga: n
               </ol>
             </section>
           ) : null}
-          <pre className={styles.sql}>{def?.sql ?? ""}</pre>
+          <div className={styles.editor}>
+            <SqlEditor
+              value={texto}
+              onChange={(v) => {
+                setTexto(v);
+                setAviso("");
+              }}
+              snapshot={snapshot}
+              onRun={() => {}}
+              readOnly={soloLectura}
+              engine={motor}
+            />
+          </div>
+
+          <div className={styles.acciones}>
+            {/* El modo NO es un detalle técnico escondido: es la diferencia
+                entre no poder romper nada y poder perder el objeto, así que
+                está a la vista al lado del botón que lo usa. */}
+            <label className={styles.modo} title={explicarModo(def, recrear)}>
+              <input
+                type="checkbox"
+                checked={recrear}
+                disabled={!def?.replaceable || soloLectura}
+                onChange={(e) => setRecrear(e.target.checked)}
+              />
+              Borrar y volver a crear
+            </label>
+            <span className={styles.modoNota}>{explicarModo(def, recrear)}</span>
+            <span className={styles.spacer} />
+            {sucio ? (
+              <Button variant="ghost" onClick={() => setTexto(def?.sql ?? "")} disabled={guardando}>
+                Descartar
+              </Button>
+            ) : null}
+            <Button onClick={guardar} disabled={!sucio || guardando || soloLectura}>
+              {guardando ? "Preparando…" : "Preparar el cambio"}
+            </Button>
+          </div>
+          {staging.error || aviso ? (
+            <p className={styles.avisoGuardar}>{staging.error || aviso}</p>
+          ) : null}
+
           <Dependientes deps={deps} />
         </>
       )}
 
-      {/* Solo cuando hay algo que mostrar: un cartel sobre un error sería
-          ruido encima de una explicación. */}
       {!cargando && !error ? (
         <p className={styles.nota}>
-          Editar {conArticulo(objeto.kind)} llega en la próxima unidad de esta iteración:
-          guardar implica borrar y volver a crear el objeto, y eso pasa por la vista previa del
-          changeset como cualquier otro cambio destructivo.
+          Preparar el cambio no lo aplica: queda en «Cambios pendientes», con la SQL exacta que se
+          va a correr.
         </p>
       ) : null}
+      {staging.dialogo}
     </div>
   );
 }
@@ -219,4 +337,25 @@ function Dependientes({ deps }: { deps: Dependents | null }) {
  */
 function claveDep(o: DBObject): string {
   return `${o.kind}:${o.schema}.${o.name}@${o.table ?? ""}`;
+}
+
+/**
+ * Qué va a pasar al aplicar, dicho antes de aplicarlo.
+ *
+ * Las dos frases NO son variantes de la misma: reemplazar en el lugar no puede
+ * romper nada —si el CREATE falla, el objeto sigue como estaba— mientras que
+ * borrar y crear rompe lo que dependa de él. Y en MySQL, donde el DDL hace
+ * commit solo, además puede PERDER el objeto: no hay transacción que devuelva
+ * el DROP si el CREATE falla. Esa última parte la dice la vista previa con el
+ * motor en la mano; acá se dice la diferencia de fondo.
+ */
+function explicarModo(def: ObjectDefinition | null, recrear: boolean): string {
+  if (!def) return "";
+  if (!def.replaceable) {
+    return "Este motor no sabe reemplazarlo en el lugar, así que hay que borrarlo y volver a crearlo.";
+  }
+  if (recrear) {
+    return "Se borra y se vuelve a crear: rompe lo que dependa de él, y si el CREATE falla el objeto puede quedar perdido.";
+  }
+  return "Se reemplaza en el lugar: si la definición nueva falla, el objeto queda como estaba.";
 }

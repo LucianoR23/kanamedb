@@ -409,6 +409,17 @@ type ObjectDefinition struct {
 	// revisión es la garantía de fondo de todo el apply.
 	SQL string `json:"sql"`
 
+	// Replaceable dice si este motor sabe reemplazar este objeto SIN borrarlo
+	// antes.
+	//
+	// Viaja con la definición y no se deduce del motor en el frontend a
+	// propósito: la tabla de qué sabe reemplazar cada motor está en `change` y
+	// es la que usa el renderizador. Copiarla en TypeScript serían dos verdades
+	// sobre lo mismo, y la que se atrasa es siempre la que decide qué botón se
+	// muestra —así que la pantalla ofrecería reemplazar algo que después el
+	// renderizador rechaza—.
+	Replaceable bool `json:"replaceable"`
+
 	// Values son los valores de un enum en su orden de declaración, que en
 	// Postgres es el orden en que ordenan y comparan.
 	//

@@ -296,6 +296,9 @@ func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statemen
 		st.Lock = change.LockNone
 		st.Note = "Las consultas que lo usaban pasan a recorrer la tabla."
 
+	case change.ReplaceObject:
+		return objetoDDL(c, k)
+
 	default:
 		return st, &engine.ErrUnsupported{Engine: k, Operation: string(c.Type)}
 	}
@@ -434,4 +437,49 @@ func dialectoDML(cita func(string) string) dml.Dialect {
 			return "INSERT INTO "
 		},
 	}
+}
+
+// objetoDDL escribe el reemplazo de la definición de un objeto.
+//
+// La definición se ejecuta TAL CUAL, sin reescribirla: es la promesa del editor.
+//
+// La nota del camino con DROP dice algo que NO vale para Postgres ni para
+// SQLite, y es la diferencia que más caro sale de esta familia: **acá cada
+// sentencia de DDL hace commit sola**. No hay transacción que envuelva al DROP
+// y al CREATE, así que si el CREATE falla —un error de sintaxis, un permiso— el
+// DROP ya está aplicado y el objeto se PERDIÓ. Kaname tiene su definición
+// anterior en la pantalla de donde salió, que es el único respaldo que existe;
+// decirlo antes es lo mínimo.
+func objetoDDL(c change.Change, k engine.Kind) (change.Statement, error) {
+	st := change.Statement{ChangeID: c.ID, Destructive: c.Destructive()}
+
+	nombre := QualifiedName(c.Schema, c.Name)
+	drop, definicion, err := change.ObjetoAReemplazar(c, string(k), nombre, "")
+	if err != nil {
+		return st, err
+	}
+
+	st.Impact = change.ImpactMetadata
+	if drop == "" {
+		st.SQL = definicion
+		st.Lock = change.LockNone
+		st.Note = "Se reemplaza en el lugar: si la definición nueva falla, el objeto queda como está."
+		return st, nil
+	}
+
+	// Los dos pasos se mandan POR SEPARADO. El DSN de esta familia lleva
+	// `multiStatements=false` a propósito —ver internal/query/split.go— así que
+	// `DROP …; CREATE …` en una sola cadena no son dos sentencias: es un error
+	// de sintaxis. Sin esto, reemplazar una rutina o un trigger no se podía
+	// ejecutar NUNCA en MySQL ni en MariaDB, que son justamente los objetos que
+	// este motor no sabe reemplazar en el lugar.
+	st.Steps = []string{drop, definicion}
+	st.SQL = drop + ";\n" + definicion
+	st.Lock = change.LockAll
+	st.Note = fmt.Sprintf(
+		"El objeto se borra y se vuelve a crear. En %s el DDL confirma solo, así que NO hay "+
+			"transacción que lo revierta: si el CREATE falla, el objeto queda borrado y su "+
+			"definición anterior solo existe en esta pantalla. Copiala antes de aplicar.",
+		k.Label())
+	return st, nil
 }

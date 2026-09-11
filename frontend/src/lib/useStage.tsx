@@ -60,7 +60,12 @@ export function useStage(onHecho: () => void) {
     return intentar(
       (confirm) => SessionSvc.Stage(c, confirm),
       <>
-        Estás por preparar un cambio <strong>destructivo</strong> sobre <code>{c.table}</code> en
+        {/* Un cambio de objeto no tiene tabla —una vista y una función viven
+            solas— así que se nombra lo que el cambio TOCA, no siempre una
+            tabla. Sin esto, reemplazar una vista en producción preguntaba
+            «destructivo sobre …» con el hueco vacío. */}
+        Estás por preparar un cambio <strong>destructivo</strong> sobre{" "}
+        <code>{c.table || c.name}</code> en
         una conexión marcada como producción. Todavía no se va a aplicar nada: esto lo suma a la
         lista de cambios pendientes, y el apply vuelve a preguntar. Lo que se pierda al aplicarlo
         no se recupera desde Kaname.

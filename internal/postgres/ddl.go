@@ -8,6 +8,7 @@ import (
 
 	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/dml"
+	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
 // tipoValido acota qué puede ser un nombre de tipo.
@@ -23,6 +24,27 @@ import (
 // alguien lea la SQL. Es defensa en profundidad para que el preview no tenga que
 // ser el único filtro.
 var tipoValido = regexp.MustCompile(`^[A-Za-z0-9_ ."\[\](),áéíóúñÁÉÍÓÚÑ]+$`)
+
+// firmaValida acota qué puede ser la firma de una función.
+//
+// La firma va CONCATENADA al `DROP FUNCTION` y viene del frontend, así que
+// necesita la misma disciplina que un tipo: no se valida que exista, se valida
+// que no pueda ser otra cosa. Sin esto, un `Args` armado a mano con `) ; DROP
+// … ; --` adentro se convierte en sentencias extra dentro del mismo envío,
+// porque pgx manda un Exec sin parámetros por el protocolo simple.
+//
+// Es la misma forma que `tipoValido` —una firma es una lista de tipos con sus
+// nombres y modos— y por eso comparte los caracteres, más nada.
+var firmaValida = regexp.MustCompile(`^[A-Za-z0-9_ ."\[\](),áéíóúñÁÉÍÓÚÑ]*$`)
+
+// validarFirma comprueba la firma antes de escribirla en un DROP.
+func validarFirma(args string) error {
+	if !firmaValida.MatchString(args) {
+		return fmt.Errorf(
+			"la firma %q tiene caracteres que no pueden estar en una lista de argumentos", args)
+	}
+	return nil
+}
 
 // accionesReferenciales traduce el vocabulario del modelo al de SQL.
 //
@@ -301,6 +323,9 @@ func RenderDDL(c change.Change) (change.Statement, error) {
 		st.Note = "Las consultas que lo usaban vuelven a recorrer la tabla. Reconstruirlo " +
 			"puede tardar tanto como tardó la primera vez."
 
+	case change.ReplaceObject:
+		return objetoDDL(c)
+
 	default:
 		return st, fmt.Errorf("PostgreSQL: no sé escribir la operación %q", c.Type)
 	}
@@ -459,4 +484,67 @@ func listaDeIdent(nombres []string) string {
 		citados[i] = QuoteIdent(n)
 	}
 	return strings.Join(citados, ", ")
+}
+
+// objetoDDL escribe el reemplazo de la definición de un objeto.
+//
+// La definición se ejecuta TAL CUAL la escribió la persona: no se reescribe, no
+// se le agrega un OR REPLACE, no se le corrige el nombre. Es la promesa del
+// editor —lo que se ve es lo que se ejecuta— y también la única postura
+// defendible: para agregarle un OR REPLACE al texto habría que parsearlo, y un
+// cuerpo de PL/pgSQL con `$$` adentro no se parsea con una expresión regular.
+//
+// Lo que Kaname sí decide es si va precedida de un DROP, y eso lo pide la
+// pantalla. Cuando lo pide, las dos sentencias van en la MISMA Statement: si
+// fueran dos cambios del changeset, alguien podría excluir la segunda y dejar
+// el objeto borrado.
+func objetoDDL(c change.Change) (change.Statement, error) {
+	st := change.Statement{ChangeID: c.ID, Destructive: c.Destructive()}
+
+	nombre := QualifiedName(c.Schema, c.Name)
+	// Una función sobrecargada necesita su firma para poder borrarse: sin ella
+	// `DROP FUNCTION demo.calcular` falla con «is not unique» y, peor, con una
+	// sola sobrecarga borraría la que no era.
+	if c.Args != "" {
+		if err := validarFirma(c.Args); err != nil {
+			return st, err
+		}
+		nombre += "(" + c.Args + ")"
+	}
+	// El trigger es el único que NO se califica: la gramática de Postgres es
+	// `DROP TRIGGER nombre ON tabla`, donde el nombre es un identificador
+	// pelado. Con el esquema adelante —`DROP TRIGGER "s"."t" ON …`— el
+	// servidor devuelve un error de sintaxis, comprobado. El esquema va del
+	// lado de la TABLA, que es lo que de verdad lo lleva.
+	var sufijo string
+	if c.ObjectKind == schema.ObjTrigger {
+		nombre = QuoteIdent(c.Name)
+		sufijo = " ON " + QualifiedName(c.Schema, c.Table)
+	}
+
+	drop, definicion, err := change.ObjetoAReemplazar(c, "postgres", nombre, sufijo)
+	if err != nil {
+		return st, err
+	}
+
+	if drop == "" {
+		st.SQL = definicion
+		st.Impact = change.ImpactMetadata
+		st.Lock = change.LockNone
+		st.Note = "Se reemplaza en el lugar: si la definición nueva falla, el objeto queda como está."
+		return st, nil
+	}
+
+	drop += cascada(c)
+	// Las dos van como PASOS y no como una cadena con `;` en el medio: se
+	// ejecutan por separado, que es lo único que funciona en los cuatro
+	// motores. `SQL` sigue siendo lo que se lee en la vista previa.
+	st.Steps = []string{drop, definicion}
+	st.SQL = drop + ";\n" + definicion
+	st.Impact = change.ImpactMetadata
+	st.Lock = change.LockAll
+	st.Note = "El objeto se borra y se vuelve a crear, así que lo que dependa de él se rompe. " +
+		"Con «una sola transacción» puesto, un CREATE que falle revierte el DROP; sin ella, el " +
+		"objeto queda borrado."
+	return st, nil
 }

@@ -28,6 +28,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
 // Kind separa los cambios de esquema de los de datos.
@@ -94,6 +96,16 @@ const (
 	InsertRow Type = "insertRow"
 	UpdateRow Type = "updateRow"
 	DeleteRow Type = "deleteRow"
+
+	// ReplaceObject reemplaza la definición de una vista, una función, un
+	// procedimiento, un trigger o un enum.
+	//
+	// Es UNA operación y no dos —un drop y un create— a propósito. Donde el
+	// motor sabe reemplazar en el lugar, no hay ningún drop que mostrar; y
+	// donde no sabe, el borrado y la creación tienen que ir juntos o queda un
+	// changeset en el que alguien puede excluir la mitad y dejar el objeto
+	// borrado.
+	ReplaceObject Type = "replaceObject"
 )
 
 // Cell es el valor de una columna en un cambio de datos.
@@ -198,6 +210,44 @@ type Change struct {
 	// Where es el predicado de un índice parcial.
 	Where string `json:"where,omitempty"`
 
+	// ObjectKind es qué clase de objeto reemplaza un replaceObject.
+	//
+	// Hace falta para escribir el DROP: `DROP VIEW` y `DROP FUNCTION` no son
+	// intercambiables, y el motor no lo deduce del nombre.
+	ObjectKind schema.ObjectKind `json:"objectKind,omitempty"`
+
+	// Args es la firma de una función sobrecargada, en la forma de identidad
+	// del motor.
+	//
+	// Sin ella `DROP FUNCTION demo.calcular` falla con «is not unique» cuando
+	// hay dos, y —peor— con una sola borraría la que no era si el editor
+	// estaba mostrando otra.
+	Args string `json:"args,omitempty"`
+
+	// Definition es el CREATE completo, tal como quedó en el editor.
+	//
+	// Se ejecuta TAL CUAL, sin reescribirlo. Es la promesa del editor —lo que
+	// se ve es lo que se ejecuta— y es también la única postura defendible: un
+	// cuerpo de función en PL/pgSQL o un SELECT con CTEs no se puede reescribir
+	// sin parsear SQL de verdad, y parsearla mal en silencio es peor que no
+	// tocarla.
+	Definition string `json:"definition,omitempty"`
+
+	// Recreate pide BORRAR el objeto antes de crearlo, en vez de reemplazarlo
+	// en el lugar.
+	//
+	// Es una escalada explícita y no un detalle de implementación. Reemplazar
+	// en el lugar no puede romper nada: si el CREATE OR REPLACE falla, el
+	// objeto sigue como estaba. Borrar y crear sí: rompe lo que dependa del
+	// objeto, y en MySQL —donde el DDL hace commit solo— un CREATE que falla
+	// después de un DROP que funcionó deja el objeto PERDIDO. Por eso lo pide
+	// la pantalla, con la lista de dependientes a la vista, y no lo decide el
+	// renderizador por su cuenta.
+	//
+	// Donde el motor no sabe reemplazar en el lugar —una vista materializada,
+	// una secuencia, una rutina de MySQL— el renderizador lo exige.
+	Recreate bool `json:"recreate,omitempty"`
+
 	// Cascade pide arrastrar los objetos dependientes al borrar.
 	//
 	// Es una decisión que se toma en la interfaz y con aviso: un DROP CASCADE
@@ -238,7 +288,7 @@ func (c Change) Kind() Kind {
 		AddColumn, DropColumn, RenameColumn, SetColumnType,
 		SetNotNull, DropNotNull, SetDefault, DropDefault, SetColumnComment,
 		AddPrimaryKey, AddForeignKey, AddCheck, AddUnique, DropConstraint,
-		AddIndex, DropIndex:
+		AddIndex, DropIndex, ReplaceObject:
 		return KindSchema
 	default:
 		return KindData
@@ -278,6 +328,12 @@ func (c Change) Destructive() bool {
 		// tardar horas en reconstruirse. Cascade los vuelve francamente
 		// destructivos porque arrastran objetos que no están a la vista.
 		return c.Cascade
+	case ReplaceObject:
+		// Reemplazar en el lugar no destruye nada: si falla, el objeto sigue
+		// como estaba. Borrarlo y crearlo sí —rompe lo que dependa de él, y en
+		// MySQL un CREATE que falla después del DROP deja el objeto perdido— y
+		// una vista materializada además pierde sus filas.
+		return c.Recreate
 	case SetColumnType:
 		// Un cambio de tipo puede truncar: numeric(10,2) a integer descarta los
 		// decimales de todas las filas, sin aviso del motor.
@@ -293,10 +349,37 @@ func (c Change) Destructive() bool {
 
 // Target es el objeto que toca la operación, para agrupar en la pantalla.
 func (c Change) Target() string {
-	if c.Schema == "" {
-		return c.Table
+	nombre := c.Table
+	if c.Type == ReplaceObject {
+		nombre = c.Name
 	}
-	return c.Schema + "." + c.Table
+	if c.Schema == "" {
+		return nombre
+	}
+	return c.Schema + "." + nombre
+}
+
+// validarObjeto comprueba lo que necesita un replaceObject.
+//
+// La definición vacía se rechaza acá y no más adelante porque es el error más
+// fácil de cometer y el más caro: con Recreate puesto, un DROP seguido de una
+// cadena vacía BORRA el objeto y no crea nada. La pantalla también lo impide;
+// esto es el candado de abajo, que es el que vale.
+func (c Change) validarObjeto() error {
+	if c.Name == "" {
+		return fmt.Errorf("%s: falta el nombre del objeto", c.Type)
+	}
+	if c.ObjectKind == "" {
+		return fmt.Errorf("%s sobre %s: falta la clase de objeto", c.Type, c.Target())
+	}
+	if strings.TrimSpace(c.Definition) == "" {
+		return fmt.Errorf("%s sobre %s: la definición está vacía", c.Type, c.Target())
+	}
+	if c.ObjectKind == schema.ObjTrigger && c.Table == "" {
+		return fmt.Errorf("%s sobre %s: un trigger necesita su tabla para poder borrarlo",
+			c.Type, c.Target())
+	}
+	return nil
 }
 
 // Validate comprueba que el cambio tenga lo que su tipo necesita.
@@ -305,6 +388,11 @@ func (c Change) Target() string {
 // llega al renderizado: preferimos un error acá, con el nombre de la operación,
 // que una sentencia a medio armar.
 func (c Change) Validate() error {
+	// Un objeto no cuelga de una tabla —una vista y una función viven solas—
+	// así que la exigencia de arriba no le aplica y se valida aparte.
+	if c.Type == ReplaceObject {
+		return c.validarObjeto()
+	}
 	if c.Table == "" {
 		return fmt.Errorf("%s: falta la tabla", c.Type)
 	}
@@ -558,6 +646,10 @@ func fase(t Type) int {
 		SetColumnComment, SetTableComment, RenameColumn:
 		return 2
 	case AddPrimaryKey, AddUnique, AddForeignKey, AddCheck, AddIndex, SetNotNull:
+		return 3
+	case ReplaceObject:
+		// Después de que las columnas estén como van a quedar —una vista que
+		// usa una columna nueva no se puede crear antes— y antes de los datos.
 		return 3
 	case DropConstraint, DropIndex:
 		return 5

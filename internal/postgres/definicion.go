@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/kanamedb/internal/change"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
@@ -39,7 +40,12 @@ func Definition(ctx context.Context, pool *pgxpool.Pool, o schema.Object) (schem
 
 	switch o.Kind {
 	case schema.ObjView, schema.ObjMatView:
-		relkind, palabras := "v", "VIEW"
+		// La vista se arma ya en la forma que se puede volver a correr sobre la
+		// que existe: `CREATE VIEW x` sobre una vista que está falla con
+		// «already exists», y esta definición es la que el editor va a
+		// ejecutar. Una vista materializada NO admite OR REPLACE, así que se
+		// queda como está —y por eso el editor obliga a recrearla—.
+		relkind, palabras := "v", "OR REPLACE VIEW"
 		if o.Kind == schema.ObjMatView {
 			relkind, palabras = "m", "MATERIALIZED VIEW"
 		}
@@ -102,7 +108,10 @@ func Definition(ctx context.Context, pool *pgxpool.Pool, o schema.Object) (schem
 		if err != nil {
 			return def, envolver(err, o)
 		}
-		def.SQL = sql
+		// `pg_get_triggerdef` devuelve `CREATE TRIGGER`, y desde PostgreSQL 14
+		// existe `CREATE OR REPLACE TRIGGER`, que es lo que hace posible
+		// reemplazarlo sin borrarlo.
+		def.SQL = change.ConOrReplace(sql)
 
 	case schema.ObjEnum:
 		return enum(ctx, pool, def, nombre)
