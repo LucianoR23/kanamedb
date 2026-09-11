@@ -3,9 +3,13 @@ package connection
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/LucianoR23/kanamedb/internal/engine"
 )
 
 func valid() Connection {
@@ -177,12 +181,15 @@ func TestDSNPorMotor(t *testing.T) {
 		},
 		{
 			motor:    MySQL,
-			contiene: []string{"@tcp(", ":3306)/", "multiStatements=false", "tls="},
+			contiene: []string{"@tcp(", ":3306)/", "multiStatements=false"},
 			// El formato de go-sql-driver NO es una URI. Si apareciera un
 			// esquema, es que se armó con el molde de Postgres.
 			// Y sin parseTime: las fechas tienen que llegar como las escribe el
 			// servidor, no reformateadas por Go. Ver dsnMySQL.
-			noTiene: []string{"mysql://", "parseTime"},
+			// Y sin `tls=`: el cifrado de MySQL se arma en internal/mysql a
+			// partir de TLSOptions, no del DSN. Un `tls=` acá sería un segundo
+			// lugar que decide lo mismo.
+			noTiene: []string{"mysql://", "parseTime", "tls="},
 		},
 		{
 			motor:    MariaDB,
@@ -404,5 +411,118 @@ func TestNormalizeLimpiaLaCarpeta(t *testing.T) {
 		if got := c.Normalize().Folder; got != quiere {
 			t.Errorf("Normalize() con Folder=%q dio %q, se esperaba %q", crudo, got, quiere)
 		}
+	}
+}
+
+// Los certificados de Postgres van en el DSN con los nombres de libpq, que es
+// donde pgx los lee, y con el `~` resuelto: pgx abre la ruta tal cual.
+func TestElDSNDePostgresLlevaLosCertificadosResueltos(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("sin directorio del usuario:", err)
+	}
+	con := valid()
+	con.TLS = TLS{
+		RootCertPath:   "~/.postgresql/root.crt",
+		ClientCertPath: `"C:\certs\cliente.crt"`, // con comillas del Explorador
+		ClientKeyPath:  "C:/certs/cliente.key",
+	}
+	dsn, err := con.DSN("secreta")
+	if err != nil {
+		t.Fatalf("DSN() error: %v", err)
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	if got, want := q.Get("sslrootcert"), filepath.Join(home, ".postgresql", "root.crt"); got != want {
+		t.Errorf("sslrootcert = %q, se esperaba %q", got, want)
+	}
+	if got := q.Get("sslcert"); got != `C:\certs\cliente.crt` {
+		t.Errorf("sslcert = %q: las comillas tenían que salir", got)
+	}
+	if got := q.Get("sslkey"); got != "C:/certs/cliente.key" {
+		t.Errorf("sslkey = %q", got)
+	}
+
+	// Y sin certificados, ninguno de los tres parámetros aparece: pgx tiene
+	// defaults por directorio del usuario y un parámetro vacío los pisaría.
+	dsn, _ = valid().DSN("secreta")
+	for _, p := range []string{"sslrootcert", "sslcert", "sslkey"} {
+		if strings.Contains(dsn, p) {
+			t.Errorf("el DSN sin certificados no debería llevar %q: %s", p, dsn)
+		}
+	}
+}
+
+// TLSOptions es lo que recibe el motor de MySQL: el modo efectivo y las rutas
+// resueltas. SQLite no tiene canal que cifrar y recibe el cero.
+func TestTLSOptionsResuelveLasRutasYElModo(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("sin directorio del usuario:", err)
+	}
+	con := valid()
+	con.Engine = MySQL
+	con.SSLMode = ""
+	con.TLS.RootCertPath = " ~/ca.pem "
+	got, err := con.TLSOptions()
+	if err != nil {
+		t.Fatalf("TLSOptions() error: %v", err)
+	}
+	want := engine.TLSOptions{Mode: SSLPrefer, RootCert: filepath.Join(home, "ca.pem")}
+	if got != want {
+		t.Errorf("TLSOptions() = %+v, se esperaba %+v", got, want)
+	}
+
+	con.Engine = SQLite
+	con.Database = "C:/tmp/x.db"
+	got, err = con.TLSOptions()
+	if err != nil || got != (engine.TLSOptions{}) {
+		t.Errorf("con SQLite TLSOptions() = %+v, %v; se esperaba el cero", got, err)
+	}
+}
+
+// `require` a secas no verifica; con una raíz cargada, sí —es lo que hace
+// libpq—. El aviso de la interfaz sale de acá, así que si esto mintiera, el
+// aviso aparecería justo después de cargar la raíz para que verifique.
+func TestVerifiesCertificateMiraLaRaizAdemasDelModo(t *testing.T) {
+	casos := []struct {
+		modo SSLMode
+		raiz string
+		want bool
+	}{
+		{SSLDisable, "", false},
+		{SSLPrefer, "", false},
+		{SSLPrefer, "~/ca.pem", false},
+		{SSLRequire, "", false},
+		{SSLRequire, "~/ca.pem", true},
+		{SSLVerifyCA, "", true},
+		{SSLVerifyFull, "", true},
+	}
+	for _, c := range casos {
+		con := valid()
+		con.SSLMode = c.modo
+		con.TLS.RootCertPath = c.raiz
+		if got := con.VerifiesCertificate(); got != c.want {
+			t.Errorf("%s con raíz %q: VerifiesCertificate() = %v, se esperaba %v", c.modo, c.raiz, got, c.want)
+		}
+	}
+	con := valid()
+	con.Engine, con.Database, con.SSLMode = SQLite, "x.db", SSLVerifyFull
+	if con.VerifiesCertificate() {
+		t.Error("SQLite no tiene certificado que verificar")
+	}
+}
+
+// SQLite es un archivo: los certificados no tienen sentido y Normalize los
+// borra, como hace con el host y el usuario.
+func TestNormalizeBorraLosCertificadosDeSQLite(t *testing.T) {
+	con := valid()
+	con.Engine, con.Database = SQLite, "C:/tmp/x.db"
+	con.TLS = TLS{RootCertPath: "ca.pem", ClientCertPath: "c.crt", ClientKeyPath: "c.key"}
+	if got := con.Normalize().TLS; got != (TLS{}) {
+		t.Errorf("TLS de SQLite = %+v, se esperaba vacío", got)
 	}
 }

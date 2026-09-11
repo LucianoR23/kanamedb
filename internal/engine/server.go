@@ -48,6 +48,11 @@ type ServerInfo struct {
 	// es la que el usuario cree.
 	VisibleTables int `json:"visibleTables"`
 
+	// TLS describe el canal cifrado y el certificado que presentó el
+	// servidor. Nil es que la conexión viaja en claro —o que es un archivo—,
+	// y la pestaña TLS de S03 lo dice con esas palabras.
+	TLS *TLSInfo `json:"tls,omitempty"`
+
 	// Latency es lo que tardó el ida y vuelta de la verificación.
 	Latency time.Duration `json:"-"`
 	// LatencyMS es lo mismo, en milisegundos, para el frontend.

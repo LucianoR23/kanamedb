@@ -3,6 +3,7 @@ import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/inter
 import * as SettingsSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/settings";
 import { Application } from "@wailsio/runtime";
 import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
+import { Kind as Engine } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { Splitter } from "../components/Splitter";
 import {
@@ -776,6 +777,15 @@ export function Shell({
                     <InfoRow label="Codificación" value={session.server.encoding} />
                     <InfoRow label="Zona horaria" value={session.server.timeZone} />
                     <InfoRow label="Latencia" value={`${session.server.latencyMs} ms`} />
+                    {/* Con qué viaja la sesión. «Sin cifrar» se dice con esas
+                        palabras y no se omite: un panel que calla el canal
+                        deja creer que está cifrado. SQLite no tiene canal. */}
+                    {session.server.engine !== Engine.SQLite ? (
+                      <InfoRow
+                        label="Canal"
+                        value={session.server.tls ? session.server.tls.version : "sin cifrar"}
+                      />
+                    ) : null}
                     {session.server.inRecovery ? (
                       <InfoRow label="Rol" value="réplica" />
                     ) : null}

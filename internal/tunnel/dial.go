@@ -279,7 +279,7 @@ func metodosDeAuth(cfg Config, sec Secrets) ([]ssh.AuthMethod, error) {
 		return []ssh.AuthMethod{ssh.Password(sec.Password)}, nil
 
 	case AuthKeyFile:
-		ruta, err := expandirRuta(cfg.KeyPath)
+		ruta, err := ExpandHome(cfg.KeyPath)
 		if err != nil {
 			return nil, err
 		}
@@ -326,7 +326,11 @@ func discar(ctx context.Context, addr string) (net.Conn, error) {
 	return conn, nil
 }
 
-// expandirRuta resuelve un `~` inicial al directorio del usuario.
+// ExpandHome resuelve un `~` inicial al directorio del usuario.
+//
+// Exportada por lo mismo que CleanPath: las rutas de los certificados TLS se
+// guardan con el `~` sin resolver, para que la libreta sincronice, y se
+// resuelven al armar la conexión.
 //
 // Se hace al USAR la ruta y no al guardarla, y esa es toda la gracia: el
 // archivo de conexiones se sincroniza entre máquinas, y `~` significa algo
@@ -348,7 +352,7 @@ func discar(ctx context.Context, addr string) (net.Conn, error) {
 // La traducción se hace SOLO cuando la ruta empieza con `~\`, que es sintaxis de
 // Windows inequívoca. Una ruta `~/carpeta\rara` conserva su barra invertida: en
 // Linux es un nombre de archivo legítimo y cambiarlo sería romperlo.
-func expandirRuta(ruta string) (string, error) {
+func ExpandHome(ruta string) (string, error) {
 	const tildeDeWindows = `~\`
 	estiloWindows := strings.HasPrefix(ruta, tildeDeWindows)
 

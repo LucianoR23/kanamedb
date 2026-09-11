@@ -52,7 +52,40 @@ func (c Connection) Validate() error {
 	errs = append(errs, c.connectErrors()...)
 	errs = append(errs, c.safetyErrors()...)
 	errs = append(errs, c.sshErrors()...)
+	errs = append(errs, c.tlsErrors()...)
 	return wrap(errs)
+}
+
+// tlsErrors valida los archivos del cifrado.
+//
+// Con el prefijo `tls.`, como los del túnel: viven en su propia pestaña. Solo
+// se mira la forma —que el par de cliente esté completo—: si el archivo existe
+// y es un PEM lo dice el driver al conectar, con el nombre del archivo, y este
+// paquete no toca disco.
+func (c Connection) tlsErrors() []FieldError {
+	c = c.Normalize()
+	if c.Engine == SQLite {
+		return nil
+	}
+	var errs []FieldError
+	// Un certificado sin su clave no demuestra nada, y una clave sin
+	// certificado no identifica a nadie: pgx rechaza las dos mitades sueltas
+	// con un error que habla de archivos, no de que falta la otra mitad.
+	if c.TLS.ClientCertPath != "" && c.TLS.ClientKeyPath == "" {
+		errs = append(errs, FieldError{
+			Field:   "tls.clientKeyPath",
+			Message: "El certificado de cliente necesita su clave privada.",
+		})
+	}
+	if c.TLS.ClientKeyPath != "" && c.TLS.ClientCertPath == "" {
+		errs = append(errs, FieldError{
+			Field:   "tls.clientCertPath",
+			Message: "La clave de cliente necesita su certificado.",
+		})
+	}
+	// Con el cifrado apagado los archivos son configuración muerta, como los
+	// campos del túnel apagado: no se exige nada, pero se avisa en Warnings.
+	return errs
 }
 
 // sshErrors valida el salto por el bastión.
@@ -243,8 +276,9 @@ func (c Connection) Warnings() []Warning {
 
 	// Se mira el modo EFECTIVO: un SSLMode vacío no es "sin configurar", es
 	// `prefer`, que ni verifica el certificado ni garantiza cifrado. Mirar el
-	// campo crudo apagaba el aviso justo en el caso inseguro.
-	if mode := c.EffectiveSSLMode(); c.Engine != SQLite && !mode.Verifies() {
+	// campo crudo apagaba el aviso justo en el caso inseguro. Y se mira la
+	// conexión y no el modo a secas: `require` con una raíz cargada verifica.
+	if mode := c.EffectiveSSLMode(); c.Engine != SQLite && !c.VerifiesCertificate() {
 		msg := "La conexión no verifica el certificado del servidor."
 		switch mode {
 		case SSLDisable:
@@ -256,6 +290,15 @@ func (c Connection) Warnings() []Warning {
 			msg += " Contra producción, conviene verify-full."
 		}
 		w = append(w, Warning{Field: "sslMode", Message: msg})
+	}
+
+	// Un certificado raíz cargado con el cifrado apagado es una raíz que no
+	// verifica nada: la persona cree que sí, porque lo cargó para eso.
+	if c.Engine != SQLite && c.EffectiveSSLMode() == SSLDisable && c.TLS != (TLS{}) {
+		w = append(w, Warning{
+			Field:   "tls.rootCertPath",
+			Message: "Con el cifrado apagado, los certificados cargados no se usan.",
+		})
 	}
 
 	if c.Environment == Production && !c.Safety.ReadOnly {

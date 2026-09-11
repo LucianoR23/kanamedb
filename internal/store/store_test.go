@@ -273,6 +273,11 @@ func TestIdaYVueltaPorDiscoPreservaTodosLosCampos(t *testing.T) {
 		Folder:      "Shop",
 		Safety:      connection.Safety{ReadOnly: true},
 		SSLMode:     connection.SSLVerifyFull,
+		TLS: connection.TLS{
+			RootCertPath:   "~/.postgresql/root.crt",
+			ClientCertPath: `C:\certs\app.crt`,
+			ClientKeyPath:  `C:\certs\app.key`,
+		},
 	}
 	if err := s.Add(want); err != nil {
 		t.Fatalf("Add() error: %v", err)
@@ -523,5 +528,35 @@ func TestUnaConexionSinCarpetaNoEscribeLaClave(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `folder = "Shop"`) {
 		t.Errorf("la carpeta no quedó escrita:\n%s", data)
+	}
+}
+
+// Los certificados son un bloque aparte y el bloque no se escribe si está
+// vacío: una libreta común no tiene por qué llevar `[connection.tls]` vacío en
+// cada conexión, que es lo que se lee a mano.
+func TestUnaConexionSinCertificadosNoEscribeElBloqueTLS(t *testing.T) {
+	s := nuevo(t)
+	sin := conn("a1", "sin certificados")
+	con := conn("a2", "con raíz")
+	con.TLS.RootCertPath = "~/.postgresql/root.crt"
+	for _, c := range []connection.Connection{sin, con} {
+		if err := s.Add(c); err != nil {
+			t.Fatalf("Add(%s) error: %v", c.Name, err)
+		}
+	}
+	data, err := os.ReadFile(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	texto := string(data)
+	if n := strings.Count(texto, "[connection.tls]"); n != 1 {
+		t.Errorf("el bloque tls aparece %d veces; se esperaba 1:\n%s", n, texto)
+	}
+	if !strings.Contains(texto, `root_cert_path = "~/.postgresql/root.crt"`) {
+		t.Errorf("la raíz no quedó escrita con el ~ sin resolver:\n%s", texto)
+	}
+	// Y las rutas que no se cargaron no aparecen ni vacías.
+	if strings.Contains(texto, "client_cert_path") || strings.Contains(texto, "client_key_path") {
+		t.Errorf("se escribieron claves de certificados que no se cargaron:\n%s", texto)
 	}
 }

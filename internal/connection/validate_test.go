@@ -322,3 +322,86 @@ func TestLaCarpetaEsOpcionalYTieneElLimiteDelNombre(t *testing.T) {
 		t.Errorf("una carpeta de %d caracteres debería ser rechazada, y en el campo folder", maxNameLength+1)
 	}
 }
+
+// El certificado de cliente y su clave van juntos o no van. pgx rechaza las
+// mitades sueltas con un error que habla de archivos, no de que falta la otra.
+func TestElCertificadoDeClienteVaConSuClave(t *testing.T) {
+	c := valid()
+	c.TLS.ClientCertPath = "C:/certs/cliente.crt"
+	got := fieldErrors(t, c)
+	if _, ok := got["tls.clientKeyPath"]; !ok {
+		t.Errorf("certificado sin clave: se esperaba un error en tls.clientKeyPath, hay %v", got)
+	}
+
+	c = valid()
+	c.TLS.ClientKeyPath = "C:/certs/cliente.key"
+	got = fieldErrors(t, c)
+	if _, ok := got["tls.clientCertPath"]; !ok {
+		t.Errorf("clave sin certificado: se esperaba un error en tls.clientCertPath, hay %v", got)
+	}
+
+	c = valid()
+	c.TLS.ClientCertPath = "C:/certs/cliente.crt"
+	c.TLS.ClientKeyPath = "C:/certs/cliente.key"
+	if err := c.Validate(); err != nil {
+		t.Errorf("el par completo tiene que ser válido: %v", err)
+	}
+
+	// Y la raíz sola es válida: es el caso común de una CA interna.
+	c = valid()
+	c.TLS.RootCertPath = "~/.postgresql/root.crt"
+	if err := c.Validate(); err != nil {
+		t.Errorf("solo la raíz tiene que ser válido: %v", err)
+	}
+
+	// En SQLite no se valida nada de esto: Normalize lo borra antes.
+	c = valid()
+	c.Engine, c.Database = SQLite, "x.db"
+	c.TLS.ClientCertPath = "C:/certs/cliente.crt"
+	if err := c.Validate(); err != nil {
+		t.Errorf("SQLite con un certificado suelto no puede fallar: %v", err)
+	}
+}
+
+// Cargar la raíz es cargarla PARA que verifique: con ella, `require` deja de
+// avisar que no verifica. Sin este cambio, la persona cargaba la raíz y el
+// aviso seguía ahí, diciendo lo contrario de lo que pasaba.
+func TestConRaizCargadaRequireYaNoAvisa(t *testing.T) {
+	c := valid()
+	c.SSLMode = SSLRequire
+	if !tieneAviso(c, "sslMode") {
+		t.Fatal("require sin raíz tiene que avisar que no verifica")
+	}
+	c.TLS.RootCertPath = "~/.postgresql/root.crt"
+	if tieneAviso(c, "sslMode") {
+		t.Errorf("require con raíz verifica la cadena y no debería avisar: %v", c.Warnings())
+	}
+	// prefer con raíz sigue sin verificar: la raíz no cambia ese modo.
+	c.SSLMode = SSLPrefer
+	if !tieneAviso(c, "sslMode") {
+		t.Error("prefer con raíz sigue sin verificar y tiene que avisar")
+	}
+}
+
+// Certificados cargados con el cifrado apagado no se usan, y se dice.
+func TestAvisaSiHayCertificadosConElCifradoApagado(t *testing.T) {
+	c := valid()
+	c.SSLMode = SSLDisable
+	c.TLS.RootCertPath = "~/ca.pem"
+	if !tieneAviso(c, "tls.rootCertPath") {
+		t.Errorf("disable con raíz cargada tiene que avisar; avisos: %v", c.Warnings())
+	}
+	c.TLS = TLS{}
+	if tieneAviso(c, "tls.rootCertPath") {
+		t.Error("sin certificados no hay nada que avisar")
+	}
+}
+
+func tieneAviso(c Connection, campo string) bool {
+	for _, w := range c.Warnings() {
+		if w.Field == campo {
+			return true
+		}
+	}
+	return false
+}

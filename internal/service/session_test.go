@@ -241,7 +241,10 @@ func TestConnectOptionsLlevaLasProteccionesAlPool(t *testing.T) {
 		},
 	}
 
-	opts := connectOptions(c)
+	opts, f := connectOptions(c)
+	if f != nil {
+		t.Fatalf("connectOptions() falló: %+v", f)
+	}
 	if !opts.ReadOnly {
 		t.Error("la conexión es de solo lectura y el pool no se entera")
 	}
@@ -255,13 +258,30 @@ func TestConnectOptionsLlevaLasProteccionesAlPool(t *testing.T) {
 	// Y sin solo lectura, el pool tampoco lo inventa.
 	c.Safety.ReadOnly = false
 	c.Safety.StatementTimeoutSeconds = connection.Unlimited
-	sin := connectOptions(c)
+	sin, _ := connectOptions(c)
 	if sin.ReadOnly {
 		t.Error("el pool se puso en solo lectura sin que la conexión lo pidiera")
 	}
 	if sin.StatementTimeout != 0 {
 		t.Errorf("StatementTimeout = %v: sin límite tiene que llegar como cero al pool",
 			sin.StatementTimeout)
+	}
+}
+
+// El cifrado viaja por las mismas opciones que las protecciones, y con el
+// modo EFECTIVO: un campo vacío llega como prefer, no como vacío, para que
+// el motor de MySQL no tenga que repetir el default de libpq.
+func TestConnectOptionsLlevaElCifradoAlPool(t *testing.T) {
+	c := connection.Connection{
+		Engine: connection.MySQL,
+		TLS:    connection.TLS{RootCertPath: "C:/certs/ca.pem"},
+	}
+	opts, f := connectOptions(c)
+	if f != nil {
+		t.Fatalf("connectOptions() falló: %+v", f)
+	}
+	if opts.TLS.Mode != connection.SSLPrefer || opts.TLS.RootCert != "C:/certs/ca.pem" {
+		t.Errorf("TLS = %+v: se esperaba prefer con la raíz", opts.TLS)
 	}
 }
 

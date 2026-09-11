@@ -48,7 +48,16 @@ func abrirMotor(
 func probarMotor(
 	ctx context.Context, c connection.Connection, dsn string, dial engine.DialFunc,
 ) (*engine.ServerInfo, *engine.Failure) {
-	cn, f := abrirMotor(ctx, c, dsn, engine.OpenOptions{MaxConns: 1, DialFunc: dial})
+	// Las mismas opciones que al conectar, menos el tamaño del pool: probar
+	// con un cifrado y conectar con otro es cómo se consigue que la prueba
+	// pase y la conexión falle.
+	opts, f := connectOptions(c)
+	if f != nil {
+		return nil, f
+	}
+	opts.MaxConns = 1
+	opts.DialFunc = dial
+	cn, f := abrirMotor(ctx, c, dsn, opts)
 	if f != nil {
 		return nil, f
 	}

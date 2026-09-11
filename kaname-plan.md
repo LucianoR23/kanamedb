@@ -625,10 +625,16 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   que nadie escribía nunca. Se guarda sola, y no tiene ni un control que no haga
   algo. De paso, About dejó de mentir: decía que la aplicación todavía no se
   conectaba a ninguna base.
-- ⏳ **S03** — **Safety** ✅, TLS y Advanced pendientes. Los tres límites se
-  eligen entre «por defecto», «un valor» y «sin límite» en vez de editar el
-  número crudo, porque en el archivo el cero significa «usá el default» y no
-  «ninguno».
+- ⏳ **S03** — **Safety** ✅, **TLS** ✅, Advanced pendiente. Los tres límites
+  de Safety se eligen entre «por defecto», «un valor» y «sin límite» en vez de
+  editar el número crudo, porque en el archivo el cero significa «usá el
+  default» y no «ninguno». TLS: el modo se mudó de General a su pestaña, con
+  la raíz y el par de cliente **por ruta** —como la clave del túnel— y una
+  tarjeta con el certificado que el servidor presentó al probar: sujeto,
+  emisor, para qué nombres vale, vigencia, huella SHA-256 y canal. Un botón
+  guarda ese certificado como raíz de confianza, que es el camino para un
+  servidor propio. MySQL y MariaDB ganan `verify-ca` de verdad y los
+  certificados, que su driver no sabía leer de la cadena. Ver la § 6.
 - ✅ **Poner un comentario a una tabla o a una columna.** El de columna ya
   estaba desde la iteración 6 —este ítem quedó desactualizado—; faltaba el de
   la tabla, que ahora está en el pie de la pantalla de estructura. Con eso se
@@ -898,6 +904,103 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-11
+
+**S03 TLS, hecha: los certificados van por ruta, MySQL habla libpq, y el
+certificado del servidor se ve antes de confiar en él.** Lo que fijó la
+implementación:
+
+- **`SSLMode` se mudó a `engine`**, y `connection.SSLMode` es un alias, como
+  `Engine` desde la iteración 6. Lo necesitaba el motor de MySQL: su driver no
+  tiene «verify-ca» —`tls=true` verifica también el nombre del host— ni lee
+  certificados de una cadena de conexión, así que el modo y los archivos le
+  llegan por `engine.OpenOptions.TLS` y en `internal/mysql/tls.go` se traducen
+  a un `*tls.Config`. La traducción sigue a libpq, que es lo que los nombres
+  prometen: `verify-ca` verifica la cadena sin mirar el nombre (con
+  `InsecureSkipVerify` y la verificación a mano, igual que pgx), `verify-full`
+  deja que la biblioteca estándar haga las dos cosas, `prefer` y `allow` pueden
+  seguir en claro. **Y `require` con una raíz cargada verifica la cadena**,
+  como en libpq; `connection.VerifiesCertificate` es esa regla, y el aviso de
+  «no verifica el certificado» la mira a ella y no al modo: sin eso, el aviso
+  seguía ahí justo después de cargar la raíz para que verificara. El DSN de
+  MySQL ya no lleva `tls=`: sería un segundo lugar que decide lo mismo y que
+  el driver ignoraría.
+- **Postgres lo lee del DSN**, con los nombres de libpq —`sslrootcert`,
+  `sslcert`, `sslkey`— porque es donde pgx los espera, y pgx es quien abre los
+  archivos. Las rutas llegan con el `~` resuelto: pgx abre la ruta tal cual y
+  un `~` sin resolver es «no existe». Se guardan sin resolver, como la clave
+  del túnel, para que la misma libreta sincronizada apunte al directorio de
+  cada persona. `tunnel.CleanPath` y `tunnel.ExpandHome` se exportaron para
+  eso: son las mismas rutas copiadas del mismo Explorador.
+- **Rutas, no contenidos, y la clave de cliente sin cifrar.** Los tres
+  archivos viven en esta máquina y la libreta —que se sincroniza y se
+  comparte— solo los nombra; el archivo compartido no lleva ningún secreto
+  igual que antes. La clave del cliente es un archivo que entrega el DBA, no
+  algo que se escriba, y va sin cifrar porque es como la lee pgx; una cifrada
+  necesitaría su frase de paso en el keychain, y eso espera a que alguien la
+  tenga. Certificado y clave **van juntos o no van**: pgx rechaza las mitades
+  sueltas con un error que habla de archivos y no de que falta la otra mitad.
+- **El certificado del servidor se ve después de probar.** `ServerInfo.TLS`
+  describe el canal: sujeto, emisor, para qué nombres e IP vale, vigencia,
+  autofirmado o no, huella SHA-256 como la escribe openssl, versión y cifrado.
+  Postgres lo lee del `*tls.Conn` que pgx expone; MySQL, de una devolución de
+  llamada `VerifyConnection` en el `*tls.Config`, que corre también con
+  `InsecureSkipVerify` —es lo que permite mostrar lo que NO se verificó, que
+  es justamente cuando hace falta mirarlo—. Nil es «en claro», y el panel de
+  la conexión lo dice con esas palabras en vez de omitir la fila.
+- **«Guardar como raíz de confianza…»** es el camino para un servidor propio,
+  que casi siempre es autofirmado: probar con `require`, comparar la huella
+  con la que pasó quien lo administra, guardar el PEM, y el modo pasa a
+  `verify-ca` si no verificaba. El binding `SaveCertificate` decodifica y
+  vuelve a codificar el certificado antes de escribirlo: no sirve para
+  escribir cualquier cosa en cualquier ruta desde la interfaz, y el test lo
+  prueba con un texto suelto, otro tipo de bloque y basura después del
+  bloque. El diálogo de guardar es del sistema, así que esa parte es prueba
+  manual.
+- **Los fallos de TLS traen el detalle del driver.** «Revisá el modo SSL» no
+  alcanza para arreglar nada; «certificate signed by unknown authority» o
+  «valid for db.interna, not 127.0.0.1» sí. Va en `Failure.Detail`, redactado,
+  y la barra de la prueba lo muestra entre paréntesis.
+- **Pegar una URI conserva `sslrootcert`, `sslcert` y `sslkey`**, que ahora
+  tienen campo propio, y ya no los lista entre los descartados.
+- **El Postgres de pruebas pasó a ser una imagen propia con TLS.** La oficial
+  arranca con `ssl = off` y sin certificado, así que hasta ahora ninguna
+  prueba de Postgres cifraba nada y la pestaña no se podía probar contra
+  nada. `docker/postgres/Dockerfile` genera un autofirmado válido para
+  `localhost` y `127.0.0.1` **en el build** —no en el repo: una clave privada
+  commiteada es una filtrada aunque sea de juguete— y el test prueba las tres
+  cosas que importan: `require` muestra el certificado, `verify-full` lo
+  rechaza con las raíces del sistema y lo acepta con él mismo cargado como
+  raíz, `verify-ca` con otra raíz lo rechaza. En MySQL y MariaDB el test no
+  supone si el contenedor ofrece TLS —9.7, 8.4 y 12.3 sí, 10.11 no—: compara
+  lo que capturó el canal con `Ssl_cipher`, que es lo que el servidor dice de
+  la sesión, dos fuentes independientes. Y los seis modos se prueban sin
+  motor, contra un servidor TLS de la biblioteca estándar con una PKI de
+  juguete generada por el test: es la misma negociación que hace el driver,
+  sin el protocolo de MySQL arriba.
+- **Inyecciones en rojo:** un `verify-ca` que no verifica nada (dos tests lo
+  ven), `require` con raíz que no verifica, el Postgres que nunca describe el
+  canal, la regla de la raíz sacada de `VerifiesCertificate`, el par de
+  cliente sin exigir. Las cinco fallaron y se revirtieron.
+- **Lo que encontró el review `high`, los tres arreglados.** (1) pgx abre los
+  certificados DURANTE `ParseConfig`, así que una raíz con la ruta mal
+  tipeada, o que no está en esta máquina porque la libreta se sincronizó,
+  llegaba como «la cadena de conexión no es válida» sin detalle: el error
+  interior del `ParseConfigError` no lleva la cadena y nombra el archivo, y
+  ahora es un fallo de TLS con ese detalle; una cadena inválida de verdad
+  sigue sin citarse. (2) MySQL mandaba el nombre del host como SNI solo con
+  `verify-full`; pgx lo manda en todos los modos, y un frente que elige el
+  certificado por SNI presentaba el equivocado con `require` o `verify-ca`.
+  Va siempre que sea un nombre; una IP no se manda, SNI no las admite.
+  (3) «Guardar como raíz» cambia la conexión y eso limpia la prueba, así que
+  la confirmación —que vivía adentro de la tarjeta del certificado— no se
+  veía nunca; ahora ocupa el lugar de la tarjeta que se vació y pide probar
+  de nuevo, que es lo que va a decir «verifica».
+- **Lo que no se hizo, y por qué.** `allow` no se ofrece como chip —es
+  `prefer` al revés y nadie lo elige a propósito—, pero si viene del archivo
+  se muestra para que se vea. `channel_binding=require` sigue sin campo: pgx lo
+  negocia solo cuando el servidor lo ofrece, y con un modo que verifica el
+  certificado da lo mismo, que es lo que la pestaña ahora deja configurar
+  bien. Una clave de cliente cifrada, ídem: espera a que alguien la tenga.
 
 **Builds de Linux y macOS, y firma: qué hace falta y qué no.** La pregunta era
 si había que conseguir una Mac y una Linux. No para construir ni para firmar;

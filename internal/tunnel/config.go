@@ -60,7 +60,7 @@ type Config struct {
 func (c Config) Normalize() Config {
 	c.Host = strings.TrimSpace(c.Host)
 	c.User = strings.TrimSpace(c.User)
-	c.KeyPath = limpiarRuta(c.KeyPath)
+	c.KeyPath = CleanPath(c.KeyPath)
 	c.Auth = AuthMethod(strings.ToLower(strings.TrimSpace(string(c.Auth))))
 
 	// Los defaults solo se aplican con el túnel encendido.
@@ -126,7 +126,11 @@ func (c Config) Describe() string {
 	return c.User + "@" + c.Address()
 }
 
-// limpiarRuta saca los espacios y las comillas que rodean a una ruta.
+// CleanPath saca los espacios y las comillas que rodean a una ruta.
+//
+// Es exportada porque las rutas de los certificados TLS de la conexión pasan
+// por la misma limpieza: son rutas copiadas de la misma forma, del mismo
+// Explorador.
 //
 // Las comillas se sacan porque "Copiar como ruta" del Explorador de Windows las
 // agrega, y es la forma más común de copiar una ruta en ese sistema. La cadena
@@ -136,7 +140,7 @@ func (c Config) Describe() string {
 //
 // Solo se sacan si están de los dos lados. Una ruta que empieza con comilla y no
 // termina con una es otra cosa, y adivinar sería peor que dejarla como está.
-func limpiarRuta(p string) string {
+func CleanPath(p string) string {
 	p = strings.TrimSpace(p)
 	for _, c := range []string{`"`, "'"} {
 		if len(p) >= 2 && strings.HasPrefix(p, c) && strings.HasSuffix(p, c) {

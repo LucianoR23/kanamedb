@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import * as Connections from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/connections";
 import type { ConnectionView, TestResult } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Connection } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
-import {
-  Environment,
-  SSLMode,
-} from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
+import { Environment } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
 // El enum de motores vive en el paquete `engine` desde la Iteración 6, y
 // `connection.Engine` quedó como un alias de tipo. Un alias de Go se genera
 // como `export type`, así que sirve para tipar y no para escribir
@@ -18,7 +15,6 @@ import {
   Button,
   Combobox,
   EnvBadge,
-  InfoHint,
   Input,
   PasswordField,
   Toggle,
@@ -26,14 +22,16 @@ import {
 } from "../components/ui";
 import type { PasswordState } from "../components/ui";
 import { cx } from "../lib/cx";
+import { Field } from "./ConnectionField";
 import { SafetyTab } from "./SafetyTab";
+import { TlsTab } from "./TlsTab";
 import styles from "./ConnectionEditor.module.css";
 
-/** Las tabs de S03. En la Iteración 1 solo General está viva. */
+/** Las tabs de S03. Advanced es la única que falta. */
 const TABS = [
   { id: "general", label: "General", ready: true, since: "" },
   { id: "tunnel", label: "Túnel SSH", ready: true, since: "" },
-  { id: "tls", label: "TLS", ready: false, since: "Iteración 9" },
+  { id: "tls", label: "TLS", ready: true, since: "" },
   { id: "safety", label: "Safety", ready: true, since: "" },
   { id: "advanced", label: "Advanced", ready: false, since: "Iteración 9" },
 ] as const;
@@ -170,6 +168,7 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
   function tabDelCampo(campo: string): string {
     if (campo.startsWith("ssh.")) return "tunnel";
     if (campo.startsWith("safety.")) return "safety";
+    if (campo === "sslMode" || campo.startsWith("tls.")) return "tls";
     return "general";
   }
 
@@ -197,6 +196,9 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
   // `Valid()` es un método de Go y no cruza el puente: se deriva de los
   // problemas, que sí vienen.
   const warnings = view.warnings ?? [];
+  // Los avisos de TLS se muestran también en su pestaña, al lado de lo que
+  // los provoca: la tarjeta de avisos vive en General y desde TLS no se ve.
+  const avisosTLS = warnings.filter((w) => tabDelCampo(w.field) === "tls");
   const envInfo = ENVIRONMENTS.find((e) => e.value === conn.environment) ?? ENVIRONMENTS[0]!;
 
   // El túnel vive en un struct anidado, así que tiene su propio setter. Sin
@@ -485,31 +487,9 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
                     onReveal={() => Connections.RevealPassword(conn.id)}
                   />
                 </Field>
-
-                <Field label="SSL" error={problems.get("sslMode")}>
-                  <div className={styles.chips}>
-                    {[
-                      SSLMode.SSLDisable,
-                      SSLMode.SSLPrefer,
-                      SSLMode.SSLRequire,
-                      SSLMode.SSLVerifyCA,
-                      SSLMode.SSLVerifyFull,
-                    ].map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        className={cx(
-                          styles.chip,
-                          styles.chipMono,
-                          conn.sslMode === m && styles.chipOn,
-                        )}
-                        onClick={() => set("sslMode", m)}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                </Field>
+                {/* El modo SSL vive en la pestaña TLS, con los certificados
+                    y con lo que el servidor presentó al probar. La URI de la
+                    tarjeta lo sigue mostrando. */}
                   </>
                 )}
 
@@ -603,6 +583,18 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
             <SafetyTab
               safety={conn.safety}
               onChange={(v) => set("safety", v)}
+            />
+          ) : tab === "tls" ? (
+            <TlsTab
+              esArchivo={esArchivo}
+              host={conn.host}
+              sslMode={conn.sslMode}
+              tls={conn.tls}
+              problems={problems}
+              avisos={avisosTLS}
+              test={test}
+              onMode={(m) => set("sslMode", m)}
+              onTLS={(t) => set("tls", t)}
             />
           ) : tab === "tunnel" ? (
             <div className={styles.tunnel}>
@@ -777,8 +769,8 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
               {test.ok && test.server
                 ? `${test.server.display} · ${test.server.latencyMs} ms · ${test.server.visibleTables} ${
                     test.server.visibleTables === 1 ? "tabla visible" : "tablas visibles"
-                  }`
-                : (test.failure?.hint ?? "")}
+                  }${canalDe(test.server)}`
+                : detalleDe(test)}
             </span>
             <span className={styles.spacer} />
             {test.failure?.sqlState ? (
@@ -827,37 +819,19 @@ export function ConnectionEditor({ initial, isNew, folders, onCancel, onSaved }:
   );
 }
 
-function Field({
-  label,
-  error,
-  compact = false,
-  align = "center",
-  hint,
-  children,
-}: {
-  label: string;
-  error?: string | undefined;
-  compact?: boolean;
-  align?: "center" | "start";
-  /** Ayuda que se abre al pasar el mouse o al enfocar. Para lo que no cabe en
-   *  la etiqueta pero hace falta ANTES de escribir. */
-  hint?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={cx(styles.field, compact && styles.fieldCompact)}>
-      <label className={cx(styles.label, align === "start" && styles.labelTop)}>
-        {label}
-        {hint ? <InfoHint label={`Ayuda sobre ${label}`}>{hint}</InfoHint> : null}
-      </label>
-      <div className={styles.fieldBody}>
-        {children}
-        {error ? (
-          <div className={styles.fieldError} role="alert">
-            {error}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+/** La pista del fallo y, si lo hay, el detalle del driver. El detalle es lo
+ *  que dice para qué nombre valía el certificado o quién lo firmó: sin él, un
+ *  fallo de TLS es «revisá el modo» y nada más. */
+function detalleDe(test: TestResult): string {
+  const hint = test.failure?.hint ?? "";
+  const detail = test.failure?.detail ?? "";
+  if (!detail) return hint;
+  return hint ? `${hint} (${detail})` : detail;
+}
+
+/** Cómo viajó la prueba, para la barra de abajo: el motor no lo dice solo. */
+function canalDe(server: TestResult["server"]): string {
+  if (!server) return "";
+  if (server.engine === Engine.SQLite) return "";
+  return server.tls ? ` · ${server.tls.version}` : " · sin cifrar";
 }

@@ -122,6 +122,12 @@ func ParseURI(raw string) (Parsed, error) {
 	if modo := u.Query().Get("sslmode"); modo != "" {
 		c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(modo)))
 	}
+	// Los tres archivos de libpq tienen campo propio desde la pestaña TLS, así
+	// que se conservan en vez de descartarse. Son rutas de la máquina de quien
+	// armó la cadena; si es otra, la pestaña lo va a mostrar y se corrige ahí.
+	c.TLS.RootCertPath = u.Query().Get("sslrootcert")
+	c.TLS.ClientCertPath = u.Query().Get("sslcert")
+	c.TLS.ClientKeyPath = u.Query().Get("sslkey")
 
 	// El DSN se rearma desde los campos de la conexión, así que todo parámetro
 	// que no tenga campo propio se pierde al guardar. Perderlo está bien;
@@ -161,7 +167,8 @@ func ParseURI(raw string) (Parsed, error) {
 }
 
 // paramsIgnorados devuelve, ordenados, los parámetros de la cadena que no
-// sobreviven a guardar la conexión. sslmode es el único con campo propio.
+// sobreviven a guardar la conexión: todos menos los que tienen campo propio,
+// que son el modo SSL y los tres archivos de certificados.
 //
 // Se ordenan para que el aviso sea el mismo siempre: el recorrido de un map en
 // Go no tiene orden, y un mensaje que cambia de orden entre corridas parece un
@@ -169,13 +176,21 @@ func ParseURI(raw string) (Parsed, error) {
 func paramsIgnorados(q url.Values) []string {
 	nombres := make([]string, 0, len(q))
 	for k := range q {
-		if strings.EqualFold(k, "sslmode") {
+		if conCampoPropio(k) {
 			continue
 		}
 		nombres = append(nombres, k)
 	}
 	slices.Sort(nombres)
 	return nombres
+}
+
+func conCampoPropio(param string) bool {
+	switch strings.ToLower(param) {
+	case "sslmode", "sslrootcert", "sslcert", "sslkey":
+		return true
+	}
+	return false
 }
 
 // rawUserinfo devuelve la parte usuario:contraseña de la cadena, tal como venía.

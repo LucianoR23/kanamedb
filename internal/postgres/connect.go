@@ -7,8 +7,11 @@ package postgres
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,11 +58,7 @@ func ProbeThrough(ctx context.Context, dsn, desc string, dial pgconn.DialFunc) (
 
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		// El error de parseo puede citar el DSN, que lleva la contraseña.
-		return nil, &Failure{
-			Kind:    FailureOther,
-			Message: "La cadena de conexión de " + desc + " no es válida.",
-		}
+		return nil, fallaDeParseo(err, desc)
 	}
 	if dial != nil {
 		cfg.DialFunc = dial
@@ -151,11 +150,7 @@ type ConnectOptions struct {
 func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpool.Pool, *ServerInfo, *Failure) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		// El error de parseo puede citar el DSN, que lleva la contraseña.
-		return nil, nil, &Failure{
-			Kind:    FailureOther,
-			Message: "La cadena de conexión de " + desc + " no es válida.",
-		}
+		return nil, nil, fallaDeParseo(err, desc)
 	}
 	if opts.MaxConns > 0 {
 		cfg.MaxConns = opts.MaxConns
@@ -229,6 +224,45 @@ func Connect(ctx context.Context, dsn, desc string, opts ConnectOptions) (*pgxpo
 	return pool, info, nil
 }
 
+// fallaDeParseo interpreta un error de ParseConfig.
+//
+// El error entero puede citar el DSN, que lleva la contraseña, así que no se
+// propaga tal cual. Pero adentro hay un caso que no es «la cadena no es
+// válida»: pgx abre los certificados —sslrootcert, sslcert, sslkey— DURANTE el
+// parseo, y una ruta con un error de tipeo, un archivo que no está en esta
+// máquina o uno que no es PEM llegaban acá como una cadena inválida sin
+// ningún detalle. El error interior de un ParseConfigError no lleva la
+// cadena, y dice qué archivo fue.
+func fallaDeParseo(err error, desc string) *Failure {
+	var pce *pgconn.ParseConfigError
+	if errors.As(err, &pce) {
+		if interior := pce.Unwrap(); interior != nil && esTLS(strings.ToLower(pce.Error())) {
+			return &Failure{
+				Kind:    FailureTLS,
+				Message: "No se pudo usar uno de los certificados de " + desc + ".",
+				Hint:    "Tiene que ser un archivo PEM legible desde esta máquina. La ruta se guarda, no el archivo.",
+				Detail:  engine.Redact(interior.Error()),
+			}
+		}
+	}
+	return &Failure{
+		Kind:    FailureOther,
+		Message: "La cadena de conexión de " + desc + " no es válida.",
+	}
+}
+
+// canalDe describe el canal TLS de una conexión, o nil si va en claro.
+//
+// pgx envuelve el socket en un *tls.Conn cuando negoció TLS y lo expone tal
+// cual; no se lee ni se escribe por él, solo se mira el estado de la
+// negociación, así que no hace falta sincronizar nada.
+func canalDe(conn *pgx.Conn) *engine.TLSInfo {
+	if tc, ok := conn.PgConn().Conn().(*tls.Conn); ok {
+		return engine.TLSInfoOf(tc.ConnectionState())
+	}
+	return nil
+}
+
 // readServerInfo junta todo lo que interesa del servidor en un solo ida y
 // vuelta. Son datos del servidor, no del usuario: nada de esto es sensible.
 func readServerInfo(ctx context.Context, conn *pgx.Conn) (*ServerInfo, error) {
@@ -265,6 +299,7 @@ func readServerInfo(ctx context.Context, conn *pgx.Conn) (*ServerInfo, error) {
 		return nil, fmt.Errorf("leer la información del servidor: %w", err)
 	}
 	info.Display = "PostgreSQL " + short
+	info.TLS = canalDe(conn)
 
 	// Conteo aparte porque puede fallar por permisos sin que eso invalide la
 	// conexión: si no se puede contar, queda en cero y la UI lo muestra como

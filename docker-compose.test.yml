@@ -33,8 +33,13 @@
 # chocar con una instalación local ni tentar a nadie a apuntar esto a algo real.
 
 services:
+  # Imagen propia sobre la oficial, solo para tener TLS encendido con un
+  # certificado autofirmado que se genera en el build. Ver docker/postgres.
   postgres:
-    image: postgres:${PG_VERSION:-18}-alpine
+    build:
+      context: ./docker/postgres
+      args:
+        PG_VERSION: ${PG_VERSION:-18}
     environment:
       POSTGRES_USER: kaname
       POSTGRES_PASSWORD: kaname
@@ -58,6 +63,9 @@ services:
       -c fsync=off
       -c full_page_writes=off
       -c synchronous_commit=off
+      -c ssl=on
+      -c ssl_cert_file=/certs/server.crt
+      -c ssl_key_file=/certs/server.key
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kaname -d kaname_test"]
       interval: 2s

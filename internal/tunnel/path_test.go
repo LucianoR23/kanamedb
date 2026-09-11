@@ -51,12 +51,12 @@ func TestExpandirRuta(t *testing.T) {
 
 	for _, c := range casos {
 		t.Run(c.nombre, func(t *testing.T) {
-			got, err := expandirRuta(c.dentro)
+			got, err := ExpandHome(c.dentro)
 			if err != nil {
-				t.Fatalf("expandirRuta(%q) error: %v", c.dentro, err)
+				t.Fatalf("ExpandHome(%q) error: %v", c.dentro, err)
 			}
 			if got != c.fuera {
-				t.Errorf("expandirRuta(%q) = %q, se esperaba %q", c.dentro, got, c.fuera)
+				t.Errorf("ExpandHome(%q) = %q, se esperaba %q", c.dentro, got, c.fuera)
 			}
 		})
 	}
@@ -79,8 +79,8 @@ func TestLimpiarRuta(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range casos {
-		if got := limpiarRuta(c.dentro); got != c.fuera {
-			t.Errorf("limpiarRuta(%q) = %q, se esperaba %q", c.dentro, got, c.fuera)
+		if got := CleanPath(c.dentro); got != c.fuera {
+			t.Errorf("CleanPath(%q) = %q, se esperaba %q", c.dentro, got, c.fuera)
 		}
 	}
 }

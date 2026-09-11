@@ -191,7 +191,10 @@ func (s *Session) abrirConexion(ctx context.Context, id, acceptOnce string) (*op
 		}
 	}
 
-	opciones := connectOptions(c)
+	opciones, f := connectOptions(c)
+	if f != nil {
+		return nil, f
+	}
 
 	var tunelAbierto *tunnel.Client
 	if c.SSH.Enabled {
@@ -452,12 +455,25 @@ func soloLectura(sesion *openSession) (bool, string) {
 // se aplican por consulta. Así una escritura la rechaza el servidor con 25006
 // aunque el camino que la mande sea uno que todavía no existe, y el corte por
 // tiempo sigue vigente aunque la app se cuelgue o se cierre.
-func connectOptions(c connection.Connection) engine.OpenOptions {
+//
+// El cifrado va por acá también —es lo que lee MySQL; Postgres lo lee del
+// DSN—. El único fallo posible es una ruta con `~` sin directorio del usuario
+// que lo resuelva.
+func connectOptions(c connection.Connection) (engine.OpenOptions, *engine.Failure) {
+	tls, err := c.TLSOptions()
+	if err != nil {
+		return engine.OpenOptions{}, &engine.Failure{
+			Kind:    engine.FailureTLS,
+			Message: "No se pudo resolver la ruta de un certificado.",
+			Detail:  err.Error(),
+		}
+	}
 	return engine.OpenOptions{
 		MaxConns:         poolSize(c),
 		ReadOnly:         c.Safety.ReadOnly,
 		StatementTimeout: c.Safety.StatementTimeout(),
-	}
+		TLS:              tls,
+	}, nil
 }
 
 // abierta devuelve la sesión en curso.

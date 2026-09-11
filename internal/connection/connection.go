@@ -94,25 +94,20 @@ func (env Environment) NeedsWriteConfirmation() bool {
 }
 
 // SSLMode es el modo TLS de la conexión, con la semántica de libpq.
-type SSLMode string
+//
+// Es un alias de engine.SSLMode, por lo mismo que Engine: el motor de MySQL
+// necesita leerlo para armar su configuración TLS, y dos enumeraciones iguales
+// en dos paquetes terminan con una conversión en el medio que olvida un caso.
+type SSLMode = engine.SSLMode
 
 const (
-	SSLDisable    SSLMode = "disable"
-	SSLAllow      SSLMode = "allow"
-	SSLPrefer     SSLMode = "prefer"
-	SSLRequire    SSLMode = "require"
-	SSLVerifyCA   SSLMode = "verify-ca"
-	SSLVerifyFull SSLMode = "verify-full"
+	SSLDisable    = engine.SSLDisable
+	SSLAllow      = engine.SSLAllow
+	SSLPrefer     = engine.SSLPrefer
+	SSLRequire    = engine.SSLRequire
+	SSLVerifyCA   = engine.SSLVerifyCA
+	SSLVerifyFull = engine.SSLVerifyFull
 )
-
-// Known dice si el modo SSL es uno de los definidos por libpq.
-func (s SSLMode) Known() bool {
-	switch s {
-	case SSLDisable, SSLAllow, SSLPrefer, SSLRequire, SSLVerifyCA, SSLVerifyFull:
-		return true
-	}
-	return false
-}
 
 // EffectiveSSLMode es el modo que se va a usar de verdad. Un campo vacío no
 // significa "sin TLS" sino `prefer`, que es el default de libpq: cifra si el
@@ -125,10 +120,70 @@ func (c Connection) EffectiveSSLMode() SSLMode {
 	return c.SSLMode
 }
 
-// Verifies dice si el modo valida realmente el certificado del servidor.
-// `require` cifra pero no verifica nada: no protege contra un intermediario.
-func (s SSLMode) Verifies() bool {
-	return s == SSLVerifyCA || s == SSLVerifyFull
+// VerifiesCertificate dice si la CONEXIÓN valida el certificado del servidor.
+//
+// No es solo el modo: con una raíz cargada, `require` pasa a verificar la
+// cadena —es lo que hace libpq, y pgx lo copia—. Sin este método el aviso de
+// «no verifica el certificado» seguiría apareciendo justo después de que la
+// persona cargara la raíz para que verifique. MySQL recibe la misma regla en
+// su configuración, así que los tres motores de servidor se comportan igual.
+func (c Connection) VerifiesCertificate() bool {
+	if c.Engine == SQLite {
+		return false
+	}
+	mode := c.EffectiveSSLMode()
+	return mode.Verifies() || (mode == SSLRequire && c.TLS.RootCertPath != "")
+}
+
+// TLS son los archivos del cifrado de la conexión a la base.
+//
+// Rutas, no contenidos, igual que la clave del túnel: los archivos viven en
+// esta máquina y la libreta —que se sincroniza y se comparte— solo los nombra.
+// El `~` se guarda sin resolver y se resuelve al conectar, para que la misma
+// libreta apunte al directorio de cada persona en cada máquina.
+//
+// La clave privada del cliente es un archivo y no un secreto del keychain
+// porque no es algo que se escriba: se recibe como archivo del DBA, y va
+// SIN cifrar, que es como pgx la lee. Una clave cifrada necesitaría su frase
+// de paso en el keychain; queda pendiente hasta que alguien la tenga.
+type TLS struct {
+	// RootCertPath es la raíz con la que se verifica al servidor. Vacío usa
+	// las del sistema, que alcanzan para un certificado comprado y no para
+	// el de una CA interna ni para uno autofirmado.
+	RootCertPath string `toml:"root_cert_path,omitempty" json:"rootCertPath"`
+	// ClientCertPath y ClientKeyPath van juntos o no van: son el certificado
+	// que el servidor le pide al cliente y la clave que lo demuestra.
+	ClientCertPath string `toml:"client_cert_path,omitempty" json:"clientCertPath"`
+	ClientKeyPath  string `toml:"client_key_path,omitempty" json:"clientKeyPath"`
+}
+
+// Normalize limpia las rutas como las del túnel: espacios y comillas afuera.
+func (t TLS) Normalize() TLS {
+	t.RootCertPath = tunnel.CleanPath(t.RootCertPath)
+	t.ClientCertPath = tunnel.CleanPath(t.ClientCertPath)
+	t.ClientKeyPath = tunnel.CleanPath(t.ClientKeyPath)
+	return t
+}
+
+// TLSOptions es la configuración de cifrado como la recibe el motor, con las
+// rutas ya resueltas. Falla solo si hay un `~` y no se sabe de quién es.
+func (c Connection) TLSOptions() (engine.TLSOptions, error) {
+	c = c.Normalize()
+	if c.Engine == SQLite {
+		return engine.TLSOptions{}, nil
+	}
+	out := engine.TLSOptions{Mode: c.EffectiveSSLMode()}
+	var err error
+	if out.RootCert, err = tunnel.ExpandHome(c.TLS.RootCertPath); err != nil {
+		return engine.TLSOptions{}, fmt.Errorf("certificado raíz: %w", err)
+	}
+	if out.ClientCert, err = tunnel.ExpandHome(c.TLS.ClientCertPath); err != nil {
+		return engine.TLSOptions{}, fmt.Errorf("certificado de cliente: %w", err)
+	}
+	if out.ClientKey, err = tunnel.ExpandHome(c.TLS.ClientKeyPath); err != nil {
+		return engine.TLSOptions{}, fmt.Errorf("clave de cliente: %w", err)
+	}
+	return out, nil
 }
 
 // Connection es la configuración de una conexión, tal como se guarda en disco.
@@ -157,6 +212,10 @@ type Connection struct {
 
 	// SSLMode aplica a Postgres, MySQL y MariaDB. SQLite lo ignora.
 	SSLMode SSLMode `toml:"ssl_mode" json:"sslMode"`
+
+	// TLS son los certificados del cifrado, por ruta. Vacío en los tres es lo
+	// habitual: el modo alcanza para un servidor con certificado comprado.
+	TLS TLS `toml:"tls,omitempty" json:"tls"`
 
 	Safety Safety `toml:"safety" json:"safety"`
 
@@ -350,12 +409,31 @@ func (c Connection) dsnPostgres(password string) string {
 	// url.UserPassword escapa usuario y contraseña. Sin eso, una contraseña con
 	// `@` o `/` rompería el DSN o, peor, lo redirigiría a otro host.
 	u.User = url.UserPassword(c.User, password)
-	u.RawQuery = url.Values{
+	q := url.Values{
 		"sslmode": {string(c.EffectiveSSLMode())},
 		// Identifica la app en pg_stat_activity, para que un DBA sepa de dónde
 		// vino una query. No lleva ningún dato del usuario.
 		"application_name": {"kaname"},
-	}.Encode()
+	}
+	// Los certificados van en el DSN porque es donde pgx los lee, con los
+	// nombres de libpq. Las rutas llegan resueltas: pgx abre el archivo tal
+	// cual y un `~` sin resolver es «no existe». Si el directorio del usuario
+	// no se puede saber, la ruta va como está y el error lo da pgx al abrir,
+	// que es más claro que fallar acá sin decir cuál de los tres archivos.
+	for param, ruta := range map[string]string{
+		"sslrootcert": c.TLS.RootCertPath,
+		"sslcert":     c.TLS.ClientCertPath,
+		"sslkey":      c.TLS.ClientKeyPath,
+	} {
+		if ruta == "" {
+			continue
+		}
+		if resuelta, err := tunnel.ExpandHome(ruta); err == nil {
+			ruta = resuelta
+		}
+		q.Set(param, ruta)
+	}
+	u.RawQuery = q.Encode()
 	return u.String()
 }
 
@@ -382,32 +460,17 @@ func (c Connection) dsnMySQL(password string) string {
 		// error a su sentencia, que es justo lo que la pantalla de apply
 		// necesita para decir cuál falló.
 		"multiStatements": {"false"},
-		"tls":             {tlsDeMySQL(c.EffectiveSSLMode())},
+		// Sin `tls=`, a propósito. El driver no tiene «verify-ca» ni lee
+		// archivos de la cadena: el cifrado se arma como *tls.Config en
+		// internal/mysql a partir de engine.TLSOptions, que es por donde el
+		// modo y los certificados le llegan al motor. Un `tls=` acá sería un
+		// segundo lugar que decide lo mismo, y el que se olvida de actualizar
+		// es siempre el que no se lee.
 	}
 	return fmt.Sprintf("%s:%s@tcp(%s)/%s?%s",
 		c.User, password,
 		net.JoinHostPort(c.Host, strconv.Itoa(c.puerto())),
 		c.Database, q.Encode())
-}
-
-// tlsDeMySQL traduce el modo SSL al vocabulario del driver de MySQL.
-//
-// No son los mismos nombres que en Postgres y la diferencia no es cosmética:
-// `require` en Postgres significa «cifrado sí, certificado no me importa», y en
-// el driver de MySQL eso se llama `skip-verify`. Traducirlo mal a `true` haría
-// fallar conexiones que el usuario pidió explícitamente que no verificaran.
-func tlsDeMySQL(m SSLMode) string {
-	switch m {
-	case SSLDisable:
-		return "false"
-	case SSLAllow, SSLPrefer:
-		return "preferred"
-	case SSLRequire:
-		return "skip-verify"
-	case SSLVerifyCA, SSLVerifyFull:
-		return "true"
-	}
-	return "preferred"
 }
 
 // dsnSQLite arma el DSN de un archivo. No hay host, puerto ni usuario: el
@@ -471,6 +534,7 @@ func (c Connection) Normalize() Connection {
 	c.Folder = strings.Join(strings.Fields(c.Folder), " ")
 
 	c.SSH = c.SSH.Normalize()
+	c.TLS = c.TLS.Normalize()
 
 	// Los enums también se limpian porque el archivo se edita a mano. Sin esto,
 	// `engine = " Postgres"` da "Motor desconocido" y el motivo —un espacio de
@@ -480,6 +544,7 @@ func (c Connection) Normalize() Connection {
 	// que no hace nada y que confunde a quien lea el archivo.
 	if c.Engine == SQLite {
 		c.Host, c.User, c.Port, c.SSLMode = "", "", 0, ""
+		c.TLS = TLS{}
 	}
 	c.Environment = Environment(strings.ToLower(strings.TrimSpace(string(c.Environment))))
 	c.SSLMode = SSLMode(strings.ToLower(strings.TrimSpace(string(c.SSLMode))))

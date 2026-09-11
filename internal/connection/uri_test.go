@@ -307,3 +307,24 @@ func TestParseURINoAvisaCuandoNoDescartaNada(t *testing.T) {
 		}
 	}
 }
+
+// Los tres archivos de libpq tienen campo propio: se conservan y no se
+// mencionan entre los descartados.
+func TestParseURIConservaLosCertificados(t *testing.T) {
+	got, err := ParseURI("postgresql://u@h:5432/d?sslmode=verify-full&sslrootcert=/etc/ssl/ca.pem&sslcert=/c.crt&sslkey=/c.key&connect_timeout=5")
+	if err != nil {
+		t.Fatalf("ParseURI() error: %v", err)
+	}
+	want := TLS{RootCertPath: "/etc/ssl/ca.pem", ClientCertPath: "/c.crt", ClientKeyPath: "/c.key"}
+	if got.Connection.TLS != want {
+		t.Errorf("TLS = %+v, se esperaba %+v", got.Connection.TLS, want)
+	}
+	if len(got.Notices) != 1 || !strings.Contains(got.Notices[0], "connect_timeout") {
+		t.Errorf("solo connect_timeout tenía que descartarse: %v", got.Notices)
+	}
+	for _, n := range got.Notices {
+		if strings.Contains(n, "sslrootcert") || strings.Contains(n, "sslcert") || strings.Contains(n, "sslkey") {
+			t.Errorf("un parámetro con campo propio aparece como descartado: %q", n)
+		}
+	}
+}

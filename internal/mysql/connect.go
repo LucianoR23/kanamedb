@@ -57,6 +57,16 @@ func Open(
 	// como Postgres, y no las cambiadas como el cliente de MySQL.
 	cfg.ClientFoundRows = true
 
+	// El cifrado se arma acá y no en el DSN: ver tls.go. `canal` es por donde
+	// se entera del certificado que presentó el servidor.
+	canal := &canalTLS{}
+	tlsCfg, enClaro, f := configTLS(opts.TLS, hostDe(cfg.Addr), canal)
+	if f != nil {
+		return nil, f
+	}
+	cfg.TLS = tlsCfg
+	cfg.AllowFallbackToPlaintext = enClaro
+
 	var red string
 	if opts.DialFunc != nil {
 		red = fmt.Sprintf("kaname-tunnel-%d", contadorDialer.Add(1))
@@ -102,8 +112,21 @@ func Open(
 		db.Close()
 		return nil, f
 	}
+	// Nil si el canal quedó en claro: con `prefer` contra un servidor sin TLS
+	// la devolución de llamada nunca corre, y eso es exactamente «sin cifrar».
+	info.TLS = canal.leer()
 
 	return &Conn{db: db, server: info, desc: desc, dialer: red, sinEscapes: sinEscapes}, nil
+}
+
+// hostDe saca el host de un `host:puerto`, para el nombre que verify-full
+// compara contra el certificado.
+func hostDe(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
 
 // Probe abre una conexión, lee los datos del servidor y la cierra.

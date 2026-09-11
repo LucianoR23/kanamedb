@@ -1,0 +1,61 @@
+/* Pestaña TLS de S03. Comparte la grilla de campos del editor
+   (ConnectionEditor.module.css); acá va solo lo suyo: la tarjeta del
+   certificado y los avisos. */
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  max-width: 640px;
+}
+
+.avisos {
+  margin: 0;
+  padding: 9px 12px 9px 26px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-md);
+  background: var(--warning-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-2);
+}
+
+/* La tarjeta del certificado: lo que el servidor presentó en la última
+   prueba. Es una tarjeta y no una fila más porque no se edita —se lee y se
+   compara contra lo que pasó el DBA—. */
+.certificado {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 13px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.datos {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 5px 12px;
+  margin: 0;
+}
+.datos dt { font: 400 11.5px var(--font-ui); color: var(--text-3); }
+.datos dd {
+  margin: 0;
+  min-width: 0;
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.huella { color: var(--text-2); }
+.badge { margin-left: 8px; vertical-align: middle; }
+
+.nota {
+  margin: 0;
+  font: 400 11.5px/1.55 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+.nota code { font: 400 11px var(--font-mono); color: var(--text-1); }
+.notaError { color: var(--danger); }
+
+.acciones { display: flex; gap: 8px; }

@@ -7,7 +7,10 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 
 > **Estado: Iteración 7 — la grilla editable.** Habla con los cuatro motores
 > —PostgreSQL, MySQL, MariaDB y SQLite— directo o a través de un bastión SSH,
-> con verificación de la clave del host y sin abrir ningún puerto local. Guarda
+> con verificación de la clave del host y sin abrir ningún puerto local, y con
+> TLS con la semántica de libpq en los tres de servidor: modo, raíz y
+> certificado de cliente por ruta, y el certificado que presentó el servidor a
+> la vista después de probar. Guarda
 > la libreta de conexiones con los secretos en el keychain del sistema
 > operativo —agrupadas por carpeta: un proyecto, con su local, su dev y su
 > producción adentro— y las exporta e importa en ese mismo formato, sin
@@ -178,6 +181,16 @@ cambiarla**:
 docker compose -f docker-compose.test.yml down -v
 PG_VERSION=17 docker compose -f docker-compose.test.yml up -d --wait
 ```
+
+El Postgres de pruebas **es una imagen propia** (`docker/postgres/Dockerfile`)
+sobre la oficial: le agrega TLS encendido con un certificado autofirmado que se
+genera en el build, para que la pestaña TLS de S03 tenga contra qué probarse
+—verify-full lo rechaza con las raíces del sistema y lo acepta con él mismo
+cargado como raíz—. `up` la construye sola la primera vez; después de cambiar
+`PG_VERSION` conviene `docker compose -f docker-compose.test.yml build postgres`
+para que el build tome la versión nueva. MySQL 9.7, 8.4 y MariaDB 12.3
+generan su certificado solos; MariaDB 10.11 no ofrece TLS, y el test lo
+comprueba contra lo que el servidor dice de la sesión en vez de suponerlo.
 
 `--force-recreate` no alcanza: el contenedor nuevo puede quedarse con el
 directorio de datos del anterior y Postgres aborta con *"database files are

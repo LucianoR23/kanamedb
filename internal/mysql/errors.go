@@ -153,7 +153,10 @@ func red(err error, desc string) *engine.Failure {
 			Kind:    engine.FailureTLS,
 			Message: "No se pudo establecer la conexión cifrada.",
 			Hint: "Revisá el modo SSL. Con verify-full el certificado del servidor tiene que " +
-				"ser válido y coincidir con el host.",
+				"ser válido y coincidir con el host; con verify-ca, estar firmado por la raíz cargada.",
+			// El texto del error dice para qué nombre vale el certificado o
+			// quién lo firmó, que es lo que hace falta para arreglarlo.
+			Detail: engine.Redact(err.Error()),
 		}
 	case strings.Contains(texto, "connection refused"):
 		return &engine.Failure{

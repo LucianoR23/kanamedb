@@ -39,6 +39,10 @@ type OpenOptions struct {
 
 	// DialFunc nil usa el discado normal del driver.
 	DialFunc DialFunc
+
+	// TLS es cómo cifrar el canal. Lo lee MySQL; Postgres lo recibe por el
+	// DSN y SQLite no tiene canal que cifrar. Ver TLSOptions.
+	TLS TLSOptions
 }
 
 // RunOptions son las opciones de ejecutar SQL escrita por el usuario.
