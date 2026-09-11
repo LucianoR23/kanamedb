@@ -663,8 +663,11 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   DELETE. Postgres y MySQL 9 devuelven un árbol de texto y se muestra como en
   psql; MariaDB y SQLite una tabla, en la grilla con las columnas medidas por
   su contenido. Ver la § 6.
-- ⏳ **Formatear** — el segundo, con `sql-formatter` en su propio commit,
-  versión exacta y changelog leído. Ver la § 6.
+- ✅ **Formatear** — el segundo, con `sql-formatter` 15.8.2 en su propio
+  commit, versión exacta y changelog leído; +94 kB minificados al bundle.
+  Ordena espacios, saltos y sangría con el dialecto del motor conectado y no
+  cambia mayúsculas de nada; si no puede interpretar el texto, lo dice y no lo
+  toca. Ver la § 6.
 - **Pase de movimiento.** Ver § 6.
 - ✅ **S02 Carpetas.** Pedido del usuario el 2026-09-11, y estaba en el artboard
   desde el principio —«New folder», «Move to folder»— aunque la implementación
@@ -1271,6 +1274,38 @@ commit, con versión exacta y el changelog leído**, y midiendo lo que agrega al
 bundle: el binario se distribuye copiando y pegando. Si al mirarlo de cerca no
 cierra —tamaño, dialectos, mantenimiento— el botón se saca en vez de quedarse
 gris, que es la regla que el chip «Ctrl K» dejó escrita.
+
+**Formatear, hecho: `sql-formatter` 15.8.2 y lo que se decidió al usarlo.**
+
+- **La dependencia.** `sql-formatter` 15.8.2 (MIT, publicada el 2026-06-21,
+  más de los siete días que exige `.npmrc`), con versión exacta. Arrastra
+  ocho transitivas: `nearley` y su parser, y `argparse` y `commander` que son
+  de la línea de comandos y no entran al bundle. Sin red ni telemetría. El
+  changelog reciente es de dialectos —funciones de Postgres 18, la sintaxis
+  `$param` de SQLite— sin cambios que rompan.
+- **`formatDialect` con los cuatro dialectos importados uno por uno**, no
+  `format` con el nombre del lenguaje: `format` arrastra los diecisiete
+  dialectos al bundle, y el binario se distribuye copiando y pegando. Medido:
+  **+94 kB minificados** (1.237 → 1.331 kB), que es el costo de cuatro parsers
+  y no de diecisiete.
+- **No cambia mayúsculas de nada.** Palabras clave, identificadores, tipos y
+  funciones quedan como estaban (`preserve` en los cuatro): en Postgres las
+  mayúsculas de un identificador entre comillas son parte del nombre, y en
+  MySQL distinguen tablas según el sistema de archivos. El formateador
+  acomoda espacios, saltos y sangría, y nada más. Es la misma regla que
+  justificó no escribirlo a mano: el texto de la persona no se altera.
+- **Reemplaza el documento en una sola transacción de CodeMirror**, así
+  Ctrl+Z lo deshace de un golpe. Si el texto no se puede interpretar —una
+  comilla sin cerrar—, no se toca nada y se dice al lado del botón, seis
+  segundos, con la primera línea del error del parser: dónde se trabó.
+- **Parámetros con nombre en Postgres.** El dialecto de Postgres conoce `$1`
+  y no `:nombre`, y sin decírselo `x = :nombre` salía como `x =:nombre`.
+  Se le declaran los dos; el `::` de un cast no se confunde, probado con
+  `x::int` en la misma consulta. MySQL (`?`, `@v`) y SQLite (`:n`, `?1`,
+  `@z`) ya venían bien. El precio, que encontró el review: en un corte de
+  array con límite que empieza con letra, `arr[lo:hi]` sale como
+  `arr[lo :hi]` —Postgres lo acepta igual—; `arr[1:3]` no cambia. Se
+  prefiere eso a `x =:nombre`, que es lo que se ve todos los días.
 
 **«Explain» estaba en inglés, y al lado había un botón muerto.** Lo vio el
 usuario. La etiqueta era el nombre de la sentencia de Postgres puesto como texto

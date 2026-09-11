@@ -11,10 +11,10 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > la libreta de conexiones con los secretos en el keychain del sistema
 > operativo —agrupadas por carpeta: un proyecto, con su local, su dev y su
 > producción adentro— y las exporta e importa en ese mismo formato, sin
-> ningún secreto y con vista previa. Trae editor SQL con autocompletado y
-> plan de ejecución —el motor dice cómo va a correr la sentencia bajo el
-> cursor, sin correrla—, grilla con paginado, estructura completa de cada
-> tabla y diagrama ERD.
+> ningún secreto y con vista previa. Trae editor SQL con autocompletado,
+> formateo por dialecto y plan de ejecución —el motor dice cómo va a correr
+> la sentencia bajo el cursor, sin correrla—, grilla con paginado, estructura
+> completa de cada tabla y diagrama ERD.
 >
 > **Edita el esquema y las filas.** Las ediciones se juntan en un changeset, se
 > muestran como SQL antes de tocar nada y se aplican en una transacción con

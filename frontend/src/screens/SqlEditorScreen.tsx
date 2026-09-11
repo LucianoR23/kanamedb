@@ -10,6 +10,7 @@ import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
 import { textoDe } from "../lib/dialogos";
+import { formatearSQL } from "../lib/formatear";
 import { CellViewer } from "./CellViewer";
 import { ExportDialog } from "./ExportDialog";
 import { Splitter } from "../components/Splitter";
@@ -109,6 +110,9 @@ export function SqlEditorScreen({
   const [exportando, setExportando] = useState(false);
   // null mientras no se copió; "ok" o "error" un rato después de intentarlo.
   const [copia, setCopia] = useState<null | "ok" | "error">(null);
+  // Por qué no se pudo formatear, un rato. El texto queda como estaba.
+  const [errorFormato, setErrorFormato] = useState<string | null>(null);
+  const formatoTimer = useRef<number | null>(null);
   const [menuCopiar, setMenuCopiar] = useState<MenuAnchor | null>(null);
   const copiadoTimer = useRef<number | null>(null);
 
@@ -189,6 +193,31 @@ export function SqlEditorScreen({
   function cancelar() {
     void QueriesSvc.Cancel(runID);
   }
+
+  /**
+   * Ordena el texto con el dialecto del motor. Reemplaza el documento entero
+   * en una sola transacción, así Ctrl+Z lo deshace de un golpe. Si no se puede
+   * interpretar, se dice al lado del botón y no se toca nada.
+   */
+  function formatear() {
+    if (sql.trim() === "") return;
+    try {
+      const ordenado = formatearSQL(sql, engine);
+      if (ordenado !== sql) setSql(ordenado);
+      setErrorFormato(null);
+    } catch (err) {
+      // La primera línea: dónde se trabó. La segunda dice qué dialecto usó,
+      // que acá es siempre el del motor conectado.
+      setErrorFormato(textoDe(err).split("\n")[0] ?? textoDe(err));
+      if (formatoTimer.current !== null) window.clearTimeout(formatoTimer.current);
+      formatoTimer.current = window.setTimeout(() => setErrorFormato(null), 6000);
+    }
+  }
+  useEffect(() => {
+    return () => {
+      if (formatoTimer.current !== null) window.clearTimeout(formatoTimer.current);
+    };
+  }, []);
 
   /**
    * Pide el plan de la sentencia bajo el cursor. El motor no la ejecuta: es
@@ -304,9 +333,20 @@ export function SqlEditorScreen({
         >
           {pidiendoPlan ? "Pidiendo el plan…" : "Plan de ejecución"}
         </button>
-        <button type="button" className={styles.link} disabled title="Ordenar la consulta. Todavía no está.">
+        <button
+          type="button"
+          className={styles.link}
+          disabled={sql.trim() === ""}
+          title="Ordenar espacios, saltos y sangría con el dialecto del motor. No cambia mayúsculas."
+          onClick={formatear}
+        >
           Formatear
         </button>
+        {errorFormato ? (
+          <span className={cx(styles.meta, styles.metaError)} role="alert">
+            No se pudo formatear: {errorFormato}
+          </span>
+        ) : null}
         <span className={styles.divider} />
         <span className={styles.grow} />
         {readOnly ? <span className={styles.roNote}>conexión de solo lectura</span> : null}
