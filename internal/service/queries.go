@@ -7,6 +7,7 @@ import (
 
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/export"
+	"github.com/LucianoR23/kanamedb/internal/history"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
@@ -26,7 +27,18 @@ type Queries struct {
 	// cortaría la consulta de otra — un error que además es intermitente, así
 	// que aparecería en producción y no en una prueba.
 	enCurso map[string]context.CancelFunc
+
+	// historial es dónde se anota cada corrida. Nil lo apaga, que es lo que
+	// pasa en los tests que no lo necesitan.
+	historial *history.Store
 }
+
+// UsarHistorial le da a las consultas dónde anotarse.
+//
+// Va por un setter y no por el constructor porque el historial necesita al
+// Session y las Queries también: pasarlo por el constructor obligaba a armar
+// los tres en un orden que no existe.
+func (q *Queries) UsarHistorial(h *history.Store) { q.historial = h }
 
 func NewQueries(s *Session) *Queries {
 	return &Queries{session: s, enCurso: map[string]context.CancelFunc{}}
@@ -123,6 +135,7 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 		}
 		if f != nil {
 			lote.ElapsedMs = time.Since(inicio).Milliseconds()
+			q.anotar(sesion.conn.ID, sql, lote, f)
 			// Se corta en la primera que falla. Seguir sería peor: casi siempre
 			// las que vienen dependen de la que rompió, y el resultado sería
 			// una lista de errores en cascada donde el primero es el único que
@@ -135,7 +148,40 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 		}
 	}
 	lote.ElapsedMs = time.Since(inicio).Milliseconds()
+	q.anotar(sesion.conn.ID, sql, lote, nil)
 	return RunResult{OK: true, Batch: lote}
+}
+
+// anotar deja la corrida en el historial.
+//
+// Se guarda el TEXTO ENTERO tal como se escribió, no cada sentencia por
+// separado: lo que uno quiere recuperar del historial es lo que tenía en el
+// editor, y partirlo obligaría a volver a juntarlo a mano.
+//
+// Un fallo al escribir el historial NO afecta a la consulta: ya corrió, el
+// resultado está, y no poder anotar dónde estuviste no es motivo para esconder
+// lo que la base contestó. Es lo mismo que hace el árbol con el catálogo de
+// objetos, por la misma razón.
+//
+// Lo que NO se guarda es el resultado. El historial es lo que escribiste vos,
+// no lo que contestó el servidor: las filas en un archivo local serían una
+// copia de los datos de la base sin su control de acceso.
+func (q *Queries) anotar(conn, sql string, lote *query.Batch, f *engine.Failure) {
+	if q.historial == nil {
+		return
+	}
+	e := history.Entry{ConnectionID: conn, SQL: sql}
+	if lote != nil {
+		e.ElapsedMs = lote.ElapsedMs
+		for _, r := range lote.Results {
+			e.Rows += int64(len(r.Rows))
+		}
+	}
+	if f != nil {
+		e.Failed = true
+		e.Error = f.Message
+	}
+	_, _ = q.historial.Add(e)
 }
 
 // TableData lee una página de una tabla para S10.

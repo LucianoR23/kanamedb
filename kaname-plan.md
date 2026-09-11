@@ -590,7 +590,10 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   Edición→Copiar/Pegar son contratos del sistema. Cuando esta iteración haga
   ese build va un menú nativo **solo con lo que el sistema obliga**, no un
   espejo de las funciones de la aplicación.
-- **S21 Query history / saved queries** — segundo.
+- ✅ **S21 Query history / saved queries** — las dos pestañas del sidebar. El
+  historial va al directorio de estado —es de esta máquina— y las guardadas al
+  lado de la libreta de conexiones, que es la que se sincroniza. Ninguno de los
+  dos guarda una sentencia con una contraseña escrita.
 - **S20 Drift check** — reutiliza S15 para la SQL de reconciliación.
 - **S23 Settings** — completa, incluido el panel de seguridad y el check de
   updates manual.
@@ -830,6 +833,57 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**S21: el historial y las consultas guardadas son DOS cosas con dos dueños, y
+por eso viven en dos archivos.** El historial es de esta máquina —qué corriste
+el martes a la tarde no es algo que quieras ver replicado en la notebook del
+trabajo— y va al directorio de estado. Las consultas guardadas son trabajo:
+escribir una de veinte líneas cuesta, y quien sincroniza su libreta de
+conexiones no quiere volver a escribirla del otro lado, así que van al lado de
+`connections.toml` como los diagramas del ERD y por la misma razón. Es el mismo
+criterio que el plan ya había fijado para la lista de recientes.
+
+**El historial NO guarda una sentencia que lleve una contraseña escrita.** Es la
+regla dura de CLAUDE.md —los secretos van al keychain del sistema y a ningún
+otro lado— aplicada al único lugar donde este paquete la podía violar: alguien
+escribe `ALTER USER … PASSWORD 'x'` en el editor, lo corre, y el historial lo
+pone en un archivo de texto sin cifrar. Las consultas guardadas menos todavía,
+porque ese archivo además se sincroniza.
+
+El filtro reconoce FORMAS, no intención: `PASSWORD '…'`, `IDENTIFIED BY`,
+`IDENTIFIED WITH`, `ENCRYPTED PASSWORD`, y el `CREATE SUBSCRIPTION` de Postgres,
+que lleva un connection string entero. Se equivoca hacia el lado seguro —un
+`SELECT * FROM passwords` no lleva ninguna contraseña y aun así no se guarda— y
+esa asimetría es deliberada: el costo de ese error es una consulta que no queda
+en la lista, y el del error contrario es una contraseña en un archivo.
+
+El test no comprueba que la función diga «no»: comprueba que **el archivo no
+tenga la contraseña adentro**. Es la diferencia entre probar la decisión y
+probar el efecto, y una versión que dijera «no guardado» y escribiera igual
+pasaría el primero.
+
+**Tampoco se guarda ningún valor de fila.** El historial es lo que escribiste
+vos, no lo que contestó la base: los resultados en un archivo local serían una
+copia de los datos del servidor sin su control de acceso y sin su cifrado.
+
+**Dos topes y no uno.** El archivo se reescribe entero en cada consulta que
+corre, así que el de cantidad (500) evita una lista ingobernable y el de bytes
+(512 KB) evita que unas pocas sentencias enormes hagan cara cada escritura.
+Cualquiera de los dos solo cubre la mitad: quinientas entradas de ocho
+kilobytes serían cuatro megabytes por cada Enter del editor.
+
+**Correr lo mismo dos veces no agrega un renglón.** Repetir un SELECT afinando
+nada es lo que uno hace todo el tiempo, y seis renglones idénticos vuelven
+inútil la lista justo cuando más se la mira. Se compara contra la MÁS NUEVA y no
+contra todas: repetir algo de hace una hora sí es una corrida nueva y merece
+subir.
+
+**Una inyección que no fallaba, y lo que le faltaba al test.** Podar el
+historial por el lado equivocado —quedarse con las 500 más VIEJAS y tirar todo
+lo nuevo— pasaba en verde, porque el caso contaba entradas y no miraba cuáles
+sobrevivían. Es el mismo error que un test de «se borraron N filas» sin
+preguntar cuáles. Ahora comprueba que la primera sea la última que se corrió y
+que la última sea la que corresponde al corte.
 
 **El chip «Ctrl K» estaba desde la Iteración 1 y no hacía nada.** No había
 ningún handler de teclado en el frontend: la barra de título de S01 y de S05

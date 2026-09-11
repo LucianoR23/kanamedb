@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import * as HistorySvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/history";
 import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
-import { Button, ContextMenu, PillTabs, Spinner } from "../components/ui";
+import { Button, ContextMenu, Dialog, Input, PillTabs, Spinner } from "../components/ui";
 import type { MenuAnchor } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
 import { SqlEditor } from "../components/SqlEditor";
+import { textoDe } from "../lib/dialogos";
 import { CellViewer } from "./CellViewer";
 import { ExportDialog } from "./ExportDialog";
 import { Splitter } from "../components/Splitter";
@@ -47,6 +49,8 @@ export function SqlEditorScreen({
   rowLimit,
   connectionLabel,
   engine,
+  sqlInicial = "",
+  onHistorial,
 }: {
   tabId: string;
   /** La pestaña está a la vista. CodeMirror necesita saberlo para volver a
@@ -60,8 +64,20 @@ export function SqlEditorScreen({
   /** El motor de la conexión abierta. Decide con qué reglas se resalta y se
    *  autocompleta, y qué dice la barra de estado. */
   engine: string;
+  /** Con qué texto arranca la pestaña. Lo pone quien la abre desde el historial
+   *  o desde las guardadas; vacío en una consulta nueva. */
+  sqlInicial?: string;
+  /** Avisar que el historial cambió, para que el panel del sidebar se relea. */
+  onHistorial?: () => void;
 }) {
-  const [sql, setSql] = useState("");
+  // El texto inicial lo elige quien abre la pestaña —el historial, las
+  // guardadas— y de ahí en adelante el dueño es este editor. Por eso va como
+  // estado inicial y no como prop controlada: una prop que siguiera mandando
+  // pisaría lo que se esté escribiendo en cada render del Shell.
+  const [sql, setSql] = useState(sqlInicial);
+  const [guardando, setGuardando] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [errorGuardar, setErrorGuardar] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "vacio" });
   const [panel, setPanel] = useState("results");
   const [ancho, setAncho] = useState(PANEL.initial);
@@ -95,11 +111,30 @@ export function SqlEditorScreen({
     return () => window.clearInterval(id);
   }, [corriendo, estado]);
 
+  async function guardar() {
+    setErrorGuardar("");
+    try {
+      await HistorySvc.Save({ name: nombre, sql } as never);
+      setGuardando(false);
+      setNombre("");
+      onHistorial?.();
+    } catch (err: unknown) {
+      // El error se muestra entero: el que importa —«esta consulta lleva una
+      // contraseña escrita y Kaname no la guarda en un archivo»— es la
+      // explicación, no un detalle técnico.
+      setErrorGuardar(textoDe(err));
+    }
+  }
+
   async function ejecutar() {
     if (corriendo || sql.trim() === "") return;
     setEstado({ fase: "corriendo", desde: Date.now() });
     setSeleccion(null);
     const res = await QueriesSvc.Run(runID, sql);
+    // Corrió —bien o mal— así que el historial cambió. Se avisa siempre y no
+    // solo cuando salió bien: la consulta que uno vuelve a buscar en el
+    // historial es a menudo justamente la que falló.
+    onHistorial?.();
     if (res.ok && res.batch) {
       // Se abre en el último resultado con filas: es lo que la persona acaba de
       // terminar de escribir. Los anteriores quedan a un clic de distancia.
@@ -182,6 +217,15 @@ export function SqlEditorScreen({
             Cancelar
           </button>
         ) : null}
+        <span className={styles.divider} />
+        <Button
+          size="sm"
+          onClick={() => setGuardando(true)}
+          disabled={sql.trim() === ""}
+          title="Guardar esta consulta con un nombre"
+        >
+          Guardar…
+        </Button>
         <span className={styles.divider} />
         <button type="button" className={styles.link} disabled title="Llega en una iteración posterior">
           Explain
@@ -417,6 +461,34 @@ export function SqlEditorScreen({
           onClose={() => setExportando(false)}
         />
       ) : null}
+      <Dialog
+        open={guardando}
+        title="Guardar la consulta"
+        onClose={() => setGuardando(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setGuardando(false)}>
+              Cancelar
+            </Button>
+            <Button variant="primary" onClick={() => void guardar()} disabled={nombre.trim() === ""}>
+              Guardar
+            </Button>
+          </>
+        }
+      >
+        <p className={styles.ayudaGuardar}>
+          Las consultas guardadas viajan con la libreta de conexiones, así que las vas a encontrar
+          en la otra máquina. El historial no: ese es de ésta.
+        </p>
+        <Input
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          placeholder="Ventas del mes"
+          aria-label="Nombre de la consulta"
+          autoFocus
+        />
+        {errorGuardar ? <p className={styles.errorGuardar}>{errorGuardar}</p> : null}
+      </Dialog>
     </div>
   );
 }

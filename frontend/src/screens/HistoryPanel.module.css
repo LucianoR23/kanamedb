@@ -1,0 +1,82 @@
+.lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+}
+
+.cabecera {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 6px;
+}
+
+.spacer { flex: 1; }
+
+.fila {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.abrir, .filaEntrada, .filaFallada {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-1);
+}
+
+.abrir:hover, .filaEntrada:hover, .filaFallada:hover { background: var(--bg-hover); }
+
+/* Una consulta que falló se marca con el borde y no con el fondo: el fondo rojo
+   en una lista larga la vuelve ilegible, y lo que hace falta es distinguirla de
+   un vistazo, no gritarlo. */
+.filaFallada { border-left: 2px solid var(--danger); }
+
+.nombre {
+  font: 500 12px/1.4 var(--font-ui);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sql {
+  font: 400 11.5px/1.45 var(--font-mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.abrir .sql { color: var(--text-dim); }
+
+.meta {
+  font: 400 10.5px/1.4 var(--font-ui);
+  color: var(--text-3);
+}
+
+.nota {
+  margin: 0;
+  padding: 14px 12px;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+.error {
+  margin: 0;
+  padding: 14px 12px;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--danger);
+  text-wrap: pretty;
+}

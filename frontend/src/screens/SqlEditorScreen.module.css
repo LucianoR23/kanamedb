@@ -412,3 +412,20 @@
   font: 400 10.5px var(--font-mono);
   color: var(--text-3);
 }
+
+.ayudaGuardar {
+  margin: 0 0 10px;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+/* El error de guardar va en ámbar y no en rojo: el que de verdad importa —«esta
+   consulta lleva una contraseña escrita»— no es un fallo sino una negativa
+   deliberada, y el rojo haría pensar que algo se rompió. */
+.errorGuardar {
+  margin: 10px 0 0;
+  font: 400 11.5px/1.6 var(--font-ui);
+  color: var(--warning);
+  text-wrap: pretty;
+}

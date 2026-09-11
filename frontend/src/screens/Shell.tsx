@@ -17,6 +17,7 @@ import type { TabItem } from "../components/ui";
 import type { $Object as DBObject } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import { glifoDe, idDe as idDeObjeto } from "../lib/objetos";
 import { CommandPalette } from "./CommandPalette";
+import { HistoryPanel } from "./HistoryPanel";
 import type { Accion } from "./CommandPalette";
 import { ObjectScreen } from "./ObjectScreen";
 import { SchemaTree } from "./SchemaTree";
@@ -130,6 +131,11 @@ export function Shell({
 
   const [paleta, setPaleta] = useState(false);
 
+  // Sube cuando algo pudo haber tocado el historial o las guardadas. El panel
+  // no se puede refrescar solo: el registro lo hace Go cuando corre la
+  // consulta, y acá no hay forma de enterarse sin que alguien avise.
+  const [recargaHistorial, setRecargaHistorial] = useState(0);
+
   // Ctrl+K abre y cierra la paleta. Va en `window` y en la fase de CAPTURA
   // porque el foco casi siempre está adentro de algo que ya escucha teclas —la
   // grilla, CodeMirror— y un handler en burbuja llegaría después de que el
@@ -203,9 +209,17 @@ export function Shell({
 
   // Cada consulta nueva es su propia pestaña con su propio identificador de
   // ejecución, para que cancelar en una no corte la de otra.
-  function openQuery() {
+  // El texto inicial de cada pestaña de consulta, por id.
+  //
+  // Va acá y no adentro del editor porque quien lo elige es otro: abrir algo del
+  // historial es el sidebar diciendo «empezá con esto». El editor sigue siendo
+  // el dueño del texto después del primer render.
+  const [sqlInicial, setSqlInicial] = useState<Record<string, string>>({});
+
+  function openQuery(sql = "") {
     const n = tabs.filter((t) => t.id.startsWith("sql:")).length + 1;
     const id = `sql:${Date.now().toString(36)}`;
+    if (sql !== "") setSqlInicial((prev) => ({ ...prev, [id]: sql }));
     setTabs((prev) => [...prev, { id, label: `Consulta ${n}`, kind: "query" }]);
     setActiveTab(id);
   }
@@ -255,7 +269,7 @@ export function Shell({
   const acciones: Accion[] = [];
   if (session?.connected) {
     acciones.push({
-      id: "consulta", label: "Nueva consulta", kind: "query", correr: openQuery,
+      id: "consulta", label: "Nueva consulta", kind: "query", correr: () => openQuery(),
     });
     if (totalTablas > 0) {
       acciones.push({
@@ -327,7 +341,7 @@ export function Shell({
         >
           Diagrama
         </Button>
-        <Button size="sm" onClick={openQuery} disabled={!session?.connected}>
+        <Button size="sm" onClick={() => openQuery()} disabled={!session?.connected}>
           Nueva consulta
         </Button>
         <Button
@@ -400,11 +414,12 @@ export function Shell({
           </div>
           <div className={styles.sidebarBody}>
             {nav !== "objects" ? (
-              <p className={styles.emptySmall}>
-                {nav === "queries"
-                  ? "Las consultas guardadas llegan en la Iteración 9."
-                  : "El historial llega en la Iteración 9."}
-              </p>
+              <HistoryPanel
+                modo={nav === "queries" ? "queries" : "history"}
+                recarga={recargaHistorial}
+                conectado={session?.connected ?? false}
+                onAbrir={(sql) => openQuery(sql)}
+              />
             ) : schemaError ? (
               <p className={styles.emptySmall}>No se pudo leer el esquema. {schemaError}</p>
             ) : loading && !snapshot ? (
@@ -546,6 +561,8 @@ export function Shell({
                       rowLimit={session?.rowLimit ?? 0}
                       connectionLabel={session?.describe ?? ""}
                       engine={session?.server?.engine ?? ""}
+                      sqlInicial={sqlInicial[t.id] ?? ""}
+                      onHistorial={() => setRecargaHistorial((n) => n + 1)}
                     />
                   )}
                 </div>
