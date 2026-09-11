@@ -1,0 +1,71 @@
+# Dependabot abre un PR por cada dependencia con versión nueva. Es lo que
+# reemplaza al job `deps` de CI, que escribía un informe que había que entrar a
+# leer. Lo que NO hace, y no va a hacer: mergear. Leer el changelog —viene en
+# el cuerpo del PR—, decidir y mergear es de una persona. Ver
+# bumps-de-dependencias.md, que tiene las siete reglas que esto cumple.
+#
+# Dependabot corre dentro de GitHub: no es un tercero con permiso de escritura
+# sobre el repo, que es el motivo por el que no es Renovate.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Siete días: el mismo reloj que `minimum-release-age` de pnpm, para que
+    # una versión recién publicada —y quizá recién comprometida— espere lo
+    # mismo en los dos lados. El default de GitHub son tres.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(deps)"
+    # Lo que se sube a mano, con el plan al día: Wails es una beta y cada
+    # versión mueve la API; los drivers se prueban contra los motores y un
+    # cambio de comportamiento merece leerse; x/crypto es el túnel SSH. El
+    # toolchain de Go no lo toca Dependabot.
+    #
+    # Solo las actualizaciones de VERSIÓN: un `ignore` sin `update-types`
+    # calla también los PRs de seguridad, y un CVE es justo el único motivo
+    # por el que una de estas se sube sin esperar.
+    ignore:
+      - dependency-name: github.com/wailsapp/wails/v3
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: github.com/jackc/pgx/v5
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: github.com/go-sql-driver/mysql
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: modernc.org/sqlite
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: golang.org/x/crypto
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    # `increase`: sube el número en package.json y lo deja exacto, sin
+    # reintroducir `^` ni `~`.
+    versioning-strategy: increase
+    commit-message:
+      prefix: "chore(deps)"
+    # El runtime de Wails tiene que coincidir exacto con el módulo de Go, y el
+    # módulo se sube a mano. Van juntos o no van. Un PR de seguridad sí se
+    # abre: acá no hay un govulncheck que lo ponga en rojo.
+    ignore:
+      - dependency-name: "@wailsio/runtime"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(ci)"

@@ -1,15 +1,16 @@
 # Automatizar los bumps de dependencias
 
-Postergado el 2026-09-11 por decisión del usuario: lo que hay hoy alcanza por un
-tiempo. Este archivo deja anotado qué hay, qué falta y qué tiene que cumplir la
-herramienta que se elija, para no volver a pensarlo desde cero.
+**Activado el 2026-09-11 con Dependabot** (`.github/dependabot.yml`), el mismo
+día en que se había postergado: al mirar qué cambia con el repo público, no
+había motivo para esperar. Este archivo queda como el registro de qué había,
+qué tenía que cumplir la herramienta, y por qué Dependabot y no Renovate.
 
-## Qué hay hoy
+## Qué había antes de activarlo
 
 - **`govulncheck`** en CI, bloqueante. Solo vulnerabilidades alcanzables.
-- **Job `deps`** en CI, informativo. Escribe en el resumen de la corrida qué
-  dependencias directas (Go y frontend) tienen versión nueva. Nadie lo lee si
-  nadie entra a mirar.
+- **Job `deps`** en CI, informativo. Escribía en el resumen de la corrida qué
+  dependencias directas (Go y frontend) tenían versión nueva. Nadie lo leía si
+  nadie entraba a mirar. Borrado al activar Dependabot.
 - **`minimum-release-age = 7` días** en `frontend/.npmrc`. pnpm rechaza paquetes
   publicados hace menos de una semana. No se desactiva.
 - Reglas de `CLAUDE.md`: una dependencia por commit, versión exacta, changelog

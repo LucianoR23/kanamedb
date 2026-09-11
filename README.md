@@ -333,6 +333,7 @@ aplicación y desde los tests.
 ```sh
 gofmt -l .                         # formato de Go
 go vet ./...                       # análisis estático
+staticcheck ./...                  # lo que vet no mira, deprecaciones incluidas
 go test -p 1 ./...                 # tests (ver abajo por qué -p 1)
 govulncheck ./...                  # CVEs alcanzables desde nuestro código
 cd frontend && pnpm run typecheck  # tipos de TypeScript
@@ -343,6 +344,11 @@ gitleaks git --log-opts=--all --redact --config .gitleaks.toml  # secretos en TO
 `go install golang.org/x/vuln/cmd/govulncheck@v1.7.0`. Consulta `vuln.go.dev` al
 correr; es una herramienta de desarrollo, la aplicación no hace ninguna llamada
 de red por su cuenta.
+
+`staticcheck` se instala con `go install honnef.co/go/tools/cmd/staticcheck@v0.8.1`.
+Está porque un bump de dependencia compila y pasa los tests aunque use algo
+deprecado; SA1019 lo pone en rojo. Las comprobaciones apagadas y el motivo
+están en `staticcheck.conf`.
 
 `gitleaks` se instala con `go install github.com/zricethezav/gitleaks/v8@v8.30.1`
 y revisa los commits, no solo el árbol: publicar el repo publica el historial, y una contraseña
@@ -413,6 +419,9 @@ internal/            Paquetes de Go. Cada servicio expuesto al frontend vive ac�
 design/             Artboards bajados de Claude Design. No se commitea.
 scripts/             sockets.ps1: lo que el binario abre de verdad cuando corre.
 .gitleaks.toml       Reglas de gitleaks: las de fábrica más las DSN y `password = "…"`.
+staticcheck.conf     Qué comprobaciones corre staticcheck y por qué falta una.
+.github/dependabot.yml  Un PR por dependencia con versión nueva; nunca mergea solo.
+firma-de-codigo.md   Cómo firmar el .exe gratis (SignPath Foundation), para cuando toque.
 .github/workflows/   CI: lint, typecheck, secretos en el historial, integración,
                      builds de los tres sistemas y release en borrador con tag.
 CLAUDE.md            Convenciones de código y reglas de seguridad.

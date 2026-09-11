@@ -168,9 +168,9 @@ func servidorTLS(t *testing.T, p pki, exigirCliente bool) string {
 }
 
 // negociar arma la configuración con configTLS y hace la negociación completa
-// contra el servidor. Devuelve el error de la negociación y lo que el canal
-// capturó.
-func negociar(t *testing.T, o engine.TLSOptions, host, addr string) (error, *engine.TLSInfo) {
+// contra el servidor. Devuelve lo que el canal capturó y el error de la
+// negociación.
+func negociar(t *testing.T, o engine.TLSOptions, host, addr string) (*engine.TLSInfo, error) {
 	t.Helper()
 	canal := &canalTLS{}
 	cfg, _, f := configTLS(o, host, canal)
@@ -182,7 +182,7 @@ func negociar(t *testing.T, o engine.TLSOptions, host, addr string) (error, *eng
 	}
 	conn, err := tls.Dial("tcp", addr, cfg)
 	if err != nil {
-		return err, canal.leer()
+		return canal.leer(), err
 	}
 	defer conn.Close()
 	// En TLS 1.3 el cliente da la negociación por terminada antes de que el
@@ -191,9 +191,9 @@ func negociar(t *testing.T, o engine.TLSOptions, host, addr string) (error, *eng
 	// EOF es «aceptado» y cualquier otra cosa es el rechazo.
 	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err := conn.Read(make([]byte, 1)); err != nil && !errors.Is(err, io.EOF) {
-		return err, canal.leer()
+		return canal.leer(), err
 	}
-	return nil, canal.leer()
+	return canal.leer(), nil
 }
 
 func TestVerifyCAAceptaLaCadenaSinMirarElHost(t *testing.T) {
@@ -201,7 +201,7 @@ func TestVerifyCAAceptaLaCadenaSinMirarElHost(t *testing.T) {
 	addr := servidorTLS(t, p, false)
 
 	// verify-ca: la raíz firmó el certificado, el nombre no importa.
-	err, info := negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyCA, RootCert: p.raiz}, "127.0.0.1", addr)
+	info, err := negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyCA, RootCert: p.raiz}, "127.0.0.1", addr)
 	if err != nil {
 		t.Fatalf("verify-ca con la raíz correcta falló: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestVerifyCAAceptaLaCadenaSinMirarElHost(t *testing.T) {
 	}
 
 	// verify-full contra 127.0.0.1: el certificado es de db.interna.
-	err, _ = negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyFull, RootCert: p.raiz}, "127.0.0.1", addr)
+	_, err = negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyFull, RootCert: p.raiz}, "127.0.0.1", addr)
 	if err == nil {
 		t.Fatal("verify-full aceptó un certificado que no es del host")
 	}
@@ -219,7 +219,7 @@ func TestVerifyCAAceptaLaCadenaSinMirarElHost(t *testing.T) {
 	}
 
 	// verify-full con el nombre correcto, sí.
-	err, _ = negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyFull, RootCert: p.raiz}, "db.interna", addr)
+	_, err = negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyFull, RootCert: p.raiz}, "db.interna", addr)
 	if err != nil {
 		t.Errorf("verify-full con el nombre del certificado falló: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestVerifyCAAceptaLaCadenaSinMirarElHost(t *testing.T) {
 func TestVerifyCARechazaOtraRaiz(t *testing.T) {
 	p := generarPKI(t)
 	addr := servidorTLS(t, p, false)
-	err, _ := negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyCA, RootCert: p.otraRaiz}, "127.0.0.1", addr)
+	_, err := negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyCA, RootCert: p.otraRaiz}, "127.0.0.1", addr)
 	if err == nil {
 		t.Fatal("verify-ca aceptó un certificado firmado por otra raíz")
 	}
@@ -240,7 +240,7 @@ func TestRequireConRaizVerificaLaCadena(t *testing.T) {
 	p := generarPKI(t)
 	addr := servidorTLS(t, p, false)
 
-	err, info := negociar(t, engine.TLSOptions{Mode: engine.SSLRequire}, "127.0.0.1", addr)
+	info, err := negociar(t, engine.TLSOptions{Mode: engine.SSLRequire}, "127.0.0.1", addr)
 	if err != nil {
 		t.Fatalf("require sin raíz tiene que conectar contra cualquier certificado: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestRequireConRaizVerificaLaCadena(t *testing.T) {
 		t.Error("el certificado vale un día y se marcó vencido")
 	}
 
-	err, _ = negociar(t, engine.TLSOptions{Mode: engine.SSLRequire, RootCert: p.otraRaiz}, "127.0.0.1", addr)
+	_, err = negociar(t, engine.TLSOptions{Mode: engine.SSLRequire, RootCert: p.otraRaiz}, "127.0.0.1", addr)
 	if err == nil {
 		t.Fatal("require con una raíz cargada tiene que verificar la cadena, y esta raíz no firmó el certificado")
 	}
@@ -270,11 +270,11 @@ func TestElCertificadoDeClienteSeUsa(t *testing.T) {
 	p := generarPKI(t)
 	addr := servidorTLS(t, p, true)
 
-	err, _ := negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyCA, RootCert: p.raiz}, "127.0.0.1", addr)
+	_, err := negociar(t, engine.TLSOptions{Mode: engine.SSLVerifyCA, RootCert: p.raiz}, "127.0.0.1", addr)
 	if err == nil {
 		t.Fatal("el servidor exige certificado de cliente y sin uno tendría que fallar")
 	}
-	err, _ = negociar(t, engine.TLSOptions{
+	_, err = negociar(t, engine.TLSOptions{
 		Mode: engine.SSLVerifyCA, RootCert: p.raiz, ClientCert: p.cliCert, ClientKey: p.cliKey,
 	}, "127.0.0.1", addr)
 	if err != nil {

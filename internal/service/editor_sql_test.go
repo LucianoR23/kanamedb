@@ -178,8 +178,6 @@ func TestLaSentenciaQueFallaSeUbica(t *testing.T) {
 	}
 }
 
-func q(s *Session) *Queries { return NewQueries(s) }
-
 func mensajeDe(r RunResult) string {
 	if r.Failure == nil {
 		return "(sin fallo)"

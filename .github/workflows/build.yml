@@ -62,6 +62,16 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Lo que go vet no mira y un bump de dependencia necesita: SA1019 marca
+      # cada uso de algo DEPRECADO, que compila hoy y en dos versiones no
+      # existe. Sin esto, el PR de Dependabot pasa en verde con el aviso
+      # adentro del changelog que nadie leyó. Las comprobaciones apagadas están
+      # en staticcheck.conf, con el motivo.
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          staticcheck ./...
+
       # Lo único que avisa de un CVE en una dependencia. Sin esto, "pineado"
       # se convierte en "viejo" sin que nadie se entere: el lockfile y go.sum
       # garantizan que se compila siempre lo mismo, no que ese "lo mismo" siga
@@ -165,73 +175,6 @@ jobs:
             echo "el clon no trae el historial: revisar fetch-depth"; exit 1
           fi
           gitleaks git --log-opts=--all --config .gitleaks.toml --no-banner --redact
-  # Qué se podría subir de versión. NO bloquea: que exista una versión nueva no
-  # es un error, es información para decidir.
-  #
-  # Va aparte de govulncheck porque responden preguntas distintas. govulncheck
-  # dice "esto hay que arreglarlo" y rompe el build. Esto dice "esto se puede
-  # mejorar" y solo escribe un informe: correcciones de bugs, mejoras de
-  # rendimiento, versiones que quedaron atrás. Sin este job, pinear todo
-  # significa quedarse en la versión del día que se agregó la dependencia y no
-  # enterarse nunca de nada que no sea un CVE.
-  deps:
-    name: Versiones disponibles
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      # El informe va al resumen de la corrida y no a la consola: en la consola
-      # se pierde entre miles de líneas, y en el resumen se lee de un vistazo
-      # desde la página del run.
-      - name: Módulos de Go con versión nueva
-        shell: bash
-        run: |
-          echo '## Go' >> "$GITHUB_STEP_SUMMARY"
-          # Solo las directas: `all` trae el grafo entero, incluidas las
-          # dependencias del CLI de Wails que ni siquiera se linkean en el
-          # binario. Doce líneas de ruido antes de la primera accionable hacen
-          # que el informe no se lea. Subir una directa arrastra sus
-          # transitivas de todos modos.
-          pendientes="$(go list -m -u -f '{{if and .Update (not .Indirect)}}- `{{.Path}}` {{.Version}} → **{{.Update.Version}}**{{end}}' all | grep . || true)"
-          if [ -z "$pendientes" ]; then
-            echo 'Todo al día.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "$pendientes" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Instalar deps del frontend
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Paquetes del frontend con versión nueva
-        shell: bash
-        working-directory: frontend
-        run: |
-          echo '## Frontend' >> "$GITHUB_STEP_SUMMARY"
-          # pnpm outdated sale con código distinto de cero cuando encuentra
-          # algo, que es justamente el caso normal. No es un fallo.
-          salida="$(pnpm outdated --no-table 2>/dev/null || true)"
-          if [ -z "$salida" ]; then
-            echo 'Todo al día.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            printf '```\n%s\n```\n' "$salida" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
   # Los tests de integración corren en Linux: los servicios de contenedor de
   # GitHub Actions no funcionan en los runners de Windows, y las capas de datos
   # de este proyecto son Go puro e independientes del sistema operativo. Lo

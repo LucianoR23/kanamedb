@@ -129,15 +129,18 @@ Lo que hay que cuidar entonces no es el pineo sino **cómo se sube**:
 - Se sube **una dependencia por vez**, con versión explícita, leyendo el
   changelog, en su propio commit. Si arrastra transitivas, se dice en el mensaje.
 - El riesgo de pinear no es pinear: es **pinear y no mirar nunca más**.
-  "Pineado" se vuelve "viejo" sin que nadie lo note. Por eso CI tiene dos
+  "Pineado" se vuelve "viejo" sin que nadie lo note. Por eso hay tres
   señales, que responden preguntas distintas:
   - **`govulncheck`** — rompe el build. Dice "esto hay que arreglarlo". Solo
     reporta vulnerabilidades *alcanzables* desde nuestro código. En su primera
     corrida encontró 19, todas de la biblioteca estándar por tener el toolchain
     en 1.26.0.
-  - **Job `deps`** — no bloquea. Dice "esto se puede mejorar": correcciones de
-    bugs, rendimiento, versiones que quedaron atrás. Escribe un informe en el
-    resumen de la corrida, filtrado a dependencias directas.
+  - **Dependabot** — no bloquea y no mergea. Abre un PR por dependencia con
+    versión nueva, con el changelog en el cuerpo y CI corriendo encima; la
+    decisión es de una persona. Wails, los drivers, `x/crypto` y el toolchain
+    de Go están excluidos: se suben a mano. Reemplazó al job `deps`.
+  - **`staticcheck`** — rompe el build. Está por los bumps: un PR que compila y
+    pasa los tests puede estar usando algo deprecado; SA1019 lo marca.
 
 Una versión nueva no es un motivo para subir. Un CVE sí. Un bug que nos afecta,
 también. El informe es para decidir, no para obedecer.

@@ -707,12 +707,13 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   qué claves del archivo se ignoraron. Review `high`; el test que protege
   guarda la contraseña y la frase de paso y exige que el archivo no las
   contenga. Ver la § 6.
-- ⏳ **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
-  (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
-  abren PRs solos; son funciones de la plataforma, no telemetría de la app, así
-  que no chocan con la regla de no phone-home. **Postergado el 2026-09-11** por
-  decisión del usuario: lo de hoy alcanza por un tiempo. Qué tiene que cumplir
-  la herramienta y cuál elegir si nada cambió, en `bumps-de-dependencias.md`.
+- ✅ **Automatizar los bumps de dependencias.** Dependabot, activado el
+  2026-09-11 antes de hacer público el repo: un PR por dependencia, siete días
+  de espera, sin mergear solo, con Wails, los drivers, `x/crypto` y el
+  toolchain excluidos. `staticcheck` entró a CI en el mismo commit, porque un
+  bump que compila y pasa los tests puede estar usando algo deprecado. El job
+  `deps` se borró. Por qué Dependabot y no Renovate, verificado contra lo que
+  tiene este repo, en `bumps-de-dependencias.md`. Ver la § 6.
 
 ---
 
@@ -764,8 +765,8 @@ desarrollo (windows/arm64). El resto entra en la iteración que lo necesite.
 GitHub Actions. Hoy: builds win-x64 (`windows-latest`), win-arm64
 (`windows-11-arm`), linux-x64 (`ubuntu-24.04`, GTK4 + WebKitGTK 6.0:
 AppImage, .deb y .rpm) y mac-universal (`macos-latest`, `.app` arm64 +
-x86_64 en un .zip); un job de gofmt + vet + test + typecheck; un job
-`secretos` que corre gitleaks sobre el historial entero con `.gitleaks.toml`,
+x86_64 en un .zip); un job de gofmt + vet + staticcheck + govulncheck + test
++ typecheck; un job `secretos` que corre gitleaks sobre el historial entero con `.gitleaks.toml`,
 después de comprobar que esas reglas detectan una muestra; una matriz de
 integración contra PostgreSQL 18, 17, 16 y 14 en `ubuntu-latest` con
 `KANAME_REQUIRE_POSTGRES=1`, para que un job sin base se ponga rojo en vez de
@@ -863,8 +864,10 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
 - Undo/redo del changeset pendiente antes de aplicar
 - Reconexión del túnel SSH y timeouts
 - Firma de código: sin firmar, SmartScreen frena el «copiar y que ande» en
-  Windows y Gatekeeper el `.app` en macOS. Evaluado y no decidido; ver § 6
-  (2026-09-11)
+  Windows y Gatekeeper el `.app` en macOS. La vía gratuita para Windows es
+  SignPath Foundation, con sus condiciones y el orden para hacerlo en
+  `firma-de-codigo.md`; se hace cuando el repo lleve unos días público y haya
+  un release. macOS no tiene vía gratuita. (2026-09-11)
 - Tests de integración con Docker Compose de los cuatro motores desde el día uno;
   el differ se rompe en silencio
 - Exportar ERD a SQL y a imagen
@@ -1547,6 +1550,44 @@ contra Postgres 18, 17, 16 y 14, y que estuvo verde en las corridas de hoy.
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
 `bumps-de-dependencias.md`, breve y con las siete reglas que la herramienta
 tiene que cumplir, para no rehacerlo cuando llegue el momento.
+
+**Dependabot, activado; `staticcheck` en CI; la firma, anotada para después.**
+El mismo día, al mirar qué cambia con el repo público: los PRs del bot
+corren CI con minutos gratis, y un CVE conocido sin subir es visible para
+cualquiera. Lo que decidió entre Dependabot y Renovate no fue la lista de
+funciones —las dos cumplen las siete reglas— sino **quién ejecuta**: Dependabot
+corre dentro de GitHub; Renovate Cloud es Mend corriendo contra el repo desde
+su infraestructura con permiso de escritura. Para un proyecto cuyo argumento es
+«ninguna dependencia llama a casa», sumar un tercero con acceso de escritura
+para ahorrarse tres `go install` en un YAML no cierra. El resto de la
+comparación, verificada contra lo que tiene el repo y con fuentes, está en
+`bumps-de-dependencias.md`.
+
+- **`.github/dependabot.yml`**: `gomod`, `npm` (en `/frontend`) y
+  `github-actions`, semanal, `cooldown.default-days: 7` en los tres —el mismo
+  reloj que `minimum-release-age` de pnpm; el default de GitHub bajó a tres
+  días en julio—, `versioning-strategy: increase` en npm para que nunca
+  vuelva un `^`, sin `groups`, y `ignore` para `wails/v3`, `@wailsio/runtime`,
+  los tres drivers y `x/crypto`. El job `deps` se borró: lo duplicaba. Review
+  medium, un hallazgo: un `ignore` sin `update-types` calla también los PRs
+  de seguridad, y un CVE es justo el único motivo por el que una de esas se
+  sube sin esperar; cada entrada ignora solo las actualizaciones de versión.
+- **Lo que un bump no revisa solo.** El PR trae el changelog y CI en verde,
+  y eso agarra una API que desapareció y un cambio de comportamiento que un
+  test cubra. Una **deprecación** no: compila y pasa. Por eso entró
+  `staticcheck` v0.8.1 al job `check`, con SA1019 que marca cada uso de algo
+  deprecado; verificado inyectando un `ioutil.ReadAll`. La primera corrida dio
+  nueve avisos: siete `ST1005` —«los errores no van con mayúscula ni punto»—
+  sobre mensajes que la interfaz muestra tal cual («Kaname todavía no sabe
+  leer esta clase de objeto»), que se apagan en `staticcheck.conf` con el
+  motivo escrito; un helper de test sin usar, borrado; y un helper de test que
+  devolvía `(error, *TLSInfo)`, dado vuelta.
+- **La firma, para otro día.** El usuario la hace después de unos días de uso
+  público. `firma-de-codigo.md` tiene lo verificado contra los términos de
+  SignPath Foundation: licencia OSI, release publicado, build automatizado,
+  MFA, política de firma con tres roles, y que el certificado se emite a
+  SignPath Foundation —el publicador que muestra Windows es ese—. Y el orden:
+  público, `v0.1.0`, política, aplicar, paso en el job `release`.
 
 **S20, la pantalla y el archivo: cinco decisiones y un bug que solo la prueba a
 mano encontró.**
