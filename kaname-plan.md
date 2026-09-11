@@ -867,9 +867,10 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
 - Tests de integración con Docker Compose de los cuatro motores desde el día uno;
   el differ se rompe en silencio
 - Exportar ERD a SQL y a imagen
-- WebView2 abre dos o tres HTTPS salientes a Microsoft al arrancar, antes de
-  que la app conecte a nada. No es de Kaname y no es un puerto escuchando; no
-  se encontró la combinación de flags que lo apague del todo. Ver § 6
+- WebView2 abre dos HTTPS salientes a Microsoft al arrancar, antes de que la
+  app conecte a nada. No es de Kaname y no es un puerto escuchando; los flags
+  de Chromium compilados en el binario no lo cambian, y el host no está
+  identificado (`pktmon` con admin lo mostraría por el SNI). Ver § 6
   (2026-09-11)
 - Si el keychain guarda la contraseña de la base y falla al guardar la del
   bastión, la conexión no se guarda —correcto— pero la primera credencial
@@ -1451,15 +1452,25 @@ ganó el test que faltaba, y uno encontró que el plan mentía.
   sistema —cross-compilar dentro de una imagen— no se busca por nombre porque
   no levanta nada.
 - **Lo que el script muestra y no es de la app.** `msedgewebview2.exe` abre
-  dos o tres HTTPS salientes a Microsoft (52.97.x.x) al arrancar, con la app
-  sin haber conectado a nada. Es el runtime de WebView2 reportando y buscando
-  configuración, que la sección 3 ya tenía anotado como el precio de no
-  embeber Chromium. Se intentó apagarlo con `--disable-background-networking`,
-  `--disable-component-update` y una lista de `--disable-features=ms…` vía
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`: bajó de tres conexiones a dos, no a
-  cero. No se identificó el host —Chromium resuelve por su cuenta y no pasa
-  por el caché de DNS de Windows— y se dejó ahí: no es un puerto escuchando,
-  no es de Kaname, y perseguirlo no cambia el checklist. Queda en la sección 4.
+  dos HTTPS salientes a Microsoft (52.97.x.x, tres la primera vez que se crea
+  el perfil) al arrancar, con la app sin haber conectado a nada. Es el runtime
+  de WebView2 reportando y buscando configuración, que la sección 3 ya tenía
+  anotado como el precio de no embeber Chromium. Se intentó apagarlo con
+  flags de Chromium, y la primera medición engañó: vía
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` parecía bajar de tres a dos, pero
+  **esa variable no la lee esta combinación de Wails y runtime** —un
+  `--remote-debugging-port` por ahí no abre ningún puerto—, así que las
+  corridas medían el mismo binario sin flags, y el «tres» era el primer
+  arranque. La medición válida fue con los flags compilados en
+  `WindowsOptions.AdditionalBrowserArgs`: `--disable-background-networking`,
+  `--disable-component-update`, `--disable-domain-reliability`,
+  `--metrics-recording-only` y `--no-pings`, tres corridas, **dos conexiones
+  igual**. No hacen nada contra esto, y lo que no se mide no se optimiza a
+  ciegas: no van al binario. No se identificó el host —Chromium resuelve por
+  su cuenta y no pasa por el caché de DNS de Windows; verlo es `pktmon`, con
+  admin—. Lo que sí lo gobierna es el ajuste de diagnóstico opcional de
+  Windows, y eso está escrito en el README, en «Principios», donde antes decía
+  «sin phone-home» a secas. Queda en la sección 4.
 - **TOFU sin servidor.** `verificador` es la única puerta entre «el servidor
   presentó una clave» y «se manda una credencial», y es una función pura:
   `TestElVerificadorSoloAceptaLaClaveQueSeAcepto` la prueba con las seis

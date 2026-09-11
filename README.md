@@ -75,6 +75,23 @@ marcados. Contra producción, eso no es una comodidad — es la diferencia entre
   query string, sin cookies y sin la versión instalada —la comparación se hace
   del lado de la app—. No descarga ni instala nada.
 
+  Eso es lo que hace Kaname. Lo que hace **el runtime de WebView2** que dibuja
+  la ventana en Windows es otra cosa, y conviene saberlo: es un componente
+  del sistema —lo instala y lo actualiza Windows, como a Edge— y al arrancar
+  abre dos conexiones HTTPS a Microsoft por su cuenta, con la app sin haber
+  conectado a nada. Es el runtime reportando diagnóstico y buscando
+  configuración, igual que Edge. No lleva nada de lo que la ventana muestra:
+  los datos de diagnóstico de Edge no incluyen contenido de página, y las URLs
+  que navega Kaname son internas (`wails://`). No se apaga desde la app: se
+  probaron los flags de Chromium para eso compilados en el binario
+  (`--disable-background-networking`, `--disable-component-update`,
+  `--disable-domain-reliability`, `--metrics-recording-only`, `--no-pings`) y
+  las dos conexiones siguen ahí, así que no están. Lo que sí lo gobierna es el
+  ajuste de Windows *Privacidad y seguridad → Diagnóstico y comentarios →
+  Enviar datos de diagnóstico opcionales*. En Linux (WebKitGTK) y macOS
+  (WKWebView) no pasa. `scripts/sockets.ps1` lo muestra cada vez que se corre,
+  para que no haya que creerlo.
+
 ---
 
 ## Dónde guarda sus cosas
