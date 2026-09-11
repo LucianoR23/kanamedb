@@ -602,11 +602,11 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   nombraba solo TLS y Advanced —así que el cartel «Llega en la Iteración 5»
   iba a quedar ahí para siempre—. Mientras no esté, el límite de tiempo por
   sentencia y las otras dos protecciones se editan en `connections.toml`.
-- **Poner un comentario a una tabla o a una columna.** `setColumnComment` y
-  `setTableComment` ya existen en el changeset y se aplican bien; lo que falta
-  es la forma de crearlos —un ítem en el menú contextual de la columna, junto a
-  «Renombrar»—. Sin eso, el arreglo de `QuoteString` con
-  `NO_BACKSLASH_ESCAPES` no se puede comprobar desde la aplicación.
+- ✅ **Poner un comentario a una tabla o a una columna.** El de columna ya
+  estaba desde la iteración 6 —este ítem quedó desactualizado—; faltaba el de
+  la tabla, que ahora está en el pie de la pantalla de estructura. Con eso se
+  puede comprobar el citado desde la aplicación: un comentario con una comilla
+  simple adentro sale como `O''Brien` y vuelve del catálogo como `O'Brien`.
 - **S24** — variante "unsaved changes on tab close".
 - Tema claro de S05, S06, S12 y S15 — al final, no al principio.
 - **Marca en Linux y macOS.** Los 9 PNG de freedesktop con su `.desktop`
@@ -615,7 +615,7 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   apariencias `default`, `dark`, `clear` y `tinted`. El brand kit ya entrega las
   capas separadas y sin efectos horneados, que es como Apple las pide. No se
   puede adelantar: esos builds no existen hasta esta iteración.
-- **Renombrar los tokens de color del ERD y del preview.** El kit define
+- ✅ **Renombrar los tokens de color del ERD y del preview.** El kit define
   `--erd-rel-cascade`, `--erd-pk`, `--schema-drop`… y el código usa genéricos:
   hoy la línea de cascada es `--env-stage` y la clave foránea es `--accent`. Los
   valores coinciden exactamente, así que no se ve nada mal — pero cambiar el
@@ -833,6 +833,28 @@ Toda decisión técnica que no se deduzca del código va acá, con fecha y motiv
 Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
+
+**El comentario de una TABLA no existía, y el del ítem del plan tampoco era
+cierto.** El plan decía que faltaban los dos —tabla y columna— y el de columna
+estaba desde la iteración 6: el ítem se escribió antes y nadie lo tachó. El de
+tabla sí faltaba, y de una forma particular: `setTableComment` existía en el
+changeset, se renderizaba bien, tenía etiqueta en la pantalla de pendientes y
+badge en el panel del ERD —y **nada lo producía nunca**. Media operación
+completa en el modelo, sin ninguna forma de llegar a ella.
+
+Con eso se puede comprobar desde la aplicación lo que el plan quería: un
+comentario con una comilla simple adentro sale como `… IS 'O''Brien'` en la
+vista previa y vuelve del catálogo como `O'Brien`. El citado se prueba con el
+caso que lo rompe, no con uno que no lo ejercita.
+
+**Los tokens de color del ERD ahora se llaman como lo que significan.** La clave
+primaria se pintaba con `--env-stage` —el color de un entorno de STAGING— y la
+foránea con `--accent`. Los valores coinciden, así que no se veía nada mal; lo
+que estaba mal es que cambiar el color de una clave exigía saber esa
+coincidencia, y hacerlo habría cambiado de paso la insignia de las conexiones de
+staging y el resaltado de la selección. Son ALIAS —`--erd-pk: var(--env-stage)`—
+así que nada cambia de aspecto y siguen al tema solos, sin redefinirse en el
+bloque claro.
 
 **S21: el historial y las consultas guardadas son DOS cosas con dos dueños, y
 por eso viven en dos archivos.** El historial es de esta máquina —qué corriste

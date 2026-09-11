@@ -15,7 +15,7 @@ import type {
   TableDetail,
   Trigger,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
-import { ContextMenu, Glyph, Spinner } from "../components/ui";
+import { Button, ContextMenu, Dialog, Glyph, Spinner, Textarea } from "../components/ui";
 import { columnasElegibles, tablasElegibles, sinPendientes } from "../lib/pendientesDeTabla";
 import type { PendientesDeTabla } from "../lib/pendientesDeTabla";
 import type { MenuAnchor, MenuEntry } from "../components/ui";
@@ -190,6 +190,12 @@ function Columnas({
     col?: DetailColumn;
   } | null>(null);
   const comentarios = soportaComentarios(engine);
+  // El comentario de la TABLA. Ya se podía comentar una columna, y
+  // `setTableComment` existía en el changeset y se aplicaba bien: lo único que
+  // faltaba era la forma de crearlo. Sin él, la mitad de la operación existía
+  // en el modelo y en la pantalla de pendientes pero nada la producía nunca.
+  const [comentandoTabla, setComentandoTabla] = useState(false);
+  const [textoComentario, setTextoComentario] = useState("");
 
   // Todo cambio lleva de dónde salió: la pantalla de pendientes lo muestra para
   // poder volver al lugar donde se hizo la edición.
@@ -373,6 +379,24 @@ function Columnas({
         >
           Agregar una columna
         </button>
+        <button
+          type="button"
+          className={styles.accion}
+          disabled={readOnly || !comentarios}
+          title={
+            !comentarios
+              ? `${nombreDeMotor(engine)} no guarda comentarios`
+              : readOnly
+                ? "La conexión es de solo lectura"
+                : undefined
+          }
+          onClick={() => {
+            setTextoComentario(detail.comment ?? "");
+            setComentandoTabla(true);
+          }}
+        >
+          {detail.comment ? "Cambiar el comentario de la tabla…" : "Comentar la tabla…"}
+        </button>
         <span className={styles.pieNota}>
           Clic derecho sobre una columna para el resto. Nada toca la base hasta que se aplique.
         </span>
@@ -383,6 +407,42 @@ function Columnas({
         entries={menu ? entradas(menu.col) : []}
         onClose={() => setMenu(null)}
       />
+
+      <Dialog
+        open={comentandoTabla}
+        title={`Comentario de ${detail.name}`}
+        onClose={() => setComentandoTabla(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setComentandoTabla(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setComentandoTabla(false);
+                onStage(base({ type: OpType.SetTableComment, comment: textoComentario.trim() }));
+              }}
+            >
+              Preparar el cambio
+            </Button>
+          </>
+        }
+      >
+        {/* Vacío BORRA el comentario, y se dice: es lo que significa `COMMENT ON
+            … IS NULL`, y alguien que limpia el campo para «dejarlo como estaba»
+            estaría haciendo lo contrario de lo que cree. */}
+        <p className={styles.pieNota}>
+          Dejarlo vacío borra el comentario que tenga. Nada toca la base hasta que se aplique.
+        </p>
+        <Textarea
+          value={textoComentario}
+          onChange={(e) => setTextoComentario(e.target.value)}
+          rows={4}
+          aria-label="Comentario de la tabla"
+          autoFocus
+        />
+      </Dialog>
 
       {editor ? (
         <ColumnEditor

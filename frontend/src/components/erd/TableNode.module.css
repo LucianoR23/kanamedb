@@ -72,11 +72,11 @@
 }
 
 .pk {
-  color: var(--env-stage);
+  color: var(--erd-pk);
 }
 
 .fk {
-  color: var(--accent);
+  color: var(--erd-fk);
 }
 
 .col {

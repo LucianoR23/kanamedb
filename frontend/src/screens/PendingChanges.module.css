@@ -147,9 +147,11 @@
   border-radius: 2px;
   font: 600 9.5px var(--font-mono);
 }
-.op_CREATE { background: var(--success-quiet); color: var(--success); }
+/* Semánticos: lo que CREA y lo que BORRA esquema. Ver los alias en
+   tokens.css — el color es el mismo, el nombre dice qué significa. */
+.op_CREATE { background: var(--success-quiet); color: var(--schema-add); }
 .op_ALTER { background: var(--accent-quiet); color: var(--accent); }
-.op_DROP { background: var(--danger-quiet); color: var(--danger); }
+.op_DROP { background: var(--danger-quiet); color: var(--schema-drop); }
 .op_INSERT { background: var(--success-quiet); color: var(--success); }
 .op_UPDATE { background: var(--warning-quiet); color: var(--warning); }
 .op_DELETE { background: var(--danger-quiet); color: var(--danger); }

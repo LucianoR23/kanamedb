@@ -176,10 +176,10 @@
 /* PK y FK se distinguen del tipo con color, como en el diseño: la clave importa
    más que el tipo cuando se busca por dónde se une una tabla con otra. */
 .tag_pk {
-  color: var(--env-stage);
+  color: var(--erd-pk);
 }
 .tag_fk {
-  color: var(--accent);
+  color: var(--erd-fk);
 }
 
 /* ---- Modo edición (S10) ------------------------------------------------ */

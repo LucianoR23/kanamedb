@@ -16,8 +16,8 @@
 }
 .headerCell:hover { background: var(--bg-hover); }
 .typeTag { flex: none; font: 700 8px var(--font-mono); color: var(--text-dim); }
-.tagPk { color: var(--env-stage); }
-.tagFk { color: var(--accent); }
+.tagPk { color: var(--erd-pk); }
+.tagFk { color: var(--erd-fk); }
 .colName { overflow: hidden; text-overflow: ellipsis; font: 500 11.5px var(--font-mono); color: var(--text-1); }
 .sort { flex: none; font-size: 8px; color: var(--accent); }
 

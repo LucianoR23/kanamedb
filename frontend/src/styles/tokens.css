@@ -42,6 +42,20 @@
   --env-prod:      #f0554b;
 
   /* semánticas */
+  /* Semánticos del esquema. Son ALIAS y no colores nuevos: los valores son
+     exactamente los de abajo, así que nada cambia de aspecto. Lo que cambia es
+     poder tocarlos: hasta ahora la clave primaria se pintaba con el color de un
+     entorno de STAGING y la foránea con el acento de la aplicación, y cambiar
+     cualquiera de los dos exigía saber esa coincidencia —y cambiaba de paso la
+     insignia de las conexiones de staging o el resaltado de la selección—.
+
+     Al ser `var()` de otro token, siguen al tema solo: no hace falta
+     redefinirlos en el bloque claro. */
+  --erd-pk:        var(--env-stage);
+  --erd-fk:        var(--accent);
+  --schema-add:    var(--success);
+  --schema-drop:   var(--danger);
+
   --danger:        #f0554b;
   --danger-hover:  #ff6a60;
   --danger-quiet:  rgba(240,85,75,.14);
