@@ -113,6 +113,11 @@ interface Props {
   onDuplicate: (id: string) => void;
   /** Cambia la carpeta de una conexión. Vacío la saca de la que tenga. */
   onMoveToFolder: (id: string, folder: string) => void;
+  /** Exporta esas conexiones a un archivo para compartir, sin secretos.
+   *  `sugerido` es el nombre de archivo que propone el selector. */
+  onExport: (ids: string[], sugerido: string) => void;
+  /** Importa conexiones de un archivo compartido. */
+  onImport: () => void;
   onDelete: (id: string) => void;
   onAbout: () => void;
   onSettings: () => void;
@@ -131,6 +136,8 @@ export function ConnectionManager({
   onConnect,
   onDuplicate,
   onMoveToFolder,
+  onExport,
+  onImport,
   onDelete,
   onAbout,
   onSettings,
@@ -143,6 +150,10 @@ export function ConnectionManager({
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  // El menú de una cabecera de carpeta: dónde y de cuál.
+  const [menuCarpeta, setMenuCarpeta] = useState<{ anchor: MenuAnchor; carpeta: string } | null>(
+    null,
+  );
   const [confirmDelete, setConfirmDelete] = useState<ConnectionView | null>(null);
   const [plegadas, setPlegadas] = useState<ReadonlySet<string>>(leerPlegadas);
   // «Nueva carpeta…» desde el menú: a qué conexión se le pone, y el nombre.
@@ -251,6 +262,11 @@ export function ConnectionManager({
           onSelect: () => void navigator.clipboard.writeText(selected.uri),
         },
         {
+          id: "export",
+          label: "Exportar para compartir…",
+          onSelect: () => onExport([selected.connection.id], selected.connection.name),
+        },
+        {
           id: "compare",
           label: "Comparar contra otra…",
           // Con una sola conexión no hay «otra»: la pantalla solo podría decir
@@ -269,6 +285,28 @@ export function ConnectionManager({
       ]
     : [];
 
+  /** El menú de una carpeta: exportarla, y plegarla o desplegarla.
+   *
+   *  Se exporta lo que la carpeta MUESTRA: con un filtro puesto, la cabecera
+   *  dice cuántas hay a la vista, y el archivo lleva esas mismas. */
+  function entradasDeCarpeta(carpeta: string): MenuEntry[] {
+    const ids = visibles
+      .filter((c) => c.connection.folder === carpeta)
+      .map((c) => c.connection.id);
+    return [
+      {
+        id: "folder:export",
+        label: `Exportar carpeta… (${ids.length})`,
+        onSelect: () => onExport(ids, carpeta),
+      },
+      {
+        id: "folder:fold",
+        label: plegadas.has(carpeta) ? "Desplegar" : "Plegar",
+        onSelect: () => plegar(carpeta),
+      },
+    ];
+  }
+
   return (
     <div className={styles.screen}>
       <header className={styles.titlebar}>
@@ -285,6 +323,9 @@ export function ConnectionManager({
             Comparar esquemas…
           </Button>
         ) : null}
+        <Button size="sm" onClick={onImport}>
+          Importar…
+        </Button>
         <Button size="sm" onClick={onOpenFile}>
           Abrir archivo SQLite…
         </Button>
@@ -339,26 +380,48 @@ export function ConnectionManager({
                 return (
                   <div key={g.carpeta} className={styles.group}>
                     {conCabeceras ? (
-                      <button
-                        type="button"
+                      <div
                         className={styles.groupHead}
-                        aria-expanded={!plegada}
-                        onClick={() => plegar(g.carpeta)}
+                        onContextMenu={(e) => {
+                          if (g.carpeta === SIN_CARPETA) return;
+                          e.preventDefault();
+                          setMenuCarpeta({ anchor: { x: e.clientX, y: e.clientY }, carpeta: g.carpeta });
+                        }}
                       >
-                        <span className={styles.groupChevron} aria-hidden="true">
-                          {plegada ? "▸" : "▾"}
-                        </span>
-                        <span
-                          className={cx(
-                            styles.groupLabel,
-                            g.carpeta === SIN_CARPETA && styles.groupLabelDim,
-                          )}
+                        <button
+                          type="button"
+                          className={styles.groupToggle}
+                          aria-expanded={!plegada}
+                          onClick={() => plegar(g.carpeta)}
                         >
-                          {rotulo}
-                        </span>
-                        <span className={styles.groupRule} />
-                        <span className={styles.groupCount}>{g.filas.length}</span>
-                      </button>
+                          <span className={styles.groupChevron} aria-hidden="true">
+                            {plegada ? "▸" : "▾"}
+                          </span>
+                          <span
+                            className={cx(
+                              styles.groupLabel,
+                              g.carpeta === SIN_CARPETA && styles.groupLabelDim,
+                            )}
+                          >
+                            {rotulo}
+                          </span>
+                          <span className={styles.groupRule} />
+                          <span className={styles.groupCount}>{g.filas.length}</span>
+                        </button>
+                        {g.carpeta !== SIN_CARPETA ? (
+                          <button
+                            type="button"
+                            className={styles.groupMore}
+                            aria-label={`Acciones de la carpeta ${g.carpeta}`}
+                            onClick={(e) => {
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setMenuCarpeta({ anchor: { x: r.left, y: r.bottom + 2 }, carpeta: g.carpeta });
+                            }}
+                          >
+                            ⋯
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
                     {plegada
                       ? null
@@ -457,6 +520,11 @@ export function ConnectionManager({
       </footer>
 
       <ContextMenu anchor={menu} entries={menuEntries} onClose={() => setMenu(null)} />
+      <ContextMenu
+        anchor={menuCarpeta?.anchor ?? null}
+        entries={menuCarpeta ? entradasDeCarpeta(menuCarpeta.carpeta) : []}
+        onClose={() => setMenuCarpeta(null)}
+      />
 
       <Dialog
         open={confirmDelete !== null}

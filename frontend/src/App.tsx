@@ -3,12 +3,13 @@ import * as AppInfo from "../bindings/github.com/LucianoR23/kanamedb/internal/ap
 import * as Connections from "../bindings/github.com/LucianoR23/kanamedb/internal/service/connections";
 import * as SessionSvc from "../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { PasswordAction } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
-import type { ConnectionView } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
+import type { ConnectionView, ImportPreview } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { About } from "./screens/About";
 import { Settings } from "./screens/Settings";
 import { CompareScreen } from "./screens/CompareScreen";
 import { ConnectionEditor } from "./screens/ConnectionEditor";
 import { ConnectionManager } from "./screens/ConnectionManager";
+import { ImportConnectionsDialog } from "./screens/ImportConnectionsDialog";
 import { Shell } from "./screens/Shell";
 import { Welcome } from "./screens/Welcome";
 import { ConnectionError } from "./screens/ConnectionError";
@@ -20,6 +21,10 @@ import type { Inspection } from "../bindings/github.com/LucianoR23/kanamedb/inte
 import type { ConnectionFailure } from "./screens/ConnectionError";
 import { elegirArchivoSQLite } from "./lib/archivoSQLite";
 import { carpetasDe } from "./lib/carpetas";
+import { textoDe } from "./lib/dialogos";
+import { elegirDestinoLibreta, elegirLibreta, nombreDeArchivoCompartido } from "./lib/libreta";
+import { ToastStack } from "./components/ui";
+import type { ToastItem } from "./components/ui";
 import { cargar as cargarPreferencias } from "./lib/preferencias";
 import styles from "./App.module.css";
 
@@ -100,6 +105,84 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  // Un aviso de algo que salió bien: «exportadas en…», «se agregaron…». Es un
+  // toast y no el banner rojo porque no es un error, y no se va solo: quien lo
+  // lee decide cuándo.
+  const [aviso, setAviso] = useState<ToastItem | null>(null);
+
+  // La vista previa de un archivo compartido, esperando decisión.
+  const [importacion, setImportacion] = useState<{
+    preview: ImportPreview;
+    importing: boolean;
+    error: string | null;
+  } | null>(null);
+
+  /** Exporta conexiones a un archivo para compartir. Sin secretos: eso lo
+   *  garantiza Go, acá solo se elige adónde. */
+  async function exportarConexiones(ids: string[], sugerido: string) {
+    setError(null);
+    try {
+      const ruta = await elegirDestinoLibreta(nombreDeArchivoCompartido(sugerido));
+      if (!ruta) return;
+      const info = await Connections.ExportConnections(ids, ruta);
+      setAviso({
+        id: "export",
+        tone: "success",
+        title: `${info.count === 1 ? "Conexión exportada" : `${info.count} conexiones exportadas`} · sin contraseñas`,
+        detail: info.path,
+      });
+    } catch (err) {
+      setError(textoDe(err));
+    }
+  }
+
+  /** Elige un archivo compartido y muestra qué trae. Todavía no agrega nada. */
+  async function importarConexiones() {
+    setError(null);
+    try {
+      const ruta = await elegirLibreta();
+      if (!ruta) return;
+      const preview = await Connections.PreviewImport(ruta);
+      setImportacion({ preview, importing: false, error: null });
+    } catch (err) {
+      setError(textoDe(err));
+    }
+  }
+
+  async function confirmarImportacion(include: number[]) {
+    if (!importacion) return;
+    setImportacion({ ...importacion, importing: true, error: null });
+    let nuevas: ConnectionView[];
+    try {
+      nuevas =
+        (await Connections.ImportConnections(
+          importacion.preview.path,
+          importacion.preview.fingerprint,
+          include,
+        )) ?? [];
+    } catch (err) {
+      setImportacion({ ...importacion, importing: false, error: textoDe(err) });
+      return;
+    }
+    // Desde acá la libreta ya cambió: un fallo al releerla no puede devolver
+    // el diálogo con el botón habilitado, que importaría lo mismo otra vez.
+    setImportacion(null);
+    setError(null);
+    try {
+      await reload();
+    } catch (err) {
+      setError(textoDe(err));
+    }
+    setScreen("manager");
+    setAviso({
+      id: "import",
+      tone: "success",
+      title:
+        nuevas.length === 1 ? "Se agregó 1 conexión" : `Se agregaron ${nuevas.length} conexiones`,
+      detail: "Sin contraseña: se pide al conectar.",
+    });
   }
 
   // La verificación de la clave del bastión, esperando decisión.
@@ -348,12 +431,26 @@ export default function App() {
           }
           onDuplicate={(id) => void run(() => Connections.Duplicate(id))}
           onMoveToFolder={(id, folder) => void run(() => Connections.MoveToFolder(id, folder))}
+          onExport={(ids, sugerido) => void exportarConexiones(ids, sugerido)}
+          onImport={() => void importarConexiones()}
           onDelete={(id) => void run(() => Connections.Delete(id))}
           onAbout={() => abrirPantallaDeLaApp("about")}
           onSettings={() => abrirPantallaDeLaApp("settings")}
           onCompare={abrirComparacion}
         />
       )}
+
+      {importacion ? (
+        <ImportConnectionsDialog
+          preview={importacion.preview}
+          importing={importacion.importing}
+          error={importacion.error}
+          onCancel={() => setImportacion(null)}
+          onImport={(include) => void confirmarImportacion(include)}
+        />
+      ) : null}
+
+      {aviso ? <ToastStack toasts={[aviso]} onDismiss={() => setAviso(null)} /> : null}
 
       {editor ? (
         <ConnectionEditor

@@ -1,0 +1,42 @@
+/* Vista previa de un archivo compartido, antes de importar. */
+
+.cuerpo { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.origen { margin: 0; font: 400 11.5px/1.5 var(--font-ui); color: var(--text-3); word-break: break-all; }
+.ruta { font: 400 11.5px var(--font-mono); color: var(--text-2); user-select: text; }
+
+.lista { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.fila {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+.filaRota { border-color: var(--danger-border); background: var(--danger-quiet); }
+.nombre { font: 500 12.5px var(--font-ui); color: var(--text-1); }
+
+.detalle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-left: 19px; }
+.motor { font: 400 11.5px var(--font-ui); color: var(--text-2); }
+.describe { font: 400 11px var(--font-mono); color: var(--text-3); word-break: break-all; user-select: text; }
+
+.nota { margin: 0; padding-left: 19px; font: 400 11.5px/1.5 var(--font-ui); color: var(--text-3); }
+.problemas { margin: 0; padding-left: 35px; font: 400 11.5px/1.5 var(--font-ui); color: var(--danger); }
+
+.avisos {
+  margin: 0;
+  padding: 8px 12px 8px 26px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-md);
+  background: var(--warning-quiet);
+  font: 400 11.5px/1.5 var(--font-ui);
+  color: var(--text-2);
+}
+.avisos li + li { margin-top: 4px; }
+
+.pie { margin: 0; font: 400 11.5px/1.5 var(--font-ui); color: var(--text-3); text-wrap: pretty; }
+
+.grow { flex: 1; }
+.error { font: 400 11.5px/1.4 var(--font-ui); color: var(--danger); max-width: 60%; }

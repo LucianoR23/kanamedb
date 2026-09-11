@@ -120,6 +120,40 @@ func (s *Store) Add(c connection.Connection) error {
 	return s.write(f)
 }
 
+// AddAll agrega varias conexiones de una vez, o ninguna.
+//
+// Es lo que usa importar: agregar de a una y fallar en la cuarta dejaría tres
+// en la libreta y un error que dice que no se importó nada. Acá se validan
+// todas primero y se escribe el archivo una sola vez.
+func (s *Store) AddAll(conns []connection.Connection) error {
+	nuevas := make([]connection.Connection, 0, len(conns))
+	for _, c := range conns {
+		c = c.Normalize()
+		if err := c.Validate(); err != nil {
+			return fmt.Errorf("la conexión %q: %w", c.Name, err)
+		}
+		nuevas = append(nuevas, c)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.read()
+	if err != nil {
+		return err
+	}
+	vistos := make(map[string]bool, len(f.Connections)+len(nuevas))
+	for _, existing := range f.Connections {
+		vistos[existing.ID] = true
+	}
+	for _, c := range nuevas {
+		if vistos[c.ID] {
+			return fmt.Errorf("%w: %s", ErrDuplicateID, c.ID)
+		}
+		vistos[c.ID] = true
+	}
+	f.Connections = append(f.Connections, nuevas...)
+	return s.write(f)
+}
+
 // Update reemplaza una conexión existente, identificada por su ID.
 func (s *Store) Update(c connection.Connection) error {
 	c = c.Normalize()
@@ -219,9 +253,8 @@ func (s *Store) write(f *file) error {
 	buf.WriteString("# Conexiones de Kaname.\n")
 	buf.WriteString("# Este archivo NO contiene contraseñas: viven en el keychain del sistema.\n")
 	buf.WriteString("# Se puede editar a mano y sincronizar entre máquinas.\n\n")
-	enc := toml.NewEncoder(&buf)
-	if err := enc.Encode(f); err != nil {
-		return fmt.Errorf("serializar las conexiones: %w", err)
+	if err := codificar(&buf, f); err != nil {
+		return err
 	}
 
 	tmp, err := os.CreateTemp(dir, ".connections-*.toml")

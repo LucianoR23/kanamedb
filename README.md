@@ -10,8 +10,9 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > con verificación de la clave del host y sin abrir ningún puerto local. Guarda
 > la libreta de conexiones con los secretos en el keychain del sistema
 > operativo —agrupadas por carpeta: un proyecto, con su local, su dev y su
-> producción adentro—, y trae editor SQL con autocompletado, grilla con
-> paginado, estructura completa de cada tabla y diagrama ERD.
+> producción adentro— y las exporta e importa en ese mismo formato, sin
+> ningún secreto y con vista previa. Trae editor SQL con autocompletado,
+> grilla con paginado, estructura completa de cada tabla y diagrama ERD.
 >
 > **Edita el esquema y las filas.** Las ediciones se juntan en un changeset, se
 > muestran como SQL antes de tocar nada y se aplican en una transacción con

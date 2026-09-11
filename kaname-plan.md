@@ -671,12 +671,14 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   carpeta ▸» en el menú contextual y en el ⋯, que ofrece las existentes,
   «Sacar de…» y «Nueva carpeta…». Las cabeceras pliegan, y el plegado queda en
   esta máquina. Ver la § 6.
-- ⏳ **S02 Exportar e importar conexiones.** Mismo pedido. «Exportar para
+- ✅ **S02 Exportar e importar conexiones.** Mismo pedido. «Exportar para
   compartir…» en el ⋯ y en el menú contextual —un `.toml` con el formato de
-  la libreta, **sin ningún secreto**—, «Exportar carpeta…» sobre la cabecera
-  de una carpeta, e «Importar…» en la cabecera de la pantalla, donde el
-  diseño lo pone. Review `high`: lee archivos, y hay que probar que un secreto
-  no puede salir. Ver la § 6.
+  la libreta, **sin ningún secreto**—, «Exportar carpeta…» en el menú de la
+  cabecera de una carpeta (⋯ o clic derecho), e «Importar…» en la cabecera de
+  la pantalla, con vista previa: qué trae, qué está roto, qué ya se tiene, y
+  qué claves del archivo se ignoraron. Review `high`; el test que protege
+  guarda la contraseña y la frase de paso y exige que el archivo no las
+  contenga. Ver la § 6.
 - ⏳ **Automatizar los bumps de dependencias.** Hoy CI avisa qué se puede subir
   (job `deps`) pero alguien tiene que leerlo y actuar. Dependabot y Renovate
   abren PRs solos; son funciones de la plataforma, no telemetría de la app, así
@@ -1093,6 +1095,68 @@ mano:
   contraseña y TLS para un archivo SQLite. Ahora usa `nombreDeMotor` y para
   SQLite muestra el archivo. En la lista, SQLite muestra la ruta en vez de
   `:0` y no dice «sin clave», porque no tiene.
+
+**Exportar e importar, hechos: el codec vive en `store`, la importación es
+todo o nada, y lo que se agrega es lo que se vio.** Lo que fijó la
+implementación, además de la decisión de arriba:
+
+- **El formato es la libreta, y el codec está en `store`** (`Encode`,
+  `Decode`), no en el servicio: el paquete que escribe `connections.toml` es
+  el único que sabe cómo es un archivo de conexiones, y un export es ese mismo
+  cuerpo con otro encabezado. `Decode` no es `read`: no exige IDs ni que sean
+  únicos —al importar se reemplazan todos—, y no falla por una entrada rota,
+  porque la vista previa tiene que poder mostrarla con sus problemas. Un
+  archivo de más de un mega se rechaza **antes de leerlo** (`Stat`): lo eligió
+  una persona en un selector y puede ser cualquier cosa.
+- **Lo que el archivo trae y Kaname no lee, se dice.** `toml.MetaData.
+  Undecoded()` devuelve las claves ignoradas con su ruta
+  (`connection.password`, `connection.ssh.passphrase`), y la vista previa las
+  muestra; las que parecen un secreto llevan su frase propia: quien escribió
+  `password = "…"` a mano está esperando que se importe, y hay que decirle
+  que no y por qué antes de que se entere al conectar. El aviso no repite el
+  valor.
+- **Importar es todo o nada.** `store.AddAll` valida todas, revisa IDs contra
+  la libreta y dentro del lote, y escribe una sola vez: importar tres y fallar
+  en la cuarta no puede dejar tres. Cada conexión entra con un ID nuevo aunque
+  el archivo traiga uno —el ID es la clave del keychain, y heredarlo haría que
+  una importada tome la contraseña de otra que casualmente lo comparta—, la
+  carpeta se conserva, y la contraseña se pide al conectar.
+- **Lo que se agrega es lo que se vio.** La vista previa devuelve la huella
+  SHA-256 del contenido, e `ImportConnections` la exige de vuelta: si el
+  archivo cambió entre la vista previa y el clic, se pide volver a abrirlo.
+  Los IDs de la vista previa son índices del archivo, y la huella es lo que
+  los hace estables.
+- **La vista previa avisa qué ya se tiene.** Una candidata que apunta adonde
+  ya apunta una conexión propia —motor, host, puerto, base y usuario; para
+  SQLite, el archivo— sale destildada con el nombre de la que ya está, pero
+  elegible: importar el mismo archivo dos veces no duplica la libreta sin
+  avisar, y tampoco lo impide. Las rotas salen con sus problemas y no se
+  pueden tildar; el problema «sin id» no se muestra, porque al importar no
+  cuenta.
+- **Exportar no valida**: exporta lo que hay, rota o no. Quien importa ve el
+  problema en la vista previa, que es donde corresponde decidir. Los IDs
+  viajan en el archivo —son aleatorios y no dicen nada— para que pegado a
+  mano en `connections.toml` siga siendo una libreta válida.
+- **Exportar encima de la propia libreta se niega.** Lo encontró el review
+  `high`: el archivo exportado es una libreta válida, así que elegir
+  `connections.toml` en el selector la reemplazaría por el subconjunto y
+  dejaría las contraseñas de las demás huérfanas en el keychain, escribiendo
+  además por fuera del cerrojo del store. `ExportConnections` compara la ruta
+  limpia y, si los dos archivos existen, `os.SameFile` —en Windows la misma
+  ruta se escribe con mayúsculas o sin ellas—, con test. Del mismo review:
+  la importación relee la libreta fuera del `try` que importa —un fallo al
+  releer no puede devolver el diálogo con el botón habilitado, que
+  importaría lo mismo otra vez—, el diálogo no se cierra mientras importa, y
+  «Exportar carpeta…» exporta lo que la carpeta muestra, con el mismo número
+  que su cabecera.
+- **Los selectores nativos son la prueba manual del usuario.** El resto se
+  probó por CDP con un gancho temporal en `App.tsx`, quitado antes del
+  commit, que llamaba a los bindings con una ruta fija: vista previa con
+  cuatro casos (buena con carpeta, rota, producción con túnel, y `password` y
+  `passphrase` escritos a mano que salieron como avisos), importación de tres
+  con toast y carpeta, segunda vista previa del mismo archivo con las tres
+  marcadas «ya apunta ahí», y export por el gancho sin ningún secreto en el
+  archivo y con `key_path` adentro.
 
 ### Iteración 9 — 2026-09-10
 
