@@ -63,6 +63,15 @@ func correr(t *testing.T, nombre, dsn string) {
 		TipoTexto:      "varchar(64)",
 		TipoEntero:     "bigint",
 		TiposEsperados: []string{"varchar", "bigint"},
+		ConOtraContrasena: func(t *testing.T, password string) *engine.Failure {
+			t.Helper()
+			c, f := mysql.Open(context.Background(), strings.Replace(dsn, "kaname:kaname@", "kaname:"+password+"@", 1),
+				"base de pruebas", engine.OpenOptions{MaxConns: 1})
+			if c != nil {
+				c.Close()
+			}
+			return f
+		},
 	})
 }
 

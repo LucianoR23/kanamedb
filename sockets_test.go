@@ -58,16 +58,48 @@ func importsDe(f *ast.File) map[string]string {
 	return nombres
 }
 
+// archivosDelBinario son los .go que no son de test: los de la raíz —no solo
+// main.go, para que un `debug.go` al lado no quede sin mirar— y los de
+// internal/.
+func archivosDelBinario(t *testing.T) []string {
+	t.Helper()
+	raiz, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("listar la raíz: %v", err)
+	}
+	var rutas []string
+	for _, r := range raiz {
+		if !strings.HasSuffix(r, "_test.go") {
+			rutas = append(rutas, r)
+		}
+	}
+	err = filepath.WalkDir("internal", func(ruta string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(ruta, ".go") && !strings.HasSuffix(ruta, "_test.go") {
+			rutas = append(rutas, ruta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("recorrer internal/: %v", err)
+	}
+	// Sin esto, borrar los paquetes haría pasar los tests que usan la lista.
+	if len(rutas) < 20 {
+		t.Fatalf("se listaron %d archivos; el módulo tiene bastantes más", len(rutas))
+	}
+	return rutas
+}
+
 func TestNingunPaqueteAbreUnSocketNiIgnoraLaClaveDelHost(t *testing.T) {
 	fset := token.NewFileSet()
-	mirados := 0
 
 	revisar := func(ruta string) {
 		f, err := parser.ParseFile(fset, ruta, nil, 0)
 		if err != nil {
 			t.Fatalf("parsear %s: %v", ruta, err)
 		}
-		mirados++
 		imports := importsDe(f)
 		ast.Inspect(f, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
@@ -90,22 +122,8 @@ func TestNingunPaqueteAbreUnSocketNiIgnoraLaClaveDelHost(t *testing.T) {
 		})
 	}
 
-	revisar("main.go")
-	err := filepath.WalkDir("internal", func(ruta string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(ruta, ".go") && !strings.HasSuffix(ruta, "_test.go") {
-			revisar(ruta)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("recorrer internal/: %v", err)
-	}
-	// Sin esto, borrar los paquetes haría pasar el test.
-	if mirados < 20 {
-		t.Fatalf("se revisaron %d archivos; el módulo tiene bastantes más", mirados)
+	for _, ruta := range archivosDelBinario(t) {
+		revisar(ruta)
 	}
 }
 
@@ -119,7 +137,11 @@ func TestNingunPaqueteAbreUnSocketNiIgnoraLaClaveDelHost(t *testing.T) {
 // uno homónimo que cross-compila la app de escritorio dentro de una imagen, y
 // no levanta nada. El del modo servidor cae por el tag.
 func TestNingunTaskfileCompilaElModoServidor(t *testing.T) {
-	tags := regexp.MustCompile(`-tags[= ]+["']?([A-Za-z0-9_,{}. ]+)`)
+	// Todo lo que sigue a -tags en la línea. Los `{{…}}` del template se
+	// sacan antes de mirar, porque cortar en el primer `"` —que un
+	// `{{if eq .X "true"}}` tiene— dejaba el tag de después sin inspeccionar.
+	tags := regexp.MustCompile(`-tags[= ]+(.*)`)
+	plantillas := regexp.MustCompile(`\{\{[^}]*\}\}`)
 	tareas := regexp.MustCompile(`(?m)^\s{2}(build:server|run:server|run:docker):`)
 	// Solo los Taskfiles que el build usa: el de la raíz y los de build/. Un
 	// recorrido de todo el repo miraría también lo que no es del proyecto
@@ -145,13 +167,11 @@ func TestNingunTaskfileCompilaElModoServidor(t *testing.T) {
 			t.Errorf("%s define la tarea %s: el modo servidor no existe en este proyecto", ruta, m[1])
 		}
 		for _, m := range tags.FindAllStringSubmatch(string(datos), -1) {
+			valor := plantillas.ReplaceAllString(m[1], " ")
 			// Go acepta los tags separados por coma y, en la forma vieja,
 			// por espacio: `-tags "server production"` es un solo token si
-			// se corta solo por coma.
-			for _, tag := range strings.FieldsFunc(m[1], func(r rune) bool { return r == ',' || r == ' ' }) {
-				// `server{{if eq .DEV "true"}}…`: el tag termina donde
-				// empieza el template.
-				tag, _, _ = strings.Cut(tag, "{")
+			// se corta solo por coma. Las comillas se cortan igual.
+			for _, tag := range strings.FieldsFunc(valor, func(r rune) bool { return r == ',' || r == ' ' || r == '"' || r == '\'' }) {
 				if tag == "server" || tag == "mcp" {
 					t.Errorf("%s compila con -tags %s: eso levanta un listener de Wails", ruta, tag)
 				}

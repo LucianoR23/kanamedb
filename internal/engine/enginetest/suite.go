@@ -12,6 +12,7 @@ package enginetest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -42,6 +43,11 @@ type Fixture struct {
 	// aparte de los de arriba porque el catálogo lista el tipo sin modificador:
 	// se crea con `varchar(64)` y se ofrece `varchar`.
 	TiposEsperados []string
+
+	// ConOtraContrasena abre contra el MISMO servidor con la contraseña que
+	// recibe —incorrecta a propósito— y devuelve el fallo. nil cuando el motor
+	// no tiene contraseña, que es SQLite.
+	ConOtraContrasena func(t *testing.T, password string) *engine.Failure
 }
 
 // Correr ejecuta la batería completa.
@@ -63,6 +69,7 @@ func Correr(t *testing.T, f Fixture) {
 	t.Run("transacciones de datos", func(t *testing.T) { transacciones(t, f) })
 	t.Run("cambios de datos", func(t *testing.T) { cambiosDeDatos(t, f) })
 	t.Run("errores de sentencia", func(t *testing.T) { errores(t, f) })
+	t.Run("el fallo de autenticación no lleva la contraseña", func(t *testing.T) { credenciales(t, f) })
 	t.Run("ciclo aplicar y releer", func(t *testing.T) { cicloDDL(t, f) })
 	t.Run("las filas sobreviven al cambio de esquema", func(t *testing.T) { filasSobreviven(t, f) })
 }
@@ -618,6 +625,49 @@ func transacciones(t *testing.T, f Fixture) {
 	_ = tx.Rollback(ctx)
 	if v := unaCelda(t, c, fmt.Sprintf("SELECT nombre FROM %s WHERE id=1", nom)); v != "commiteado" {
 		t.Errorf("después del commit la fila dice %q", v)
+	}
+}
+
+// credenciales manda una contraseña incorrecta de verdad, por la red, y revisa
+// que el fallo que vuelve no la lleve: ni en el mensaje, ni en la sugerencia,
+// ni en el detalle que cita al motor, ni en el JSON que cruza el puente hacia
+// el frontend, que es lo que un ticket termina copiando.
+//
+// Es el caso que ningún test con errores fabricados cubre: acá el mensaje lo
+// escribe el driver y el servidor, y son ellos los que podrían citarla.
+func credenciales(t *testing.T, f Fixture) {
+	if f.ConOtraContrasena == nil {
+		t.Skip("este motor no tiene contraseña")
+	}
+	// Primero con la buena: si el servidor no está, esto saltea igual que los
+	// demás casos, y no se confunde «no hay servidor» con «rechazó la clave».
+	abrir(t, f)
+
+	const centinela = "zz-centinela-fuga-7e2a91"
+	fallo := f.ConOtraContrasena(t, centinela)
+	if fallo == nil {
+		t.Fatal("el servidor aceptó una contraseña incorrecta: el test no prueba nada")
+	}
+	if fallo.Kind != engine.FailureAuth {
+		t.Fatalf("el fallo es %q y no %q: %s — %s", fallo.Kind, engine.FailureAuth, fallo.Message, fallo.Detail)
+	}
+
+	js, err := json.Marshal(fallo)
+	if err != nil {
+		t.Fatalf("serializar el fallo: %v", err)
+	}
+	for nombre, texto := range map[string]string{
+		"Message": fallo.Message,
+		"Hint":    fallo.Hint,
+		"Detail":  fallo.Detail,
+		"%v":      fmt.Sprintf("%v", fallo),
+		"%+v":     fmt.Sprintf("%+v", fallo),
+		"%#v":     fmt.Sprintf("%#v", fallo),
+		"JSON":    string(js),
+	} {
+		if strings.Contains(texto, centinela) {
+			t.Errorf("%s lleva la contraseña: %s", nombre, strings.ReplaceAll(texto, centinela, "«la contraseña»"))
+		}
 	}
 }
 

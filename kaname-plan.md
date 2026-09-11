@@ -1493,6 +1493,55 @@ el script daba por bueno un binario que muere al arrancar, porque un proceso
 muerto no tiene sockets —ahora exige que siga vivo y que el árbol tenga los
 procesos de WebView2—. Cada uno verificado con su inyección.
 
+**Logs, errores y eventos sin credenciales: el inventario, con guardia.** Los
+dos ítems que quedaban del checklist. La revisión empezó por listar cada canal
+por el que algo sale de la aplicación y qué podría llevar; lo que sigue es esa
+tabla, con lo que la prueba.
+
+| Canal | Qué podría llevar | Cómo se sabe que no |
+|---|---|---|
+| Logs propios | Cualquier cosa | No hay: dos `log.Fatal` en `main.go` sobre el directorio de datos, y nada en `internal/`. `TestLaAplicacionNoLogueaNiEmiteEventos` prohíbe `log`, `log/slog`, `fmt.Print*` y `os.Stderr/Stdout` por ruta de import. |
+| Logger de Wails | **Los argumentos y el resultado de cada binding**: Wails loguea «Binding call complete: args=… result=…» en Debug —la contraseña de `SaveWithSSH`, las filas de cada consulta—. | En producción el logger es `io.Discard` (`logger_prod.go`). `TestMainNoConfiguraElLoggerDeWails` impide que `main.go` le dé un `Logger` o un `LogLevel`. |
+| Eventos al frontend | Lo que se empuje | No hay ninguno; el mismo test prohíbe `.Emit`/`.EmitEvent`. Lo que cruza el puente es un valor de retorno, revisado abajo. |
+| Fallo de conexión (`engine.Failure`, cruza como JSON) | La contraseña, si el driver o el servidor la citan | `engine.Redact` enmascara toda DSN con credenciales antes de armar el `Detail`. Y ahora la suite común tiene «el fallo de autenticación no lleva la contraseña»: manda una incorrecta **por la red**, exige `Kind == auth`, y revisa `Message`, `Hint`, `Detail`, `%v`, `%+v`, `%#v` y el JSON. Corrido contra Postgres, MySQL 9.7 y 8.4, MariaDB 12.3 y 10.11; SQLite lo saltea porque no tiene contraseña. |
+| Error del túnel | La contraseña del bastión o la frase de paso | `TestLosErroresDeAutenticacionNoLlevanElSecreto`: contraseña incorrecta contra el servidor y frase de paso incorrecta sobre una clave cifrada, las cuatro formas de convertir el error en texto. El contenido de la clave ya lo cubría `TestUnErrorDeClaveNoFiltraSuContenido`. |
+| Error de sentencia (UI) | Valores de fila: Postgres pone `Key (email)=(…)` en el DETAIL, MySQL `Duplicate entry '3'` | Llega a la pestaña Mensajes, que es donde corresponde: es lo que la persona acaba de escribir. Lo que importa es que no se **persista**: el historial guarda `Failed`, no el mensaje (comentario en `history.Entry`, con el motivo). |
+| Historial y consultas guardadas | Una contraseña escrita en la SQL | `LlevaSecreto` rechaza la forma; `TestLosSecretosVanAlKeychainYANingunArchivo` lo verifica byte a byte. |
+| `pg_dump` | La contraseña en la línea de comandos, que se ve en la lista de procesos | Va por `PGPASSWORD` en el entorno del proceso hijo, con `--no-password`; el comando que se copia no la lleva. Ya estaba así; verificado leyendo. |
+| Frontend | HTML inyectado con datos de la base; `console.*` con filas | `TestElFrontendNoInyectaHTMLNiEscribeEnLaConsola`: sin `dangerouslySetInnerHTML`, `innerHTML` ni `console.*` en `frontend/src`. |
+
+Tres cosas que salieron de hacer la tabla y no de suponerla. Una: lo del logger
+de Wails no estaba escrito en ningún lado, y es la fuga más fácil de meter
+—`LogLevel: slog.LevelDebug` «para ver qué pasa»— y la más difícil de ver
+después. Dos: `%v` y `%+v` de un `*engine.Failure` no filtran ni con la
+inyección, porque `Failure` implementa `error` y `fmt` imprime `Message`;
+`%#v` y el JSON sí, y son los que un ticket copia. Tres: el Failure de un
+`Kind` que no sea `auth` no prueba nada —un fallo de red tampoco lleva la
+contraseña—, por eso el caso exige el tipo. Cada guardia y cada caso se puso
+en rojo con su inyección: un `slog.Info` y un `.Emit` en un paquete,
+`LogLevel` en `main.go`, un `console.log` en el frontend, el DSN entero
+pegado al `Detail` de Postgres, la contraseña y la frase de paso en los dos
+errores del túnel.
+
+Review high, tres hallazgos, los tres huecos en los guardias: el valor de
+`-tags` se cortaba en la primera comilla, así que un
+`{{if eq .X "true"}}server{{end}}` escondía el tag —ahora se sacan los
+`{{…}}` y se mira hasta el fin de la línea—; los dos tests de código miraban
+`main.go` e `internal/` y un `debug.go` en la raíz quedaba afuera —ahora
+todos los `.go` de la raíz, con un helper compartido—; y el del logger de
+Wails solo veía la clave del literal, no `opts.LogLevel = …` después ni un
+literal armado en otro archivo de la raíz. Los tres verificados con su
+inyección.
+
+**La batería de los cuatro motores, con la evidencia que pedía el checklist.**
+Corrida acá el 2026-09-11 con los seis contenedores y
+`KANAME_REQUIRE_ENGINES=1 KANAME_REQUIRE_POSTGRES=1 KANAME_REQUIRE_SSH=1`:
+23 paquetes en verde, **1248 casos PASS, 0 FAIL, 4 SKIP**, los cuatro con su
+motivo escrito —columnas VIRTUAL de Postgres 18 contra un 14, un nombre de
+archivo con `?` que Windows no acepta, el agente SSH que no se puede levantar
+desde un test, y SQLite sin contraseña—. Es lo mismo que CI corre en cada push
+contra Postgres 18, 17, 16 y 14, y que estuvo verde en las corridas de hoy.
+
 **Automatizar los bumps de dependencias: postergado.** Decisión del usuario:
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
 `bumps-de-dependencias.md`, breve y con las siete reglas que la herramienta
@@ -5224,8 +5273,10 @@ público. Nada se marca por confianza, todo con evidencia.
       actual. Job `secretos` con `gitleaks git --log-opts=--all` y
       `.gitleaks.toml`, 2026-09-11: 146 commits limpios, con dos reglas
       propias para las DSN y los `password = "…"` que las de fábrica no ven.
-- [ ] Verificar que ningún log, mensaje de error ni evento hacia el frontend
-      contenga credenciales, connection strings ni valores de filas.
+- [x] Verificar que ningún log, mensaje de error ni evento hacia el frontend
+      contenga credenciales, connection strings ni valores de filas. Tabla de
+      canales en la iteración 9 («Logs, errores y eventos sin
+      credenciales»), con un test por canal, 2026-09-11.
 - [x] Confirmar que los secretos viven solo en el keychain y que el estado
       local —TOML y JSON; no hay SQLite de estado— y el archivo de config no
       tienen ninguno. `TestLosSecretosVanAlKeychainYANingunArchivo` y
@@ -5239,7 +5290,9 @@ público. Nada se marca por confianza, todo con evidencia.
       `InsecureIgnoreHostKey`. `TestElVerificadorSoloAceptaLaClaveQueSeAcepto`
       (seis casos) y la prohibición de `ssh.InsecureIgnoreHostKey` en
       `sockets_test.go`, 2026-09-11.
-- [ ] Tests de integración de los cuatro motores en verde.
+- [x] Tests de integración de los cuatro motores en verde. Batería completa
+      con los seis contenedores, 2026-09-11: 1248 PASS, 0 FAIL, 4 SKIP con
+      motivo; en CI, verde en cada push contra Postgres 18/17/16/14.
 - [x] Elegir y agregar la licencia. Apache 2.0, 2026-09-11.
 
 ---

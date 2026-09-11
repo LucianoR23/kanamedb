@@ -2,6 +2,8 @@ package postgres_test
 
 import (
 	"context"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/LucianoR23/kanamedb/internal/engine"
@@ -20,6 +22,15 @@ func TestSuiteDeMotor(t *testing.T) {
 		TipoTexto:      "text",
 		TipoEntero:     "bigint",
 		TiposEsperados: []string{"text", "bigint"},
+		ConOtraContrasena: func(t *testing.T, password string) *engine.Failure {
+			t.Helper()
+			dsn := strings.Replace(dsnPrueba, "kaname:kaname@", "kaname:"+url.PathEscape(password)+"@", 1)
+			c, f := postgres.Open(context.Background(), dsn, "base de pruebas", engine.OpenOptions{MaxConns: 1})
+			if c != nil {
+				c.Close()
+			}
+			return f
+		},
 	})
 }
 

@@ -362,8 +362,11 @@ Es lo mismo que corre CI en cada push.
 
 `go test .` —el paquete de la raíz— incluye además los tests estructurales:
 que ningún paquete abra un socket ni ignore la clave de un host SSH, que
-ningún Taskfile compile el modo servidor de Wails, que la versión sea la misma
-en todos lados. Para la parte que un test no puede ver —lo que el binario
+ningún Taskfile compile el modo servidor de Wails, que la aplicación no
+loguee ni emita eventos ni configure el logger de Wails —que en Debug escribe
+los argumentos de cada binding—, que el frontend no inyecte HTML ni escriba en
+la consola, que la versión sea la misma en todos lados. Para la parte que un
+test no puede ver —lo que el binario
 abre de verdad cuando corre, WebView2 incluido— está `scripts/sockets.ps1`:
 lanza `bin/kaname.exe`, espera, lista cada socket del árbol de procesos y
 falla si alguno escucha o si `kaname.exe` abrió alguno. Solo Windows por ahora.
