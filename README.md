@@ -27,7 +27,10 @@ Motores: **PostgreSQL** (principal), MySQL, MariaDB y SQLite.
 > afuera**: un export de esquema que se olvida de una vista se ve idéntico a uno
 > correcto, y esa es la diferencia entre un archivo que sirve y uno que engaña.
 > Para el volcado completo de PostgreSQL arma la línea de `pg_dump` y la corre
-> si la versión alcanza.
+> si la versión alcanza. **Compara dos conexiones** —dev contra producción—
+> y escribe la migración que alinearía la segunda: lee los dos catálogos, no
+> ejecuta nada, nunca genera un borrado, y dice con la misma claridad qué no
+> miró.
 > Ver [`kaname-plan.md`](kaname-plan.md) para el plan y el registro de decisiones.
 
 ---
@@ -197,6 +200,15 @@ probar «Abrir archivo SQLite…», que si no pide tener una a mano:
 sqlite3 kaname-demo.db < docker/demo-sqlite.sql
 # sin el cliente de sqlite3, Python lo trae:
 python -c "import sqlite3;sqlite3.connect('kaname-demo.db').executescript(open('docker/demo-sqlite.sql',encoding='utf-8').read())"
+```
+
+Para **comparar esquemas** hacen falta dos bases que difieran a propósito.
+`docker/demo-drift.sql` crea `drift_origen` y `drift_destino` en el mismo
+Postgres de pruebas, con la lista de lo que tiene que salir en el encabezado del
+archivo; después son dos conexiones y «Comparar esquemas…» en el gestor:
+
+```sh
+docker exec -i kaname-postgres-1 psql -U kaname -d kaname_test < docker/demo-drift.sql
 ```
 
 Adentro hay lo que conviene mirar en SQLite y no en los otros: una clave foránea

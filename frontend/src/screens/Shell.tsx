@@ -55,10 +55,13 @@ const NAV = [
 export function Shell({
   onOpenAbout,
   onOpenSettings,
+  onCompare,
   onDisconnect,
 }: {
   onOpenAbout: () => void;
   onOpenSettings: () => void;
+  /** S20: comparar esquemas, con la conexión abierta como origen. */
+  onCompare: (sourceId: string) => void;
   onDisconnect: () => void;
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
@@ -413,6 +416,14 @@ export function Shell({
         meta: `${pendientes}`, correr: openCambios,
       });
     }
+    // S20. Va en la paleta y no en el botón de desborde: es de la base, no de
+    // la aplicación. La conexión abierta queda como origen —lo que se quiere—
+    // y el destino se elige en la pantalla.
+    const origen = session.connectionId;
+    acciones.push({
+      id: "comparar", label: "Comparar esquemas…", kind: "schema",
+      meta: session.name, correr: () => onCompare(origen),
+    });
   }
   // Las dos de la aplicación van SIEMPRE, con o sin conexión: son justamente
   // las que uno busca cuando no se acuerda de dónde estaban.

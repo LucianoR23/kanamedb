@@ -33,6 +33,11 @@ type Session struct {
 	// comparte el lock con el resto del estado.
 	progreso      ApplyProgress
 	progresoDesde time.Time
+
+	// comparacion es la última comparación de esquemas (S20), de la que se
+	// genera la migración. Es independiente de `current`: comparar no necesita
+	// una sesión abierta y no la toca. Ver comparar.go.
+	comparacion *CompareResult
 }
 
 type openSession struct {

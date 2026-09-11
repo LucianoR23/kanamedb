@@ -195,8 +195,8 @@ func Comparar(origen, destino schema.Snapshot, opts Opciones) Resultado {
 				Clase:   ClaseEsquema,
 				Schema:  nombre,
 				Objeto:  nombre,
-				Resumen: fmt.Sprintf("el esquema no existe en el destino · %d tablas", len(so.Tables)),
-				Origen:  fmt.Sprintf("%d tablas, %d objetos", len(so.Tables), len(so.Objects)),
+				Resumen: "el esquema no existe en el destino · " + cuenta(len(so.Tables), "tabla", "tablas"),
+				Origen:  cuenta(len(so.Tables), "tabla", "tablas") + ", " + cuenta(len(so.Objects), "objeto", "objetos"),
 				Riesgo:  RiesgoBajo,
 				Nota: "Crear el esquema no está entre las operaciones que Kaname sabe " +
 					"escribir, así que tampoco se generan las tablas de adentro: " +
@@ -212,8 +212,8 @@ func Comparar(origen, destino schema.Snapshot, opts Opciones) Resultado {
 				Clase:        ClaseEsquema,
 				Schema:       nombre,
 				Objeto:       nombre,
-				Resumen:      fmt.Sprintf("el esquema existe solo en el destino · %d tablas", len(sd.Tables)),
-				Destino:      fmt.Sprintf("%d tablas, %d objetos", len(sd.Tables), len(sd.Objects)),
+				Resumen:      "el esquema existe solo en el destino · " + cuenta(len(sd.Tables), "tabla", "tablas"),
+				Destino:      cuenta(len(sd.Tables), "tabla", "tablas") + ", " + cuenta(len(sd.Objects), "objeto", "objetos"),
 				Riesgo:       RiesgoAlto,
 				Nota:         "Puede tener datos que no están en ningún otro lado.",
 				SinSentencia: "Borrar no se genera nunca.",
@@ -249,7 +249,7 @@ func compararEsquema(origen, destino schema.Schema, opts Opciones) []Diferencia 
 				Schema:       origen.Name,
 				Objeto:       nombre,
 				Resumen:      "la tabla existe solo en el destino",
-				Destino:      fmt.Sprintf("%d columnas", len(d.Columns)),
+				Destino:      cuenta(len(d.Columns), "columna", "columnas"),
 				Riesgo:       RiesgoAlto,
 				Nota:         "Puede tener filas. Borrarla las pierde, y desde acá no hay forma de saber cuántas son.",
 				SinSentencia: "Borrar no se genera nunca. Si de verdad querés soltarla, escribí el DROP en el editor.",
@@ -271,7 +271,7 @@ func tablaSoloEnOrigen(esquema string, t schema.Table, opts Opciones) Diferencia
 		Clase:   ClaseTabla,
 		Schema:  esquema,
 		Objeto:  t.Name,
-		Resumen: fmt.Sprintf("la tabla no existe en el destino · %d columnas", len(t.Columns)),
+		Resumen: "la tabla no existe en el destino · " + cuenta(len(t.Columns), "columna", "columnas"),
 		Origen:  resumenDeTabla(t),
 		Riesgo:  RiesgoBajo,
 		Nota:    "Tabla nueva: crearla no puede romper nada de lo que ya está.",
@@ -326,6 +326,21 @@ func tablaSoloEnOrigen(esquema string, t schema.Table, opts Opciones) Diferencia
 		d.Riesgo = RiesgoMedio
 		d.Nota += " Ojo: el catálogo dice QUÉ columnas tienen valor por defecto pero no CUÁL es, " +
 			"así que la tabla se crea sin ellos."
+	}
+
+	// Las claves foráneas de una tabla nueva tampoco viajan: el CREATE TABLE
+	// sale sin ellas y las claves solo se comparan entre tablas que están de
+	// los dos lados. No se pierden —la comparación siguiente, con la tabla ya
+	// creada, las reporta como «falta en el destino»— pero convergen en dos
+	// pasadas y no en una, y eso hay que decirlo: una tabla «igual» que se
+	// crea sin sus claves es otra diferencia escondida adentro de la
+	// corrección.
+	if len(t.ForeignKeys) > 0 {
+		d.Nota += " " + cuentaDe(len(t.ForeignKeys),
+			"Su clave foránea no va en este CREATE TABLE: aparece en la comparación siguiente, "+
+				"cuando la tabla exista de los dos lados.",
+			"Sus %d claves foráneas no van en este CREATE TABLE: aparecen en la comparación "+
+				"siguiente, cuando la tabla exista de los dos lados.")
 	}
 	return d
 }
@@ -825,4 +840,21 @@ func algunaTieneDefault(cs []schema.Column) bool {
 		}
 	}
 	return false
+}
+
+// cuenta escribe «1 tabla» o «3 tablas»: un «1 columnas» se lee como un error de
+// programa y hace dudar del resto del texto.
+func cuenta(n int, uno, varios string) string {
+	if n == 1 {
+		return "1 " + uno
+	}
+	return fmt.Sprintf("%d %s", n, varios)
+}
+
+// cuentaDe elige una frase entera según el número; la de varios lleva el %d.
+func cuentaDe(n int, una, varias string) string {
+	if n == 1 {
+		return una
+	}
+	return fmt.Sprintf(varias, n)
 }

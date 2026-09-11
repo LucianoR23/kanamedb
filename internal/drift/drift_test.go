@@ -685,3 +685,48 @@ func TestLaCuentaSeparaLosTresLados(t *testing.T) {
 		t.Errorf("cuenta = (%d, %d, %d), se esperaba (1, 1, 1)", soloOrigen, distintas, soloDestino)
 	}
 }
+
+// Las claves foráneas de una tabla nueva no viajan en su CREATE TABLE, y eso
+// se dice. No se pierden —la comparación siguiente las reporta— pero una tabla
+// «igual» creada sin sus claves es una diferencia escondida adentro de la
+// corrección, y callarla es lo que el paquete promete no hacer.
+func TestUnaTablaNuevaConForaneasAvisaQueSeCreaSinEllas(t *testing.T) {
+	fk := schema.ForeignKey{
+		Name: "libros_autor_fk", Schema: "public", Table: "libros",
+		Columns: []string{"autor_id"}, RefSchema: "public", RefTable: "autores",
+		RefColumns: []string{"id"},
+	}
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("autores", col("id", "bigint", false)),
+		{Name: "libros", Columns: []schema.Column{col("autor_id", "bigint", false)},
+			ForeignKeys: []schema.ForeignKey{fk}, RowEstimate: -1},
+	}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("autores", col("id", "bigint", false)),
+	}})
+
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	libros := buscar(t, r, "libros")
+	if libros.Cambio == nil || libros.Cambio.Type != change.CreateTable {
+		t.Fatalf("la tabla nueva no salió como createTable: %+v", libros)
+	}
+	if !strings.Contains(libros.Nota, "clave foránea no va") {
+		t.Errorf("la nota no avisa que la tabla se crea sin sus claves foráneas: %q", libros.Nota)
+	}
+	// Y la clave en sí NO se reporta aparte: no hay tabla del otro lado contra
+	// la que compararla todavía. Reportarla con un addForeignKey sobre una
+	// tabla que no existe sería una operación que el destino rechaza.
+	for _, d := range r.Diferencias {
+		if d.Clase == ClaseForanea {
+			t.Errorf("se reportó una clave foránea de una tabla que no existe en el destino: %+v", d)
+		}
+	}
+
+	// Una tabla nueva sin claves no lleva el aviso: sería ruido.
+	sin := Comparar(snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("autores", col("id", "bigint", false)),
+	}}), snap(schema.Schema{Name: "public"}), Opciones{MismoMotor: true})
+	if strings.Contains(buscar(t, sin, "autores").Nota, "foránea") {
+		t.Error("una tabla sin claves foráneas lleva el aviso igual")
+	}
+}

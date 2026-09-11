@@ -41,6 +41,8 @@ interface Props {
   onDelete: (id: string) => void;
   onAbout: () => void;
   onSettings: () => void;
+  /** S20: comparar esquemas. Con una conexión, esa queda como origen. */
+  onCompare: (sourceId: string | null) => void;
   /** Error de la última acción, si hubo. */
   error?: string | null;
 }
@@ -56,6 +58,7 @@ export function ConnectionManager({
   onDelete,
   onAbout,
   onSettings,
+  onCompare,
   error,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -108,6 +111,15 @@ export function ConnectionManager({
           label: "Copiar la URI",
           onSelect: () => void navigator.clipboard.writeText(selected.uri),
         },
+        {
+          id: "compare",
+          label: "Comparar contra otra…",
+          // Con una sola conexión no hay «otra»: la pantalla solo podría decir
+          // «son la misma». Mismo criterio que el botón de la barra.
+          disabled: connections.length < 2,
+          disabledReason: "hace falta otra conexión",
+          onSelect: () => onCompare(selected.connection.id),
+        },
         { kind: "separator", id: "s2" },
         {
           id: "delete",
@@ -127,6 +139,13 @@ export function ConnectionManager({
         <span className={styles.spacer} />
         {/* El atajo va antes y en secundario: abrir un archivo es lo rápido,
             pero crear una conexión sigue siendo lo que esta pantalla hace. */}
+        {/* S20. Con dos conexiones o más: comparar necesita dos, y un botón
+            que abre una pantalla para decir «no hay con qué» no ayuda. */}
+        {connections.length >= 2 ? (
+          <Button size="sm" onClick={() => onCompare(selected?.connection.id ?? null)}>
+            Comparar esquemas…
+          </Button>
+        ) : null}
         <Button size="sm" onClick={onOpenFile}>
           Abrir archivo SQLite…
         </Button>

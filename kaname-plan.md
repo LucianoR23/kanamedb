@@ -599,14 +599,19 @@ Historial, atajos, drift check, builds Linux/macOS, firma de código.
   dos guarda una sentencia con una contraseña escrita. El servicio quedó sin
   registrar en `main.go` y no se anotaba nada; ahora hay un test que compara la
   lista de servicios contra lo que el frontend importa. Ver el registro § 6.
-- ⏳ **S20 Schema drift** — **el contrato de Go está**, la pantalla no. El
-  artboard lo dice mejor que el nombre del ítem: no es «revisar una base», es
-  **comparar dos conexiones** —dev contra producción— y generar la SQL que
-  alinearía a la segunda. Hecho: `internal/drift` (la comparación, pura y
-  probada), `Session.Compare` (abre las dos, lee los catálogos y las cierra sin
-  tocar la que está abierta) y la extracción de `abrirConexion`, que es lo que
-  hace posible una segunda conexión. Falta la pantalla, el archivo `.sql` y
-  comparar índices y restricciones, que viven en el detalle por tabla.
+- ✅ **S20 Schema drift** — el artboard lo dice mejor que el nombre del ítem:
+  no es «revisar una base», es **comparar dos conexiones** —dev contra
+  producción— y generar la SQL que alinearía a la segunda. `internal/drift`
+  (la comparación, pura y probada), `Session.Compare` (abre las dos, lee los
+  catálogos, le pide al motor del DESTINO la sentencia de cada diferencia y
+  las cierra sin tocar la que está abierta), `Session.Migration` /
+  `SaveMigration` (el archivo `.sql`, desde la comparación en memoria y en un
+  orden que se puede correr) y la pantalla, que entra desde el gestor de
+  conexiones y desde la paleta con la conexión abierta como origen. Ver el
+  registro de la § 6 (2026-09-11). **Queda afuera y se dice en pantalla**:
+  índices y restricciones que no sean la clave primaria, que viven en el
+  detalle por tabla —una consulta por tabla— y el cuerpo de las vistas y
+  funciones, que se pide de a uno.
 
   **Atlas no hace falta acá tampoco**, y por el mismo motivo que en la
   iteración 5: la comparación emite `change.Change`, o sea las mismas diecisiete
@@ -916,6 +921,83 @@ sí, o alguien que la tenga, para probar lo que salió.
 con `govulncheck` y el job `deps` alcanza por un tiempo. El análisis quedó en
 `bumps-de-dependencias.md`, breve y con las siete reglas que la herramienta
 tiene que cumplir, para no rehacerlo cuando llegue el momento.
+
+**S20, la pantalla y el archivo: cinco decisiones y un bug que solo la prueba a
+mano encontró.**
+
+- **Las sentencias las escribe el motor del destino, al comparar.** La
+  comparación emite `change.Change`, que no es SQL; y `RenderDDL` es un método
+  de la conexión abierta porque SQLite necesita leer la tabla para
+  reconstruirla. Así que `Compare` deja el destino abierto hasta el final y
+  devuelve `Statements`, un mapa por ID de diferencia. Si el motor no supo
+  escribir una —no debería: la comparación solo emite lo que `Validate`
+  acepta—, la diferencia vuelve SIN operación y con el motivo, que es el
+  contrato del paquete. La pantalla no arma SQL ni la manda de vuelta.
+- **La migración sale de la comparación en memoria, no de la interfaz.**
+  `Compare` devuelve un ID; `Migration` y `SaveMigration` lo exigen y se
+  niegan si ya hubo otra comparación. Es lo que garantiza que el archivo dice
+  exactamente lo que la pantalla mostró, y de paso que ningún texto de la
+  interfaz termina en un archivo `.sql` con nombre de migración.
+- **El archivo va en orden ejecutable, no en el de la pantalla.** La lista se
+  ordena por esquema y nombre, que es cómo se lee; un archivo se corre, y ahí
+  una clave foránea hacia una tabla que se crea diez líneas más abajo falla.
+  Van por clase: tablas nuevas, columnas, claves foráneas, el resto, y al
+  final —como comentarios, con el motivo— las diferencias sin sentencia que se
+  eligió incluir. Un test manda los IDs al revés y exige el CREATE TABLE antes
+  del FOREIGN KEY.
+- **Nada corre desde esta pantalla, y por eso comparar contra producción no
+  pide confirmación.** Es texto: se guarda con el diálogo nativo del sistema
+  —prueba manual, como todo diálogo nativo— o se copia. El «Copiar» pide el
+  texto a Go y lo copia en el mismo clic, para que nunca se copie una
+  migración de antes de tocar una casilla.
+- **Entradas: el gestor de conexiones y la paleta, no el botón de desborde.**
+  El botón del gestor aparece con dos conexiones o más; el menú contextual
+  ofrece «Comparar contra otra…» con la fila como origen; desde el workspace
+  la paleta la abre con la conexión abierta como origen, encima del Shell y
+  no en su lugar, como Ajustes. El desborde es de la aplicación, no de la
+  base, y ahí no va.
+
+**El bug: las vistas y funciones no se comparaban, y la pantalla decía que sí.**
+`Introspect` no trae los objetos que no son tablas —los pega la sesión después,
+con `conObjetos`— y la primera versión de `Compare` no lo llamaba. La lista de
+«no comparado» afirmaba que se comparaban «por nombre» mientras una vista que
+faltaba en el destino no aparecía. Lo encontró la prueba a mano con
+`docker/demo-drift.sql`, que tiene una vista justamente para eso; los tests de
+Go con dos SQLite lo cubren ahora, y si un lado no puede listar sus objetos, la
+comparación lo dice en vez de comparar contra una lista vacía. Del mismo pase:
+la nota de una tabla nueva avisa que sus claves foráneas no van en el CREATE
+TABLE —aparecen en la comparación siguiente— y «1 columnas» dejó de existir.
+
+**El review encontró que el archivo no se podía correr entero, dos veces, y las
+dos en SQLite.** Las sentencias son correctas de a una; lo que fallaba era
+juntarlas en un archivo.
+
+- **Una reconstrucción de tabla se escribe desde la definición que hay AHORA.**
+  Si en el archivo la precede otra sentencia sobre la misma tabla, la
+  reconstrucción no la conoce: un `ADD COLUMN email` seguido del rebuild de un
+  `SET NOT NULL` crea la copia sin `email`, la llena sin `email` y tira la
+  original. La columna desaparece sin un solo error. Regla: se recorre en el
+  orden del archivo y toda reconstrucción cuya tabla ya fue tocada se
+  convierte en una diferencia sin sentencia, con el motivo y el camino
+  —aplicar y volver a comparar—. La primera se queda: una sentencia común
+  DESPUÉS de una reconstrucción sí opera sobre la tabla ya reconstruida. El
+  fixture de los tests tiene el caso a propósito.
+- **Las sentencias peladas no son las que corre la aplicación.** Al aplicar,
+  `Begin` apaga las claves foráneas ANTES del BEGIN y prende
+  `legacy_alter_table`; sin eso el DROP TABLE del rebuild dispara los
+  `ON DELETE CASCADE` de las tablas hijas y una vista hace fallar el RENAME.
+  Un archivo con solo las sentencias, corrido desde cualquier cliente con las
+  claves prendidas, borraba las filas hijas en silencio. El archivo lleva
+  ahora la misma envoltura que el apply, por motor: pragmas + `BEGIN`/`COMMIT`
+  con `foreign_key_check` antes del `COMMIT` en SQLite; `BEGIN`/`COMMIT` en
+  Postgres; y en MySQL/MariaDB **nada**, con el aviso de que cada DDL confirma
+  solo —escribir una transacción ahí prometería un «todo o nada» que el motor
+  no cumple, que es la lección de la iteración 6—. Y el archivo pide correrse
+  con una herramienta que pare en el primer error: la transacción solo
+  revierte si el error corta la corrida.
+- Y una de orden: la clave primaria va con las columnas, antes que las
+  foráneas. Una foránea hacia una tabla que recién recibe su primaria en la
+  misma migración falla en Postgres y MySQL.
 
 ### Iteración 9 — 2026-09-10
 

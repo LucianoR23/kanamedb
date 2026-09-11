@@ -6,6 +6,7 @@ import { PasswordAction } from "../bindings/github.com/LucianoR23/kanamedb/inter
 import type { ConnectionView } from "../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { About } from "./screens/About";
 import { Settings } from "./screens/Settings";
+import { CompareScreen } from "./screens/CompareScreen";
 import { ConnectionEditor } from "./screens/ConnectionEditor";
 import { ConnectionManager } from "./screens/ConnectionManager";
 import { Shell } from "./screens/Shell";
@@ -21,7 +22,7 @@ import { elegirArchivoSQLite } from "./lib/archivoSQLite";
 import { cargar as cargarPreferencias } from "./lib/preferencias";
 import styles from "./App.module.css";
 
-type Screen = "loading" | "welcome" | "manager" | "shell" | "about" | "settings";
+type Screen = "loading" | "welcome" | "manager" | "shell" | "about" | "settings" | "compare";
 
 interface EditorState {
   view: ConnectionView;
@@ -222,11 +223,19 @@ export default function App() {
    */
   const [desdeDonde, setDesdeDonde] = useState<"welcome" | "manager" | "shell">("manager");
 
-  function abrirPantallaDeLaApp(cual: "about" | "settings") {
+  function abrirPantallaDeLaApp(cual: "about" | "settings" | "compare") {
     if (screen === "welcome" || screen === "manager" || screen === "shell") {
       setDesdeDonde(screen);
     }
     setScreen(cual);
+  }
+
+  // S20: la conexión que queda como origen al abrir la comparación, si hubo.
+  const [origenDeComparacion, setOrigenDeComparacion] = useState<string | null>(null);
+
+  function abrirComparacion(sourceId: string | null) {
+    setOrigenDeComparacion(sourceId);
+    abrirPantallaDeLaApp("compare");
   }
 
   function volver() {
@@ -256,7 +265,8 @@ export default function App() {
   // montado debajo. Ver App.module.css: reemplazarlo perdía las pestañas y el
   // texto sin guardar de cualquier editor, sin preguntar.
   const encimaDelShell =
-    desdeDonde === "shell" && (screen === "about" || screen === "settings");
+    desdeDonde === "shell" &&
+    (screen === "about" || screen === "settings" || screen === "compare");
 
   if (screen === "shell" || encimaDelShell) {
     return (
@@ -267,12 +277,23 @@ export default function App() {
           <Shell
             onOpenAbout={() => abrirPantallaDeLaApp("about")}
             onOpenSettings={() => abrirPantallaDeLaApp("settings")}
+            onCompare={abrirComparacion}
             onDisconnect={() => setScreen(connections.length === 0 ? "welcome" : "manager")}
           />
         </div>
         {encimaDelShell ? (
           <div className={styles.overlay} data-overlay-app="">
-            {screen === "about" ? <About onBack={volver} /> : <Settings onBack={volver} />}
+            {screen === "about" ? (
+              <About onBack={volver} />
+            ) : screen === "settings" ? (
+              <Settings onBack={volver} />
+            ) : (
+              <CompareScreen
+                connections={connections}
+                initialSourceId={origenDeComparacion ?? undefined}
+                onBack={volver}
+              />
+            )}
           </div>
         ) : null}
       </>
@@ -285,6 +306,16 @@ export default function App() {
 
   if (screen === "settings") {
     return <Settings onBack={volver} />;
+  }
+
+  if (screen === "compare") {
+    return (
+      <CompareScreen
+        connections={connections}
+        initialSourceId={origenDeComparacion ?? undefined}
+        onBack={volver}
+      />
+    );
   }
 
   return (
@@ -318,6 +349,7 @@ export default function App() {
           onDelete={(id) => void run(() => Connections.Delete(id))}
           onAbout={() => abrirPantallaDeLaApp("about")}
           onSettings={() => abrirPantallaDeLaApp("settings")}
+          onCompare={abrirComparacion}
         />
       )}
 
