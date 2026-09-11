@@ -178,8 +178,15 @@ func (q *Queries) anotar(conn, sql string, lote *query.Batch, f *engine.Failure)
 		}
 	}
 	if f != nil {
+		// Se anota QUE falló y no QUÉ dijo el motor.
+		//
+		// El mensaje de un fallo de datos lleva valores de fila adentro: un
+		// `unique_violation` de Postgres se traduce a «Ya hay filas con (email)
+		// = (ana@example.com) repetido». Guardarlo dejaba un pedazo de los datos
+		// del servidor en un archivo de texto de esta máquina, sin su control de
+		// acceso. El detalle del fallo ya está en la pestaña Mensajes del
+		// editor, que es donde hace falta.
 		e.Failed = true
-		e.Error = f.Message
 	}
 	_, _ = q.historial.Add(e)
 }

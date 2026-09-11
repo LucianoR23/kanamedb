@@ -136,6 +136,56 @@ export function Toggle({
   );
 }
 
+/**
+ * Elegir UNA cosa entre pocas, todas a la vista.
+ *
+ * Existe porque faltaba y se estaba usando `<input type="radio">` crudo, que es
+ * justo lo que CLAUDE.md prohíbe: el nativo se pinta con los colores del sistema
+ * operativo, así que ignora el tema y los acentos de entorno — en el tema claro
+ * queda un círculo azul de Windows adentro de una paleta que no es ésa.
+ *
+ * Va con `role="radiogroup"` y botones de verdad, no con `<label>` alrededor de
+ * un input escondido: así las flechas del teclado las maneja el navegador sobre
+ * elementos enfocables reales y el estado vive en `aria-checked`, que es lo que
+ * lee un lector de pantalla.
+ *
+ * Para más de cinco o seis opciones está `Combobox`: una lista larga de radios
+ * es una lista que nadie lee.
+ */
+export function RadioGroup<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  disabled = false,
+}: {
+  value: T;
+  onChange: (next: T) => void;
+  options: readonly { readonly value: T; readonly label: string }[];
+  /** Qué se está eligiendo. No se dibuja: lo anuncia el lector de pantalla. */
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className={styles.radios}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          disabled={disabled}
+          className={styles.radio}
+          onClick={() => onChange(o.value)}
+        >
+          <span className={styles.punto} aria-hidden="true" />
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Checkbox({
   checked,
   onChange,

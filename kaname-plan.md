@@ -837,6 +837,68 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-10
 
+**El historial guardaba valores de fila, y nadie los había puesto ahí a
+propósito.** Lo encontró el `/code-review high`. `anotar` escribía
+`e.Error = f.Message`, y el mensaje de un fallo de DATOS no es genérico: el
+traductor de errores de Postgres arma «Ya hay filas con (email) =
+(ana@example.com) repetido» a partir del `Detail` del `unique_violation`. O sea
+que cualquier INSERT que chocara contra un índice único dejaba el valor de la
+fila en un archivo de texto del directorio de estado — sin el control de acceso
+de la base, sin su cifrado, y contra lo que CLAUDE.md dice y contra lo que el
+propio encabezado del paquete promete.
+
+Se anota QUE falló y no QUÉ dijo el motor. El detalle está en la pestaña
+Mensajes del editor, que es donde hace falta: en la corrida, no en el registro.
+El test no comprueba que el campo esté vacío —comprueba que el valor no esté en
+el ARCHIVO—, y por eso agarra también la inyección que lo mete por otro campo.
+
+Del mismo review, seis cosas más de esta iteración:
+
+- **El «+» de la tira de pestañas reventaba la consulta nueva.** `onNew={openQuery}`
+  compila —`(sql?: string) => void` es asignable a `() => void`, y está bien que
+  lo sea— y en ejecución React le pasa el evento del mouse como `sql`. El objeto
+  terminaba en `sqlInicial`, el editor hacía `.trim()` sobre él y la pestaña se
+  caía al dibujarse. El botón de la barra ya estaba envuelto en una flecha; éste
+  no. TypeScript no puede cazarlo: la regla que lo permite es la correcta.
+- **`SchemaTree.tsx` era un archivo binario para git.** Tenía un byte NUL
+  escrito literal como separador de clave. Con eso, git no lo muestra en
+  `git diff` ni lo pasa por `blame` —la pantalla del árbol era invisible para
+  cualquier revisión— y además se saltea la normalización de `.gitattributes`,
+  así que era el único archivo del proyecto guardado con CRLF. Ahora va como
+  escape.
+- **La escritura del historial prometía una atomicidad que no daba.** El
+  comentario decía «un corte a mitad de escritura no puede dejar medio archivo»
+  y usaba `os.WriteFile` + `os.Rename` sin `Sync`, así que el rename podía
+  publicar contenido que seguía en el caché. Y el temporal era un `ruta + ".tmp"`
+  fijo: el mutex ordena las escrituras de ESTE proceso, y dos Kaname contra el
+  mismo `%APPDATA%` compartían ese nombre. Ahora hace lo mismo que la libreta de
+  conexiones y los diagramas.
+- **Sin conexión abierta, el historial se pedía entero.** `conexion()` devuelve
+  `""` y `history.Store.List("")` significa «sin filtro» —lo usa el borrado total
+  de los ajustes—, así que los dos vacíos querían decir cosas opuestas. La
+  pantalla no lo dibujaba, pero el historial de todas las conexiones cruzaba el
+  puente igual, que es justo lo que el comentario de `List` dice que no puede
+  pasar.
+- **Un archivo corrupto se perdía en la consulta siguiente.** El comentario
+  decía «queda en disco para que alguien lo mire» y la primera escritura lo
+  pisaba. Ahora se aparta con otro nombre, que es la única forma de que siga
+  estando cuando alguien lo busque.
+- **Dos IDs seguidos podían ser el mismo.** Eran `time.Now().UnixNano()` y el
+  reloj de Windows avanza de a ~15 ms. Para las guardadas es destructivo: `Save`
+  con un ID que ya existe REEMPLAZA la otra. El test que lo prueba genera IDs en
+  un bucle cerrado y no guarda dos consultas «seguidas»: entre una y otra hay una
+  escritura a disco, y para cuando vuelve el reloj ya avanzó — así que el test
+  por la puerta de adelante pasaría en esta máquina y fallaría en otra.
+
+Y **dos controles nativos** que no tendrían que haber entrado: el radio de los
+límites de Safety y la casilla de «Borrar y volver a crear» del editor de
+objetos. La regla de CLAUDE.md no es estética: el nativo se pinta con los colores
+del sistema operativo, así que ignora el tema y los acentos de entorno — y el
+tema claro de esta misma iteración los habría mostrado con el azul de Windows
+adentro de otra paleta. La casilla ya tenía su reemplazo (`Checkbox`); el radio
+no existía y ahora está en `components/ui`, que es donde la regla dice que se
+agrega lo que falta.
+
 **El historial estaba entero y no estaba enchufado.** `internal/history` con sus
 tests, el servicio, la pantalla, el filtro de secretos — y `main.go` nunca
 registró el servicio ni construyó el store. Consecuencia: `UsarHistorial` jamás

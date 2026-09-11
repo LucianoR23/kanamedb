@@ -6,7 +6,7 @@ import type { $Object as DBObject, Dependents, ObjectDefinition, Snapshot } from
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import { SqlEditor } from "../components/SqlEditor";
 import { EnumEditor } from "./EnumEditor";
-import { Badge, Button, CopyButton, Glyph, Spinner } from "../components/ui";
+import { Badge, Button, Checkbox, CopyButton, Glyph, Spinner } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import { useStage } from "../lib/useStage";
 import { glifoDe, nombreDeClase } from "../lib/objetos";
@@ -275,15 +275,15 @@ export function ObjectScreen({
             {/* El modo NO es un detalle técnico escondido: es la diferencia
                 entre no poder romper nada y poder perder el objeto, así que
                 está a la vista al lado del botón que lo usa. */}
-            <label className={styles.modo} title={explicarModo(def, recrear)}>
-              <input
-                type="checkbox"
+            <span className={styles.modo} title={explicarModo(def, recrear)}>
+              <Checkbox
                 checked={recrear}
                 disabled={!def?.replaceable || soloLectura}
-                onChange={(e) => setRecrear(e.target.checked)}
-              />
-              Borrar y volver a crear
-            </label>
+                onChange={setRecrear}
+              >
+                Borrar y volver a crear
+              </Checkbox>
+            </span>
             <span className={styles.modoNota}>{explicarModo(def, recrear)}</span>
             <span className={styles.spacer} />
             {sucio ? (

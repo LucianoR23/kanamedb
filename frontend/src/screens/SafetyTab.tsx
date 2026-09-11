@@ -1,5 +1,5 @@
 import type { Safety } from "../../bindings/github.com/LucianoR23/kanamedb/internal/connection";
-import { Field, Input, Toggle } from "../components/ui";
+import { Field, Input, RadioGroup, Toggle } from "../components/ui";
 import styles from "./SafetyTab.module.css";
 
 /**
@@ -127,6 +127,9 @@ export function SafetyTab({
   );
 }
 
+/** Los tres estados que puede tener un límite. Ver `Limite`. */
+type Modo = "default" | "fijo" | "sin";
+
 /**
  * Un límite con las TRES opciones que existen, en vez del número crudo.
  *
@@ -150,33 +153,22 @@ function Limite({
   onChange: (v: number) => void;
   ayuda: string;
 }) {
-  const modo = valor === 0 ? "default" : valor < 0 ? "sin" : "fijo";
+  const modo: Modo = valor === 0 ? "default" : valor < 0 ? "sin" : "fijo";
 
   return (
     <Field label={etiqueta}>
       <div className={styles.limite}>
         <p className={styles.ayuda}>{ayuda}</p>
-        <div className={styles.opciones}>
-          {(
-            [
-              ["default", `Por defecto (${porDefecto} ${unidad})`],
-              ["fijo", "Un valor"],
-              ["sin", "Sin límite"],
-            ] as const
-          ).map(([id, label]) => (
-            <label key={id} className={styles.opcion}>
-              <input
-                type="radio"
-                name={etiqueta}
-                checked={modo === id}
-                onChange={() =>
-                  onChange(id === "default" ? 0 : id === "sin" ? -1 : porDefecto)
-                }
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+        <RadioGroup
+          label={etiqueta}
+          value={modo}
+          onChange={(id) => onChange(id === "default" ? 0 : id === "sin" ? -1 : porDefecto)}
+          options={[
+            { value: "default", label: `Por defecto (${porDefecto} ${unidad})` },
+            { value: "fijo", label: "Un valor" },
+            { value: "sin", label: "Sin límite" },
+          ]}
+        />
         {modo === "fijo" ? (
           <Input
             type="number"

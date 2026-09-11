@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HistoryEntry, SavedQuery } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import * as HistorySvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/history";
-import { Button } from "../components/ui";
+import { Button, ConfirmDialog } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import styles from "./HistoryPanel.module.css";
 
@@ -34,6 +34,7 @@ export function HistoryPanel({
   const [guardadas, setGuardadas] = useState<SavedQuery[]>([]);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(true);
+  const [confirmando, setConfirmando] = useState(false);
 
   useEffect(() => {
     let vigente = true;
@@ -126,17 +127,39 @@ export function HistoryPanel({
       <div className={styles.cabecera}>
         <span className={styles.nota}>{entradas.length} en esta conexión</span>
         <span className={styles.spacer} />
-        <Button variant="ghost" size="sm" onClick={() => void borrarTodo()}>
+        {/* Pregunta antes, como cualquier otra cosa que borra en esta app.
+            Acá el historial es lo único que no se puede volver a generar: la
+            consulta que uno quiere recuperar es justamente la que no se acuerda
+            de haber escrito. */}
+        <Button variant="ghost" size="sm" onClick={() => setConfirmando(true)}>
           Borrar
         </Button>
       </div>
+      <ConfirmDialog
+        open={confirmando}
+        severidad="aviso"
+        title="Borrar el historial de esta conexión"
+        etiqueta="Borrar"
+        onClose={() => setConfirmando(false)}
+        onConfirm={() => {
+          setConfirmando(false);
+          void borrarTodo();
+        }}
+      >
+        Se van las {entradas.length} consultas que corriste contra esta conexión, y no hay
+        de dónde recuperarlas. Las que guardaste con nombre no se tocan: están en el otro
+        archivo, el que viaja con la libreta de conexiones.
+      </ConfirmDialog>
       {entradas.map((e) => (
         <button
           key={e.id}
           type="button"
           className={e.failed ? styles.filaFallada : styles.filaEntrada}
           onClick={() => onAbrir(e.sql)}
-          title={e.sql}
+          // La hora exacta va acá, con la consulta. El renglón dice «hace 3
+          // días» porque es lo que uno busca, pero después de un día eso deja de
+          // alcanzar y el dato tiene que estar en algún lado.
+          title={`${horaExacta(e.ranAt)}\n\n${e.sql}`}
         >
           <span className={styles.sql}>{unaLinea(e.sql)}</span>
           <span className={styles.meta}>
@@ -160,6 +183,13 @@ function unaLinea(sql: string): string {
     .map((l) => l.trim())
     .find((l) => l !== "" && !l.startsWith("--"));
   return linea ?? sql.trim().slice(0, 120);
+}
+
+/** La fecha y la hora completas, para el `title` del renglón. */
+function horaExacta(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "";
+  return t.toLocaleString();
 }
 
 /**

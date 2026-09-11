@@ -222,6 +222,75 @@ func TestUnArchivoCorruptoNoTiraLaAplicacion(t *testing.T) {
 	if _, err := s.Add(Entry{ConnectionID: "c1", SQL: "SELECT 1"}); err != nil {
 		t.Fatalf("Add() después del archivo roto: %v", err)
 	}
+
+	// Y el archivo roto SIGUE ESTANDO. Antes esto era una promesa del comentario
+	// y nada más: la app empezaba de cero en memoria y la primera consulta que
+	// se corriera después pisaba el archivo. La evidencia duraba hasta el
+	// siguiente Enter.
+	apartado, err := os.ReadFile(s.historial + ".corrupto")
+	if err != nil {
+		t.Fatalf("el archivo corrupto no quedó apartado: %v", err)
+	}
+	if string(apartado) != "{esto no es json" {
+		t.Errorf("lo apartado no es lo que estaba roto: %q", apartado)
+	}
+}
+
+// Dos IDs seguidos no se repiten aunque el reloj no haya avanzado.
+//
+// Se generan en un bucle cerrado a propósito. Guardar dos consultas «seguidas»
+// desde afuera no prueba nada: entre una y otra hay una escritura a disco, y
+// para cuando vuelve, el reloj ya avanzó — así que un `UnixNano` pelado pasaría
+// ese test en esta máquina y fallaría en otra. Acá no hay nada en el medio, y el
+// reloj de Windows avanza de a ~15 ms: con la hora sola, esto se repite seguro.
+func TestNuevoIDNoSeRepiteAunqueElRelojNoAvance(t *testing.T) {
+	vistos := make(map[string]bool, 20000)
+	for i := 0; i < 20000; i++ {
+		id := nuevoID()
+		if vistos[id] {
+			t.Fatalf("el ID %q salió dos veces en %d intentos", id, i+1)
+		}
+		vistos[id] = true
+	}
+}
+
+// Y la consecuencia de lo anterior, del lado de lo que se ve: guardar dos
+// consultas seguidas deja DOS. Con IDs repetidos, `Save` reemplazaba —el ID que
+// ya existe pisa— y `DeleteSaved` borraba las dos de una.
+func TestDosGuardadasSeguidasNoSePisan(t *testing.T) {
+	s := store(t)
+
+	primera, err := s.Save(Saved{Name: "una", SQL: "SELECT 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	segunda, err := s.Save(Saved{Name: "otra", SQL: "SELECT 2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primera.ID == segunda.ID {
+		t.Fatalf("las dos salieron con el ID %q", primera.ID)
+	}
+
+	guardadas, err := s.Saved("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guardadas) != 2 {
+		t.Fatalf("quedaron %d consultas guardadas, se esperaban 2: una pisó a la otra", len(guardadas))
+	}
+
+	// Y borrar una deja la otra.
+	if err := s.DeleteSaved(primera.ID); err != nil {
+		t.Fatal(err)
+	}
+	quedan, err := s.Saved("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quedan) != 1 || quedan[0].Name != "otra" {
+		t.Errorf("después de borrar una quedaron %d: %+v", len(quedan), quedan)
+	}
 }
 
 // TestLasGuardadasPonenPrimeroLasDeEstaConexion, sin esconder las otras: una

@@ -35,7 +35,6 @@ type HistoryEntry struct {
 	ElapsedMs int64  `json:"elapsedMs"`
 	Rows      int64  `json:"rows"`
 	Failed    bool   `json:"failed"`
-	Error     string `json:"error,omitempty"`
 }
 
 // SavedQuery es una consulta guardada.
@@ -53,7 +52,19 @@ type SavedQuery struct {
 // otra cosa, y ver el historial de producción mientras se trabaja contra dev es
 // la clase de confusión que termina con un DELETE en el lugar equivocado.
 func (h *History) List(_ context.Context, limit int) ([]HistoryEntry, error) {
-	entradas, err := h.store.List(h.conexion(), limit)
+	conn := h.conexion()
+	if conn == "" {
+		// Sin conexión abierta NO se devuelve todo.
+		//
+		// `history.Store.List("")` significa «sin filtro» —lo usa el borrado
+		// total de los ajustes— y acá el vacío significa otra cosa: que no hay
+		// contra qué filtrar. Mezclar los dos hacía que, con la app recién
+		// abierta, la pestaña recibiera el historial de TODAS las conexiones,
+		// justo lo que el comentario de abajo dice que no puede pasar. La
+		// pantalla no lo dibujaba, pero los datos cruzaban el puente igual.
+		return []HistoryEntry{}, nil
+	}
+	entradas, err := h.store.List(conn, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +73,7 @@ func (h *History) List(_ context.Context, limit int) ([]HistoryEntry, error) {
 		out = append(out, HistoryEntry{
 			ID: e.ID, ConnectionID: e.ConnectionID, SQL: e.SQL,
 			RanAt: e.RanAt.Format(formatoFecha), Runs: e.Runs,
-			ElapsedMs: e.ElapsedMs, Rows: e.Rows, Failed: e.Failed, Error: e.Error,
+			ElapsedMs: e.ElapsedMs, Rows: e.Rows, Failed: e.Failed,
 		})
 	}
 	return out, nil

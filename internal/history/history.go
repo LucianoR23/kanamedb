@@ -25,6 +25,8 @@
 package history
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,12 +93,20 @@ type Entry struct {
 	ElapsedMs int64 `json:"elapsedMs"`
 	Rows      int64 `json:"rows"`
 
-	// Failed dice si la última corrida falló, y Error qué dijo el motor.
+	// Failed dice si la última corrida falló.
 	//
 	// Una consulta que falló se guarda igual: lo que uno busca en el historial
 	// es a menudo justamente la que falló, para arreglarla.
-	Failed bool   `json:"failed"`
-	Error  string `json:"error,omitempty"`
+	//
+	// Lo que NO se guarda es QUÉ dijo el motor, y no por ahorrar espacio. El
+	// mensaje de un fallo de datos LLEVA VALORES DE FILA: un `unique_violation`
+	// de Postgres se traduce a «Ya hay filas con (email) = (ana@example.com)
+	// repetido», y una clave foránea a algo parecido. Guardar eso pondría en un
+	// archivo de texto de esta máquina un pedazo de los datos del servidor, sin
+	// su control de acceso — que es exactamente lo que este paquete promete no
+	// hacer y lo que CLAUDE.md prohíbe. El fallo se ve en la pestaña Mensajes
+	// del editor, que es donde corresponde: en la corrida, no en el registro.
+	Failed bool `json:"failed"`
 }
 
 // Saved es una consulta guardada con nombre.
@@ -173,7 +183,7 @@ func (s *Store) Add(e Entry) (bool, error) {
 		if u.ConnectionID == e.ConnectionID && u.SQL == e.SQL {
 			u.Runs++
 			u.RanAt, u.ElapsedMs, u.Rows = e.RanAt, e.ElapsedMs, e.Rows
-			u.Failed, u.Error = e.Failed, e.Error
+			u.Failed = e.Failed
 			return true, escribir(s.historial, entradas)
 		}
 	}
@@ -370,31 +380,75 @@ func leer[T any](ruta string) ([]T, error) {
 	}
 	var a archivo[T]
 	if err := json.Unmarshal(b, &a); err != nil {
-		// Un archivo corrupto NO tira la aplicación ni se borra solo: se empieza
-		// de cero en memoria y el que está en disco queda para que alguien lo
-		// mire. Perder el historial es molesto; perderlo Y no poder abrir la
-		// app sería peor, y borrarlo en silencio se lleva la evidencia.
+		// Un archivo corrupto NO tira la aplicación: se empieza de cero en
+		// memoria. Pero tampoco se pierde, y ANTES esto era mentira: el comentario
+		// decía «queda para que alguien lo mire» y la primera consulta que se
+		// corriera después lo pisaba con uno nuevo. Se lo aparta con otro nombre,
+		// que es la única forma de que siga estando cuando alguien lo busque.
+		apartar(ruta)
 		return nil, nil
 	}
 	return a.Items, nil
 }
 
+// apartar corre un archivo ilegible a un nombre vecino.
+//
+// Un solo `.corrupto` y no uno por fecha: el que importa es el primero: los
+// siguientes ya se escribieron sobre un archivo que la app había empezado de
+// cero, así que no tienen nada que nadie quiera recuperar.
+func apartar(ruta string) {
+	destino := ruta + ".corrupto"
+	if _, err := os.Stat(destino); err == nil {
+		return
+	}
+	_ = os.Rename(ruta, destino)
+}
+
 func escribir[T any](ruta string, items []T) error {
-	if err := os.MkdirAll(filepath.Dir(ruta), 0o700); err != nil {
-		return fmt.Errorf("crear %s: %w", filepath.Dir(ruta), err)
+	dir := filepath.Dir(ruta)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("crear %s: %w", dir, err)
 	}
 	b, err := json.MarshalIndent(archivo[T]{Version: versionActual, Items: items}, "", "  ")
 	if err != nil {
 		return err
 	}
-	// Temporal y rename, como el resto de lo que este proyecto escribe: un
-	// corte de luz a mitad de la escritura no puede dejar medio archivo.
-	tmp := ruta + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+
+	// Temporal y rename, como la libreta de conexiones y los diagramas.
+	//
+	// Dos detalles que antes no estaban y que hacían que la garantía prometida
+	// no existiera:
+	//
+	//   - El temporal lo elige `os.CreateTemp` y no es un `ruta + ".tmp"` fijo.
+	//     El mutex de este store ordena las escrituras DE ESTE PROCESO; dos
+	//     Kaname abiertos contra el mismo %APPDATA% compartían ese nombre y
+	//     podían renombrar encima el archivo a medio escribir del otro.
+	//   - Se sincroniza a disco ANTES del rename. Sin el `Sync`, el rename puede
+	//     publicar un archivo cuyo contenido todavía está en el caché, y un
+	//     corte justo ahí deja un archivo de cero bytes donde estaba el
+	//     historial.
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(ruta)+"-*")
+	if err != nil {
+		return fmt.Errorf("crear temporal en %s: %w", dir, err)
+	}
+	nombre := tmp.Name()
+	defer func() { _ = os.Remove(nombre) }()
+
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
 		return fmt.Errorf("escribir %s: %w", filepath.Base(ruta), err)
 	}
-	if err := os.Rename(tmp, ruta); err != nil {
-		_ = os.Remove(tmp)
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sincronizar %s a disco: %w", filepath.Base(ruta), err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("cerrar %s: %w", filepath.Base(nombre), err)
+	}
+	if err := os.Chmod(nombre, 0o600); err != nil {
+		return fmt.Errorf("ajustar permisos de %s: %w", filepath.Base(nombre), err)
+	}
+	if err := os.Rename(nombre, ruta); err != nil {
 		return fmt.Errorf("guardar %s: %w", filepath.Base(ruta), err)
 	}
 	return nil
@@ -428,6 +482,21 @@ func recortar(sql string) string {
 	return sql[:maxLargoSQL] + "\n-- (recortado por Kaname)"
 }
 
+// nuevoID es el identificador de una entrada o de una consulta guardada.
+//
+// La hora sola NO alcanza. El reloj de Windows avanza de a ~15 ms, así que dos
+// consultas guardadas en la misma pulsación —o dos entradas en un lote— salían
+// con el mismo `UnixNano`. Y para las guardadas eso es destructivo: `Save` con
+// un ID que ya existe REEMPLAZA la otra, y `DeleteSaved` borra las dos. El
+// sufijo aleatorio saca la clase de problema entera.
+//
+// La hora adelante se conserva porque ordena, que es cómodo al mirar el archivo.
 func nuevoID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand no falla en la práctica, y si fallara un ID repetido es
+		// menos grave que no poder guardar: se cae a lo que había antes.
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), hex.EncodeToString(b[:]))
 }

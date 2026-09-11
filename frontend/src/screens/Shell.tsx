@@ -167,6 +167,15 @@ export function Shell({
       delete next[id];
       return next;
     });
+    // El texto inicial también se suelta. Se olvidaba, así que el contenido de
+    // cada consulta abierta desde el historial se quedaba en memoria hasta
+    // cerrar la ventana — y son hasta ocho kilobytes por entrada.
+    setSqlInicial((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   // Ctrl+K abre y cierra la paleta. Va en `window` y en la fase de CAPTURA
@@ -249,6 +258,13 @@ export function Shell({
   // el dueño del texto después del primer render.
   const [sqlInicial, setSqlInicial] = useState<Record<string, string>>({});
 
+  // Se llama SIEMPRE envuelta en una flecha, nunca pasada como handler.
+  //
+  // `onClick={openQuery}` compila —`(sql?: string) => void` es asignable a
+  // `() => void`, TypeScript lo permite y está bien que lo permita— y en
+  // ejecución React le pasa el evento del mouse como `sql`. El objeto termina en
+  // `sqlInicial`, el editor hace `sql.trim()` sobre él y la pestaña nueva
+  // revienta al dibujarse. El «+» de la tira de pestañas tuvo exactamente eso.
   function openQuery(sql = "") {
     const n = tabs.filter((t) => t.id.startsWith("sql:")).length + 1;
     const id = `sql:${Date.now().toString(36)}`;
@@ -499,7 +515,7 @@ export function Shell({
             activeId={activeTab}
             {...(env ? { env: env as "local" | "dev" | "staging" | "production" } : {})}
             onSelect={setActiveTab}
-            onNew={openQuery}
+            onNew={() => openQuery()}
             onClose={(id) => {
               // Con trabajo sin guardar se pregunta. Sin él no: un diálogo en
               // cada cierre entrena a apretar «sí» sin leer, y entonces no
