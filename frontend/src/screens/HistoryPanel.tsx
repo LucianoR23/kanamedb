@@ -146,9 +146,11 @@ export function HistoryPanel({
           void borrarTodo();
         }}
       >
-        Se van las {entradas.length} consultas que corriste contra esta conexión, y no hay
-        de dónde recuperarlas. Las que guardaste con nombre no se tocan: están en el otro
-        archivo, el que viaja con la libreta de conexiones.
+        {entradas.length === 1
+          ? "Se va la única consulta que corriste contra esta conexión, y no hay de dónde recuperarla."
+          : `Se van las ${entradas.length} consultas que corriste contra esta conexión, y no hay de dónde recuperarlas.`}{" "}
+        Las que guardaste con nombre no se tocan: están en el otro archivo, el que viaja
+        con la libreta de conexiones.
       </ConfirmDialog>
       {entradas.map((e) => (
         <button
