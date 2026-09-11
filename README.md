@@ -468,7 +468,17 @@ macOS, 12 o más nuevo.
 ## Releases
 
 Un tag `v*` hace que CI construya los tres sistemas y deje un **release en
-borrador** con seis archivos y su `SHA256SUMS`:
+borrador** con seis archivos y su `SHA256SUMS`. El tag tiene que ser la versión
+de `internal/appinfo/appinfo.go` —el job `release` lo comprueba— y se hace
+sobre un commit que ya está en `main` y en verde:
+
+```sh
+# git tag -a v0.1.0 -m "Kaname 0.1.0"
+# git push origin v0.1.0
+# Después del push de main en verde. 0.1.0 y no 1.0.0 porque en semver 1.0.0 promete una API estable, y ni Wails v3 salió de beta ni el formato de la libreta está congelado: el 0.x avisa que puede cambiar.
+```
+
+Lo que deja:
 
 | Archivo | Qué es |
 |---|---|
