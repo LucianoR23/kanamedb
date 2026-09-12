@@ -56,6 +56,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-01] [CRÍTICO] [VERIFICADO] El rebuild de SQLite sin transacción corre con las claves foráneas encendidas y borra filas hijas
 
+> **Estado 2026-09-12:** CORREGIDO. Verificado empíricamente antes del fix (`hija` quedaba con 0 filas de 2). `aplicarPorTramos` hace transaccional todo tramo con `RebuildsTable` aunque la casilla esté apagada. Test: `service/apply_sqlite_test.go`.
+
 - Ubicación: `internal/service/apply.go:861-875` y `:908-925`; `internal/sqlite/conn.go:36-43` y `:51-54`; `internal/sqlite/rebuild.go:113-117`; `frontend/src/screens/PendingChanges.tsx:84` y `:202-204`.
 - Evidencia:
 
@@ -126,6 +128,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   violación (volvé a `Transaccional: false`) y confirmá que el conteo cae a cero.
 
 ### [K-02] [ALTO] [VERIFICADO] `BlockDropTruncate` se guarda y se muestra encendido, pero ningún código lo hace cumplir
+
+> **Estado 2026-09-12:** CORREGIDO. `preparar` rechaza el changeset entero (`ErrBlockedByPolicy`) con un DROP o un `ReplaceObject{Recreate}`; `Queries.Run` rechaza el lote entero si alguna sentencia es `DROP`/`TRUNCATE`, antes de correr la primera. La vista previa avisa. `Explain` es lista blanca y no lo necesitaba. Tests: `service/safety_test.go` (con inyección de la violación).
 
 - Ubicación: `internal/connection/connection.go:313-316`; `frontend/src/screens/ConnectionManager.tsx:726`; `frontend/src/screens/SafetyTab.tsx:55-56`. Sin ninguna lectura del campo en `internal/service` ni en los motores (búsqueda de `BlockDropTruncate|blockDropTruncate` sobre todo el repo, excluyendo tests y docs: solo el modelo y la UI).
 - Evidencia:
@@ -332,6 +336,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-07] [MEDIO] [VERIFICADO] Dos protecciones más de `Safety` sin implementación: confirmación fuera de producción y desconexión por inactividad
 
+> **Estado 2026-09-12:** CORREGIDO, las dos partes. Confirmación: `confirmarEscritura` usa `RequiresWriteConfirmation()` en Apply, DryRun e Import; `ChangesetView`/`ImportTarget` separan `Production` de `NeedsConfirmation`. Preparar un cambio destructivo sigue pidiendo la palabra solo en producción (no es una escritura). Inactividad: `service/inactividad.go`, temporizador por sesión con reloj inyectable, que no corta con apply o ejecución en curso; el Shell sondea `Current()` cada 30 s. Tests: `safety_test.go`, `inactividad_test.go`.
+
 - Ubicación: `internal/connection/connection.go:308-311` y `:347-357` (`RequiresWriteConfirmation`, sin llamadores fuera del paquete); `:328-331` y `:383-393` (`IdleDisconnect`, sin llamadores); `internal/service/apply.go:649-654` y `:777-783`; `internal/service/importar.go:200-209`.
 - Evidencia:
 
@@ -470,6 +476,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-11] [BAJO] [SOSPECHADO] `Redact` corta el DSN de MySQL en el primer `@`: una contraseña con `@` queda parcialmente visible
 
+> **Estado 2026-09-12:** CORREGIDO. Confirmado con el caso `kaname:p@ss@w0rd@tcp(…)`: el DSN quedaba entero. La expresión toma `\S*` hasta el `@` que precede a `tcp(`/`unix(`/`kaname-tunnel-N(`. Caso agregado a `TestRedactTapaLasContrasenasDeLosTresFormatos`.
+
 - Ubicación: `internal/engine/failure.go:115` y `:123-126`; `internal/connection/connection.go:514-547`.
 - Evidencia:
 
@@ -494,6 +502,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   `TestRedactTapaLasContrasenasDeLosTresFormatos`.
 
 ### [K-12] [BAJO] [VERIFICADO] `LlevaSecreto` deja pasar formas reales de contraseña escrita al historial y a las consultas guardadas
+
+> **Estado 2026-09-12:** CORREGIDO. Las siete formas listadas pasaban (cinco confirmadas por el test antes del fix). `formasConSecreto` ampliada; casos en `history_test.go`, más uno negativo (`WHERE password_hash = …` sigue guardándose).
 
 - Ubicación: `internal/history/history.go:337-344` y `:357-364`.
 - Evidencia:
@@ -552,6 +562,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   exigir `VerdictTrusted`.
 
 ### [K-14] [BAJO] [VERIFICADO] Setters exportados que Wails expone como bindings: desde el webview se puede apagar el historial y los defaults de Safety
+
+> **Estado 2026-09-12:** CORREGIDO. `UsarHistorial` y `UsarPreferencias` son funciones del paquete; `Running` y `TunnelDown` no se exportan. Bindings regenerados sin ellos. `TestElCableadoDelServicioNoEsUnBinding` lo fija por reflexión.
 
 - Ubicación: `internal/service/queries.go:41`; `internal/service/connections.go:63`; `frontend/bindings/…/service/queries.ts:145` y `connections.ts:230` (generados).
 - Evidencia:
@@ -1102,6 +1114,8 @@ compuesta correcta).
   al segundo y `n` leído después: hoy cambia.
 
 ### [C-15] [MEDIO] [VERIFICADO] Postgres: `Run` pide una segunda conexión al pool mientras retiene la primera; con `PoolSize` 1, o dos pestañas sobre un pool de 2, se cuelga
+
+> **Estado 2026-09-12:** CORREGIDO. Verificado: con `MaxConns: 1` y un enum, `Run` colgaba (el test falla a los 5 s con `pool`). Ahora resuelve con `conn`. Test: `postgres/pool_test.go`.
 
 - **Ubicación**: `internal/postgres/query.go:52-56,130-134`; `internal/service/session.go:472,498-499`.
 - **Evidencia**: `resolverTiposDesconocidos(ctx, pool, …)` corre antes del `defer

@@ -57,10 +57,10 @@ func NewConnections(st *store.Store, kr Keyring, known *tunnel.KnownHosts) *Conn
 
 // UsarPreferencias le dice de dónde sacar los defaults de una conexión nueva.
 //
-// Va por un setter y no por el constructor por lo mismo que `UsarHistorial`:
-// agregarlo al constructor obliga a tocar todos los tests que arman el servicio
-// y que no tienen nada que ver con las preferencias.
-func (s *Connections) UsarPreferencias(p *config.Store) { s.prefs = p }
+// Función del paquete y no método, por lo mismo que `UsarHistorial`: un método
+// exportado es un binding, y `UsarPreferencias(null)` desde el webview hacía
+// que las conexiones nuevas nacieran con `Safety{}` (K-14).
+func UsarPreferencias(s *Connections, p *config.Store) { s.prefs = p }
 
 // ConnectionView es una conexión tal como la ve la interfaz: la configuración,
 // más lo que la UI necesita saber y no está en el modelo.

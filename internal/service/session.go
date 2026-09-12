@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
@@ -38,6 +39,16 @@ type Session struct {
 	// genera la migración. Es independiente de `current`: comparar no necesita
 	// una sesión abierta y no la toca. Ver comparar.go.
 	comparacion *CompareResult
+
+	// motivoDeCierre explica por qué no hay sesión cuando la cerró Kaname y no
+	// la persona: hoy, la desconexión por inactividad. Se muestra en la vista
+	// y en el error de la próxima llamada, y se limpia al conectar.
+	motivoDeCierre string
+	// ocupado dice si hay una ejecución registrada fuera de Apply (consultas,
+	// exportaciones, volcados). Lo pone NewQueries. Ver inactividad.go.
+	ocupado func() bool
+	// reloj es la fuente de tiempo, reemplazable en los tests.
+	reloj func() time.Time
 }
 
 type openSession struct {
@@ -60,6 +71,11 @@ type openSession struct {
 	// peligroso — la siguiente conexión podría ser otra base con las mismas
 	// tablas.
 	cambios *change.Set
+
+	// ultimoUso es el instante (UnixNano) del último binding que usó la
+	// sesión, e inactividad el temporizador que la cierra. Ver inactividad.go.
+	ultimoUso   atomic.Int64
+	inactividad *time.Timer
 }
 
 // NewSession arma el servicio.
@@ -100,6 +116,11 @@ type SessionView struct {
 
 	// OpenedAt permite mostrar hace cuánto está abierta.
 	OpenedAt string `json:"openedAt,omitempty"`
+
+	// ClosedReason viene solo con Connected en false, y solo cuando la cerró
+	// Kaname y no la persona: hoy, la desconexión por inactividad. La
+	// interfaz lo muestra al descubrir que ya no hay sesión.
+	ClosedReason string `json:"closedReason,omitempty"`
 }
 
 // ConnectResult es el resultado de intentar conectar.
@@ -145,6 +166,8 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 	s.mu.Lock()
 	anterior := s.current
 	s.current = abierta
+	s.motivoDeCierre = ""
+	s.armarInactividad(abierta)
 	vista := s.viewLocked()
 	s.mu.Unlock()
 
@@ -272,6 +295,9 @@ func (o *openSession) cerrar() {
 	if o == nil {
 		return
 	}
+	if o.inactividad != nil {
+		o.inactividad.Stop()
+	}
 	if o.db != nil {
 		o.db.Close()
 	}
@@ -280,13 +306,14 @@ func (o *openSession) cerrar() {
 	}
 }
 
-// TunnelDown dice si esta sesión usa túnel y el túnel se cayó.
+// tunnelDown dice si esta sesión usa túnel y el túnel se cayó. No se exporta:
+// un método exportado del servicio es un binding (K-14).
 //
 // Se pregunta DESPUÉS de que algo falla, no antes de cada operación: sondear
 // el túnel en cada consulta agregaría trabajo a todas para atajar un caso raro.
 // Cuando algo falla, en cambio, saber si el camino sigue en pie cambia el
 // mensaje de "puede ser esto o aquello" a "fue esto".
-func (s *Session) TunnelDown() bool {
+func (s *Session) tunnelDown() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.current != nil && s.current.tunel != nil && s.current.tunel.Closed()
@@ -307,6 +334,10 @@ func (s *Session) Current() SessionView {
 func (s *Session) Schema(ctx context.Context, refresh bool) (*schema.Snapshot, error) {
 	s.mu.RLock()
 	sesion := s.current
+	if sesion != nil {
+		// Mirar el árbol es actividad, aunque salga de la caché.
+		sesion.tocar(s.ahora())
+	}
 	if sesion != nil && sesion.snapshot != nil && !refresh {
 		snap := sesion.snapshot
 		s.mu.RUnlock()
@@ -407,7 +438,7 @@ func (s *Session) ColumnTypes(ctx context.Context) ([]schema.TypeOption, error) 
 // viewLocked arma la vista. Quien llama tiene el lock.
 func (s *Session) viewLocked() SessionView {
 	if s.current == nil {
-		return SessionView{}
+		return SessionView{ClosedReason: s.motivoDeCierre}
 	}
 	c := s.current.conn
 	v := SessionView{
@@ -482,8 +513,13 @@ func (s *Session) abierta() (*openSession, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.current == nil {
+		if s.motivoDeCierre != "" {
+			return nil, fmt.Errorf("%w: %s", ErrNotConnected, s.motivoDeCierre)
+		}
 		return nil, ErrNotConnected
 	}
+	// Cuenta como actividad: por acá pasa todo lo que toca la base.
+	s.current.tocar(s.ahora())
 	return s.current, nil
 }
 

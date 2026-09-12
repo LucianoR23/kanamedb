@@ -58,7 +58,7 @@ export function SafetyTab({
             />
             <span>No ejecutar DROP ni TRUNCATE</span>
           </label>
-          <p className={styles.ayuda}>Las sentencias se siguen generando y se ven en la vista previa; lo que no se hace es correrlas. Sirve para revisar un cambio destructivo sin poder aplicarlo por accidente.</p>
+          <p className={styles.ayuda}>Las sentencias se siguen generando y se ven en la vista previa; lo que no se hace es correrlas. Vale para el changeset y para el editor: un DROP, un TRUNCATE o un ALTER que tira una columna o una restricción se rechazan sin ejecutar nada del lote. No mira adentro del cuerpo de una función ni de un bloque DO.</p>
         </div>
       </section>
 

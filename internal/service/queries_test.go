@@ -97,7 +97,7 @@ func TestElRegistroDeCancelacionesQuedaVacio(t *testing.T) {
 			t.Fatalf("consulta %d falló: %+v", i, res.Failure)
 		}
 	}
-	if n := q.Running(); n != 0 {
+	if n := q.running(); n != 0 {
 		t.Errorf("quedaron %d ejecuciones registradas después de terminar todas", n)
 	}
 	// Cancelar algo que ya terminó no es un error.
@@ -282,7 +282,7 @@ func TestCancelarUnVolcadoSigueFuncionandoEntreTablas(t *testing.T) {
 	if adentro.Err() == nil {
 		t.Error("el context de la tabla que terminó tendría que estar cerrado")
 	}
-	if n := q.Running(); n != 1 {
+	if n := q.running(); n != 1 {
 		t.Fatalf("quedan %d ejecuciones registradas y el volcado sigue: se borró la de afuera", n)
 	}
 
@@ -292,7 +292,7 @@ func TestCancelarUnVolcadoSigueFuncionandoEntreTablas(t *testing.T) {
 		t.Error("cancelar el volcado no cortó nada")
 	}
 	cerrarAfuera()
-	if n := q.Running(); n != 0 {
+	if n := q.running(); n != 0 {
 		t.Errorf("quedaron %d ejecuciones registradas al terminar", n)
 	}
 }

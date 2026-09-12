@@ -364,7 +364,17 @@ export default function App() {
             onOpenAbout={() => abrirPantallaDeLaApp("about")}
             onOpenSettings={() => abrirPantallaDeLaApp("settings")}
             onCompare={abrirComparacion}
-            onDisconnect={() => setScreen(connections.length === 0 ? "welcome" : "manager")}
+            onDisconnect={(motivo) => {
+              setScreen(connections.length === 0 ? "welcome" : "manager");
+              if (motivo) {
+                setAviso({
+                  id: `cierre-${Date.now()}`,
+                  tone: "info",
+                  title: "Sesión cerrada",
+                  detail: motivo,
+                });
+              }
+            }}
           />
         </div>
         {encimaDelShell ? (

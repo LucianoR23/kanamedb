@@ -82,7 +82,10 @@ type ImportTarget struct {
 	Reason   string `json:"reason,omitempty"`
 
 	// NeedsConfirmation avisa que hay que escribir ConfirmWord para importar.
+	// Production dice si además es producción, que es lo que se pinta en rojo;
+	// desde K-07 una conexión de staging puede pedir la palabra sin serlo.
 	NeedsConfirmation bool   `json:"needsConfirmation"`
+	Production        bool   `json:"production"`
 	ConfirmWord       string `json:"confirmWord,omitempty"`
 }
 
@@ -92,7 +95,10 @@ func (i *Imports) Target() (ImportTarget, error) {
 	if err != nil {
 		return ImportTarget{}, err
 	}
-	t := ImportTarget{NeedsConfirmation: sesion.conn.Environment.NeedsWriteConfirmation()}
+	t := ImportTarget{
+		NeedsConfirmation: sesion.conn.RequiresWriteConfirmation(),
+		Production:        sesion.conn.Environment.NeedsWriteConfirmation(),
+	}
 	t.ReadOnly, t.Reason = soloLectura(sesion)
 	if t.NeedsConfirmation {
 		t.ConfirmWord = nombreDeLaBase(sesion)
@@ -197,14 +203,11 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 	// La confirmación se verifica ACÁ y no en el asistente. Una comprobación
 	// que vive solo del lado de la interfaz no es una protección: es un cartel.
 	// Vale para el ensayo también: inserta de verdad antes de revertir.
-	if sesion.conn.Environment.NeedsWriteConfirmation() &&
-		strings.TrimSpace(p.Confirm) != nombreDeLaBase(sesion) {
+	if err := confirmarEscritura(sesion, p.Confirm, "para importar"); err != nil {
 		return ImportResult{Failure: &engine.Failure{
-			Kind: engine.FailureOther,
-			Message: fmt.Sprintf(
-				"Esta conexión es de producción: para importar hay que escribir %q.",
-				nombreDeLaBase(sesion)),
-			Hint: "El ensayo también lo pide: inserta las filas de verdad antes de revertirlas.",
+			Kind:    engine.FailureOther,
+			Message: err.Error(),
+			Hint:    "El ensayo también lo pide: inserta las filas de verdad antes de revertirlas.",
 		}}
 	}
 

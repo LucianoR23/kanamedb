@@ -942,6 +942,79 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
 
+### Iteración 9 — 2026-09-12
+
+**Auditoría del 2026-09-11, primera tanda: las casillas de Safety tienen
+código detrás.** Cada hallazgo se verificó contra el código y con un test que
+falla antes del fix; el estado por hallazgo queda anotado en el propio
+`docs/reviews/audit-fable-2026-09-11.md`. Lo que fijó esta tanda:
+
+- **K-01 (CRÍTICO), reconstrucción de SQLite sin transacción.** Verificado
+  empíricamente: con «Una sola transacción» apagada, un `SetNotNull` sobre
+  `padre` dejaba a `hija` (`ON DELETE CASCADE`) con 0 filas de 2, sin error.
+  El fix es en `aplicarPorTramos`: un tramo con `RebuildsTable` es
+  transaccional aunque la casilla esté apagada, porque el único lugar donde
+  se apagan las claves foráneas es `Begin`. **La casilla dice cómo agrupar,
+  no qué invariantes saltear.** Test: `TestElRebuildDeSQLiteSinTransaccionNoDisparaElCascade`.
+- **K-02 (ALTO), «Bloquear DROP y TRUNCATE».** Se guardaba y se mostraba
+  activa; nadie la leía. Ahora `preparar` (Apply y DryRun) rechaza el
+  changeset entero si tiene un `Op() == DROP` o un `ReplaceObject` con
+  `Recreate`, y `Queries.Run` rechaza el lote entero si alguna sentencia tiene
+  `Command` `DROP` o `TRUNCATE` —antes de correr la primera, igual que
+  `preparar` no ejecuta nada si una no se sabe escribir—. Una reconstrucción
+  de SQLite lleva `DROP TABLE` en el guion y **no** se bloquea: la tabla vuelve
+  con sus filas tres sentencias después, y bloquearla sería bloquear todo
+  cambio de columna. `ErrBlockedByPolicy` es el error; la vista previa avisa
+  antes de apretar. `Explain` no necesita nada: es lista blanca.
+- **K-07 (MEDIO), confirmación por nombre fuera de producción.** Decidido
+  hacer cumplir lo que el gestor mostraba: `confirmarEscritura` usa
+  `Connection.RequiresWriteConfirmation()` —producción siempre; los demás
+  entornos salvo «Escribir sin confirmar el nombre de la base»— en los tres
+  caminos que escriben: `Apply`, `DryRun`, `Imports.Run`. **Preparar un
+  cambio destructivo sigue pidiendo la palabra solo en producción**: no es
+  una escritura, y es la segunda pregunta que el diálogo de la interfaz
+  describe como de producción. `ChangesetView` e `ImportTarget` llevan ahora
+  `Production` además de `NeedsConfirmation`, porque dejaron de coincidir:
+  el rojo es para producción; el campo, para quien pide la palabra.
+  Consecuencia para quien ya tiene conexiones: **las locales van a pedir el
+  nombre hasta que marquen la casilla**, que es lo que la pestaña Safety
+  siempre dijo que pasaba. Los helpers de test marcan la casilla; el test de
+  la confirmación la saca.
+- **K-07 (MEDIO), desconexión por inactividad.** Implementada en
+  `service/inactividad.go`: un `time.AfterFunc` por sesión que al vencer mira
+  el último uso y se vuelve a armar por lo que falta. **Actividad es un
+  binding que usa la sesión** (`abierta()` y `Schema`); `Current()` y
+  `ApplyStatus()` no cuentan, porque la interfaz los consulta sola. No corta
+  con un apply en curso ni con una ejecución registrada en `Queries`
+  (`vigilarActividad`): vuelve a mirar en un minuto. Al cerrar deja
+  `SessionView.ClosedReason` y la próxima llamada lo dice en el error.
+  **Terminar una operación también es actividad** (`tocarActual` desde
+  `terminarApply` y desde la limpieza de `registrar`): una consulta de catorce
+  minutos que termina a los 14:40 no cierra la sesión a los 15:00 con la
+  persona leyendo el resultado. Como no hay eventos, el Shell consulta
+  `Current()` cada 30 s; al descubrir el cierre **se queda** —las pestañas y
+  el texto de los editores viven ahí, y volver al gestor los tiraría sin
+  aviso— y muestra el motivo con un botón «Reconectar» en el lugar. El test
+  dispara el vencimiento a mano con un reloj inyectado (`usarReloj`, no
+  exportado a propósito: un método exportado del servicio es un binding).
+- **K-14 (BAJO), setters expuestos como bindings.** `UsarHistorial` y
+  `UsarPreferencias` pasaron a ser funciones del paquete —Wails bindea
+  métodos, no funciones— y `Running`/`TunnelDown` dejaron de exportarse.
+  `TestElCableadoDelServicioNoEsUnBinding` lo fija por reflexión sobre los
+  tipos, porque los bindings generados no están en el repo.
+- **K-11 (BAJO)** `Redact` toma la contraseña de MySQL codiciosa hasta el `@`
+  que precede a `tcp(`: el DSN se arma sin escaparla y el driver parte por el
+  último `@`. **K-12 (BAJO)** `LlevaSecreto` suma `PASSWORD E'…'`, `$$…$$`,
+  `"…"`, `SET PASSWORD`, `password=` sin comillas y `CREATE SERVER`/`USER
+  MAPPING`. **C-15 (MEDIO)** `postgres.Run` resuelve los tipos desconocidos
+  con la conexión que ya tiene y no con el pool: con `PoolSize` 1 se colgaba
+  (verificado: el test cuelga 5 s con `pool` y pasa con `conn`).
+- **Review del cambio (`high`)** encontró que el bloqueo del editor miraba
+  solo el comando: `ALTER TABLE … DROP COLUMN` pasaba mientras el changeset
+  lo rechazaba. Ahora un `ALTER` con `DROP COLUMN|CONSTRAINT|INDEX|KEY|…`
+  también se bloquea; lo que sigue sin verse es un DROP adentro de un `DO
+  $$…$$` o del cuerpo de una rutina, y la ayuda de la casilla lo dice.
+
 ### Iteración 9 — 2026-09-11
 
 **S03 TLS, hecha: los certificados van por ruta, MySQL habla libpq, y el

@@ -23,7 +23,7 @@ func TestElHistorialNoGuardaLosValoresDeFilaQueVienenEnUnError(t *testing.T) {
 	dir := t.TempDir()
 	rutaHistorial := filepath.Join(dir, "historial.json")
 	q := NewQueries(nil)
-	q.UsarHistorial(history.New(rutaHistorial, filepath.Join(dir, "consultas.json")))
+	UsarHistorial(q, history.New(rutaHistorial, filepath.Join(dir, "consultas.json")))
 
 	const valor = "ana@example.com"
 	q.anotar("conn-1", "insert into clientes(email) values ($1)", nil, &engine.Failure{
@@ -60,7 +60,7 @@ func TestElHistorialNoGuardaLosValoresDeFilaQueVienenEnUnError(t *testing.T) {
 func TestElHistorialGuardaCuantasFilasVolvieron(t *testing.T) {
 	dir := t.TempDir()
 	q := NewQueries(nil)
-	q.UsarHistorial(history.New(
+	UsarHistorial(q, history.New(
 		filepath.Join(dir, "historial.json"), filepath.Join(dir, "consultas.json")))
 
 	q.anotar("conn-1", "select 1", &query.Batch{

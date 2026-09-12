@@ -158,7 +158,7 @@ func TestElPlanNoSeAnotaEnElHistorial(t *testing.T) {
 	q := NewQueries(sesion)
 	dir := t.TempDir()
 	h := history.New(filepath.Join(dir, "historial.json"), filepath.Join(dir, "consultas.json"))
-	q.UsarHistorial(h)
+	UsarHistorial(q, h)
 	ctx := context.Background()
 	entradas := func() int {
 		t.Helper()

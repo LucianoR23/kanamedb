@@ -50,7 +50,7 @@ func armarTodoLoQueEscribeLaApp(t *testing.T) todoLoQueEscribeLaApp {
 	known := tunnel.NewKnownHosts(rutas.KnownHosts)
 	libreta := NewConnections(store.New(rutas.Connections), kr, known)
 	prefs := config.New(rutas.Config)
-	libreta.UsarPreferencias(prefs)
+	UsarPreferencias(libreta, prefs)
 	return todoLoQueEscribeLaApp{
 		rutas:    rutas,
 		keyring:  kr,

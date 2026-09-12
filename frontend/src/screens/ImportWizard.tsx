@@ -178,6 +178,9 @@ export function ImportWizard({
   const desparejas = inspeccion?.ragged ?? [];
 
   const necesitaPalabra = target?.needsConfirmation ?? false;
+  // Producción pinta en rojo; la palabra se pide también fuera de producción
+  // cuando la conexión no tiene puesta «Escribir sin confirmar» (K-07).
+  const produccion = target?.production ?? false;
   const palabra = target?.confirmWord ?? "";
   const confirmado = !necesitaPalabra || confirmacion.trim() === palabra;
   const soloLectura = target?.readOnly ?? false;
@@ -280,7 +283,7 @@ export function ImportWizard({
       open={open}
       title={`Importar CSV en ${table}`}
       size="xl"
-      production={necesitaPalabra}
+      production={produccion}
       {...(corriendo ? {} : { onClose })}
       footer={
         <>
@@ -302,7 +305,7 @@ export function ImportWizard({
           ) : null}
           {paso === "importar" ? (
             <Button
-              variant={necesitaPalabra ? "danger" : "primary"}
+              variant={produccion ? "danger" : "primary"}
               disabled={corriendo || soloLectura || !confirmado || importado}
               title={soloLectura ? target?.reason : undefined}
               onClick={() => void importar()}
@@ -398,6 +401,7 @@ export function ImportWizard({
               soloLectura={soloLectura}
               razon={target?.reason ?? ""}
               necesitaPalabra={necesitaPalabra}
+              produccion={produccion}
               palabra={palabra}
               confirmacion={confirmacion}
               confirmado={confirmado}
@@ -420,6 +424,7 @@ export function ImportWizard({
               conflicto={conflicto}
               archivo={inspeccion?.file.name ?? ""}
               necesitaPalabra={necesitaPalabra}
+              produccion={produccion}
               palabra={palabra}
               confirmacion={confirmacion}
               confirmado={confirmado}
@@ -689,6 +694,7 @@ function Validacion({
   soloLectura,
   razon,
   necesitaPalabra,
+  produccion,
   palabra,
   confirmacion,
   confirmado,
@@ -703,6 +709,7 @@ function Validacion({
   soloLectura: boolean;
   razon: string;
   necesitaPalabra: boolean;
+  produccion: boolean;
   palabra: string;
   confirmacion: string;
   confirmado: boolean;
@@ -750,6 +757,7 @@ function Validacion({
         <Aviso tono="malo">{razon} No se puede importar en esta conexión.</Aviso>
       ) : necesitaPalabra ? (
         <Confirmar
+          produccion={produccion}
           palabra={palabra}
           valor={confirmacion}
           ok={confirmado}
@@ -814,6 +822,7 @@ function Importar({
   conflicto,
   archivo,
   necesitaPalabra,
+  produccion,
   palabra,
   confirmacion,
   confirmado,
@@ -827,6 +836,7 @@ function Importar({
   conflicto: OnConflict;
   archivo: string;
   necesitaPalabra: boolean;
+  produccion: boolean;
   palabra: string;
   confirmacion: string;
   confirmado: boolean;
@@ -877,11 +887,12 @@ function Importar({
 
       {necesitaPalabra ? (
         <Confirmar
+          produccion={produccion}
           palabra={palabra}
           valor={confirmacion}
           ok={confirmado}
           onCambiar={onConfirmacion}
-          nota="Esto escribe en producción."
+          nota={produccion ? "Esto escribe en producción." : "Esta conexión confirma las escrituras."}
         />
       ) : null}
 
@@ -909,12 +920,14 @@ function Importar({
 }
 
 function Confirmar({
+  produccion,
   palabra,
   valor,
   ok,
   nota,
   onCambiar,
 }: {
+  produccion: boolean;
   palabra: string;
   valor: string;
   ok: boolean;
@@ -927,7 +940,7 @@ function Confirmar({
         <span className={styles.avisoBang} aria-hidden="true">
           !
         </span>
-        Esto es producción
+        {produccion ? "Esto es producción" : "Esta conexión confirma las escrituras"}
       </div>
       <p className={styles.nota}>
         {nota} Escribí el nombre de la base para habilitar el botón.

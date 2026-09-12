@@ -164,16 +164,17 @@ export function SqlPreview({
       open
       size="xl"
       title={`Aplicar ${r.included} ${r.included === 1 ? "sentencia" : "sentencias"}`}
-      // Contra producción aparece, no llega: es la confirmación que exige
-      // escribir el nombre de la base, y un modal que entra suave se lee
-      // como menos serio que uno que aparece.
-      abrupto={vista.needsConfirmation}
+      // Contra producción aparece, no llega: un modal que entra suave se lee
+      // como menos serio que uno que aparece. Es `production` y no
+      // `needsConfirmation`: desde K-07 una conexión de staging puede pedir
+      // el nombre sin ser producción, y el rojo es solo para producción.
+      abrupto={vista.production}
       // Mientras corre no se puede cerrar, y eso se dice sin `onClose` —no
       // con uno que no cierra—: Dialog dibuja la salida antes de avisar, y
       // un aviso que no cierra dejaba el diálogo abierto e invisible.
       {...(corriendo ? {} : { onClose })}
     >
-      <div className={cx(styles.marco, vista.needsConfirmation && styles.produccion)}>
+      <div className={cx(styles.marco, vista.production && styles.produccion)}>
         <div className={styles.izquierda}>
           <div className={styles.barraSql}>
             <span className={styles.meta}>
@@ -293,11 +294,12 @@ export function SqlPreview({
               <section className={styles.confirmar}>
                 <div className={styles.confirmarTitulo}>
                   <span className={styles.bang}>!</span>
-                  Esto es producción
+                  {vista.production ? "Esto es producción" : "Esta conexión confirma las escrituras"}
                 </div>
                 <p className={styles.confirmarTexto}>
-                  Escribí el nombre de la base para habilitar el botón. Los cambios de esquema de
-                  este conjunto no se deshacen.
+                  {vista.production
+                    ? "Escribí el nombre de la base para habilitar el botón. Los cambios de esquema de este conjunto no se deshacen."
+                    : "Escribí el nombre de la base para habilitar el botón. Se apaga con «Escribir sin confirmar el nombre de la base», en la pestaña Safety de la conexión."}
                 </p>
                 <Input
                   value={confirmacion}
@@ -347,7 +349,7 @@ export function SqlPreview({
               </p>
             ) : null}
             <Button
-              variant={vista.needsConfirmation ? "danger" : "primary"}
+              variant={vista.production ? "danger" : "primary"}
               disabled={!puedeAplicar}
               loading={corriendo}
               onClick={() => void aplicar()}

@@ -18,6 +18,10 @@ var ErrReadOnly = errors.New("la conexión es de solo lectura")
 // ErrNeedsConfirmation lo devuelve Apply contra producción sin confirmación.
 var ErrNeedsConfirmation = errors.New("hace falta confirmar el nombre de la conexión")
 
+// ErrBlockedByPolicy lo devuelven Apply y DryRun cuando una protección de la
+// conexión —«Bloquear DROP y TRUNCATE»— se niega a ejecutar el changeset.
+var ErrBlockedByPolicy = errors.New("una protección de la conexión lo impide")
+
 // ChangeView es un cambio pendiente con su sentencia ya escrita.
 //
 // La SQL viaja resuelta y no se arma en el frontend: citar identificadores es
@@ -52,9 +56,18 @@ type ChangesetView struct {
 	// Warnings son avisos sobre el conjunto, no sobre una sentencia suelta.
 	Warnings []string `json:"warnings,omitempty"`
 
-	// NeedsConfirmation avisa que la conexión es de producción y Apply va a
-	// pedir el nombre de la base escrito a mano.
+	// NeedsConfirmation avisa que Apply va a pedir el nombre de la base
+	// escrito a mano. En producción es siempre; en los demás entornos, salvo
+	// que la conexión tenga puesta «Escribir sin confirmar el nombre de la
+	// base». Antes solo valía para producción, y la casilla era un cartel
+	// (K-07 de la auditoría del 2026-09-11).
 	NeedsConfirmation bool `json:"needsConfirmation"`
+
+	// Production dice si la conexión es de producción. Es lo que la pantalla
+	// pinta en rojo; NeedsConfirmation es lo que hace escribir. Van separados
+	// porque desde K-07 no coinciden: una conexión de staging puede pedir el
+	// nombre sin ser producción.
+	Production bool `json:"production"`
 
 	// ConfirmWord es exactamente lo que hay que escribir. Viaja para que la
 	// pantalla no tenga que deducirlo: si lo dedujera mal, el botón quedaría
@@ -153,8 +166,12 @@ func (s *Session) avanzarApply(i int, st change.Statement) {
 
 func (s *Session) terminarApply() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.progreso = ApplyProgress{State: ApplyIdle}
+	if s.current != nil {
+		// Terminar es actividad: ver tocarActual.
+		s.current.tocar(s.ahora())
+	}
+	s.mu.Unlock()
 }
 
 // ApplyStatus dice por dónde va el apply en curso, si hay uno.
@@ -290,7 +307,8 @@ func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 	vista := ChangesetView{
 		Summary:           sesion.cambios.Summarize(),
 		Tables:            sesion.cambios.Tables(),
-		NeedsConfirmation: sesion.conn.Environment.NeedsWriteConfirmation(),
+		NeedsConfirmation: sesion.conn.RequiresWriteConfirmation(),
+		Production:        sesion.conn.Environment.NeedsWriteConfirmation(),
 		ReadOnly:          soloLecturaBool(sesion),
 	}
 	if vista.NeedsConfirmation {
@@ -331,6 +349,31 @@ func nombreDeLaBase(sesion *openSession) string {
 		return sesion.server.CurrentDB
 	}
 	return sesion.conn.Database
+}
+
+// confirmarEscritura comprueba la palabra que la conexión exige antes de
+// escribir: el nombre de la base, escrito exacto.
+//
+// La regla de CUÁNDO hace falta es Connection.RequiresWriteConfirmation: en
+// producción siempre, y en los demás entornos salvo que la conexión tenga
+// puesta «Escribir sin confirmar el nombre de la base». Antes acá se miraba
+// solo el entorno, y la casilla —que el gestor mostraba como protección
+// activa— no la leía nadie (K-07 de la auditoría del 2026-09-11).
+//
+// El error termina en «hay que escribir "base"»: la interfaz recorta la
+// palabra de ahí cuando no la tiene por otro camino.
+func confirmarEscritura(sesion *openSession, confirm, accion string) error {
+	if !sesion.conn.RequiresWriteConfirmation() ||
+		strings.TrimSpace(confirm) == nombreDeLaBase(sesion) {
+		return nil
+	}
+	motivo := "esta conexión pide confirmar el nombre de la base antes de escribir " +
+		"(se apaga en la pestaña Safety)"
+	if sesion.conn.Environment.NeedsWriteConfirmation() {
+		motivo = "esta conexión es de producción"
+	}
+	return fmt.Errorf("%w: %s; %s hay que escribir %q",
+		ErrNeedsConfirmation, motivo, accion, nombreDeLaBase(sesion))
 }
 
 // guion arma todo el changeset como una sola pieza de SQL.
@@ -455,6 +498,20 @@ func avisos(sesion *openSession, orden []ChangeView) []string {
 	var out []string
 
 	caps := sesion.db.Caps()
+
+	// Lo que Apply va a rechazar, dicho ANTES de apretar el botón. La casilla
+	// se comprueba en preparar; acá solo se anticipa.
+	if sesion.conn.Safety.BlockDropTruncate {
+		for _, v := range orden {
+			c := v.Change
+			if c.Op() == change.OpDrop || (c.Type == change.ReplaceObject && c.Recreate) {
+				out = append(out, "Esta conexión tiene puesta «Bloquear DROP y TRUNCATE»: el "+
+					"changeset se puede revisar pero no aplicar mientras tenga un DROP. "+
+					"Sacá esos cambios o apagá la casilla en la pestaña Safety.")
+				break
+			}
+		}
+	}
 
 	// El aviso que la interfaz NO daba y que cambia lo que hay que esperar de
 	// un fallo. La casilla «Una sola transacción» promete todo o nada; contra
@@ -646,11 +703,8 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	}
 	// La confirmación se verifica ACÁ y no en el frontend. Una comprobación que
 	// vive solo del lado de la interfaz no es una protección: es un cartel.
-	if sesion.conn.Environment.NeedsWriteConfirmation() &&
-		strings.TrimSpace(opts.Confirm) != nombreDeLaBase(sesion) {
-		return ApplyResult{}, fmt.Errorf(
-			"%w: esta conexión es de producción; para aplicar hay que escribir %q",
-			ErrNeedsConfirmation, nombreDeLaBase(sesion))
+	if err := confirmarEscritura(sesion, opts.Confirm, "para aplicar"); err != nil {
+		return ApplyResult{}, err
 	}
 
 	pendientes, sentencias, err := s.preparar(ctx, sesion)
@@ -702,6 +756,24 @@ func (s *Session) preparar(
 	pendientes := sesion.cambios.Ordered()
 	if len(pendientes) == 0 {
 		return nil, nil, errors.New("no hay cambios para aplicar")
+	}
+	// «Bloquear DROP y TRUNCATE» se comprueba ACÁ y no en la pantalla: la
+	// casilla se guardaba, se mostraba encendida en el gestor y no la leía
+	// nadie (K-02 de la auditoría del 2026-09-11). Se mira antes de escribir
+	// la SQL y sobre el changeset ENTERO: un changeset con un DROP adentro no
+	// se aplica a medias. Una reconstrucción de tabla de SQLite lleva un DROP
+	// TABLE en el guion, pero no entra: la tabla vuelve con sus filas tres
+	// sentencias después, y bloquearla sería bloquear todo cambio de columna.
+	if sesion.conn.Safety.BlockDropTruncate {
+		for _, c := range pendientes {
+			if c.Op() == change.OpDrop || (c.Type == change.ReplaceObject && c.Recreate) {
+				return nil, nil, fmt.Errorf(
+					"%w: «Bloquear DROP y TRUNCATE» está puesta en esta conexión y %s "+
+						"sobre %s es un DROP. Sacá el cambio del changeset o apagá la "+
+						"casilla en la pestaña Safety",
+					ErrBlockedByPolicy, c.Type, c.Target())
+			}
+		}
 	}
 	sentencias := make([]change.Statement, 0, len(pendientes))
 	for _, c := range pendientes {
@@ -774,12 +846,9 @@ func (s *Session) DryRun(ctx context.Context, confirm string) (ApplyResult, erro
 	}
 	// Se verifica ACÁ y no en el frontend, igual que en Apply: una comprobación
 	// que vive solo del lado de la interfaz no es una protección, es un cartel.
-	if sesion.conn.Environment.NeedsWriteConfirmation() &&
-		strings.TrimSpace(confirm) != nombreDeLaBase(sesion) {
-		return ApplyResult{}, fmt.Errorf(
-			"%w: esta conexión es de producción; ensayar toma los mismos candados que "+
-				"aplicar, así que también hay que escribir %q",
-			ErrNeedsConfirmation, nombreDeLaBase(sesion))
+	if err := confirmarEscritura(sesion, confirm,
+		"ensayar toma los mismos candados que aplicar, así que también"); err != nil {
+		return ApplyResult{}, err
 	}
 
 	_, sentencias, err := s.preparar(ctx, sesion)
@@ -867,9 +936,16 @@ func (s *Session) aplicarPorTramos(
 			// sin transacción un UPDATE que alcanzó dos filas ya está
 			// commiteado cuando se descubre. Con la transacción, se revierte;
 			// y el DML de los cuatro motores la soporta.
+			//
+			// Y una reconstrucción de tabla TAMBIÉN, aunque sea DDL: no por
+			// atomicidad sino porque el único lugar donde se apagan las claves
+			// foráneas de SQLite es Begin. Mandada por Exec, el DROP TABLE del
+			// rebuild dispara los ON DELETE CASCADE y borra las filas hijas sin
+			// un solo error (K-01 de la auditoría del 2026-09-11). La casilla
+			// dice cómo agrupar, no qué invariantes saltear.
 			tramos = append(tramos, engine.Tramo{
 				Desde: i, Hasta: i + 1,
-				Transaccional: cambios[i].Kind() == change.KindData,
+				Transaccional: cambios[i].Kind() == change.KindData || sts[i].RebuildsTable,
 			})
 		}
 	}

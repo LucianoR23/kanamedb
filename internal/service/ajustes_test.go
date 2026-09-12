@@ -39,7 +39,7 @@ func TestUnaConexionNuevaNaceConLasProteccionesDeLosAjustes(t *testing.T) {
 		store:   store.New(filepath.Join(dir, "connections.toml")),
 		keyring: newFakeKeyring(),
 	}
-	s.UsarPreferencias(prefs)
+	UsarPreferencias(s, prefs)
 
 	v, err := s.Draft()
 	if err != nil {
@@ -79,7 +79,7 @@ func TestConPreferenciasQueNoSeEntiendenLaConexionNuevaNaceProtegida(t *testing.
 		store:   store.New(filepath.Join(dir, "connections.toml")),
 		keyring: newFakeKeyring(),
 	}
-	s.UsarPreferencias(config.New(ruta))
+	UsarPreferencias(s, config.New(ruta))
 
 	v, err := s.Draft()
 	if err != nil {

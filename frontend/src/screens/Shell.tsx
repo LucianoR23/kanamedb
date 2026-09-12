@@ -63,7 +63,8 @@ export function Shell({
   onOpenSettings: () => void;
   /** S20: comparar esquemas, con la conexión abierta como origen. */
   onCompare: (sourceId: string) => void;
-  onDisconnect: () => void;
+  /** Con `motivo` cuando la cerró Kaname y no la persona (inactividad). */
+  onDisconnect: (motivo?: string) => void;
 }) {
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
   const [railWidth, setRailWidth] = useState(RAIL.initial);
@@ -114,6 +115,54 @@ export function Shell({
   useEffect(() => {
     void load(false);
   }, []);
+
+  // La sesión puede cerrarse sola —«Desconectar por inactividad», en Go— y
+  // acá no hay eventos que lo avisen: se pregunta cada tanto. Current() es un
+  // lock de lectura y un struct, y a propósito NO cuenta como actividad del
+  // lado de Go, así que preguntar no mantiene viva la sesión que se quiere
+  // cerrar.
+  //
+  // Cuando se cerró, el Shell se QUEDA: las pestañas y el texto de los
+  // editores viven acá, y volver al gestor los tiraría sin ninguno de los
+  // avisos que tienen cerrar una pestaña o salir. Se muestra el motivo con un
+  // botón para reconectar en el lugar; lo que se intente mientras tanto falla
+  // con un error que también lo explica.
+  const [cerrada, setCerrada] = useState<string | null>(null);
+  const [reconectando, setReconectando] = useState(false);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      SessionSvc.Current()
+        .then((s) => {
+          if (!s.connected) setCerrada((prev) => prev ?? (s.closedReason || "La conexión se cerró."));
+        })
+        .catch(() => {});
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  async function reconectar() {
+    const id = session?.connectionId;
+    if (!id) {
+      onDisconnect();
+      return;
+    }
+    setReconectando(true);
+    try {
+      const res = await SessionSvc.Connect(id);
+      if (!res.ok) {
+        // Sin sesión no hay dónde mostrar el detalle del fallo mejor que en
+        // el gestor, que ya sabe pedir contraseña o aceptar una clave nueva.
+        onDisconnect(res.failure?.message ?? "No se pudo reconectar.");
+        return;
+      }
+      setCerrada(null);
+      await load(true);
+    } catch (err) {
+      onDisconnect(textoDe(err));
+    } finally {
+      setReconectando(false);
+    }
+  }
 
   const env = session?.environment ?? "";
   const envClass = env ? styles[`env_${env}`] : undefined;
@@ -175,7 +224,7 @@ export function Shell({
       label: "Desconectar",
       disabled: !session?.connected,
       onSelect: () => {
-        void SessionSvc.Disconnect().then(onDisconnect);
+        void SessionSvc.Disconnect().then(() => onDisconnect());
       },
     },
     {
@@ -825,7 +874,7 @@ export function Shell({
           type="button"
           className={styles.statusLink}
           onClick={() => {
-            void SessionSvc.Disconnect().then(onDisconnect);
+            void SessionSvc.Disconnect().then(() => onDisconnect());
           }}
         >
           desconectar
@@ -886,17 +935,37 @@ export function Shell({
         onClose={() => setDesborde(null)}
       />
 
-      {errorCarpeta ? (
+      {errorCarpeta || cerrada ? (
         <ToastStack
           toasts={[
-            {
-              id: "carpeta",
-              tone: "error",
-              title: "No se pudo abrir la carpeta",
-              detail: errorCarpeta,
-            },
+            ...(cerrada
+              ? [
+                  {
+                    id: "cerrada",
+                    tone: "warning" as const,
+                    title: "La sesión se cerró",
+                    detail: cerrada,
+                    action: {
+                      label: reconectando ? "Reconectando…" : "Reconectar",
+                      onClick: () => {
+                        if (!reconectando) void reconectar();
+                      },
+                    },
+                  },
+                ]
+              : []),
+            ...(errorCarpeta
+              ? [
+                  {
+                    id: "carpeta",
+                    tone: "error" as const,
+                    title: "No se pudo abrir la carpeta",
+                    detail: errorCarpeta,
+                  },
+                ]
+              : []),
           ]}
-          onDismiss={() => setErrorCarpeta("")}
+          onDismiss={(id) => (id === "cerrada" ? setCerrada(null) : setErrorCarpeta(""))}
         />
       ) : null}
 

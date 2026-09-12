@@ -87,13 +87,13 @@ func servicios(rutas appinfo.Paths) []application.Service {
 	// Dos archivos y dos dueños: el historial es de esta máquina, las
 	// guardadas viajan con la libreta de conexiones. Ver internal/history.
 	historial := history.New(rutas.History, rutas.SavedQueries)
-	consultas.UsarHistorial(historial)
+	service.UsarHistorial(consultas, historial)
 
 	// Las preferencias las lee la pantalla de ajustes y, de las conexiones,
 	// SOLO el borrador de una nueva.
 	preferencias := config.New(rutas.Config)
 	libreta := service.NewConnections(connections, keyring, known)
-	libreta.UsarPreferencias(preferencias)
+	service.UsarPreferencias(libreta, preferencias)
 
 	return []application.Service{
 		application.NewService(appinfo.New()),

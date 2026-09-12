@@ -39,6 +39,9 @@ func sesionDe(t *testing.T, nombre, uri string) (*Session, connection.Connection
 		}
 	}
 	c.Environment = connection.Local
+	// Estos tests escriben sin palabra: la casilla se pone a propósito, y el
+	// test de la confirmación (safety_test.go) la saca.
+	c.Safety.AllowWriteWithoutConfirmation = true
 	if err := st.Add(c.Normalize()); err != nil {
 		t.Fatalf("Add(): %v", err)
 	}

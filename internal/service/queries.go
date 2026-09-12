@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -35,13 +37,19 @@ type Queries struct {
 
 // UsarHistorial le da a las consultas dónde anotarse.
 //
-// Va por un setter y no por el constructor porque el historial necesita al
-// Session y las Queries también: pasarlo por el constructor obligaba a armar
-// los tres en un orden que no existe.
-func (q *Queries) UsarHistorial(h *history.Store) { q.historial = h }
+// Es una FUNCIÓN del paquete y no un método a propósito: Wails expone como
+// binding todo método exportado de un servicio, y `UsarHistorial(null)` desde
+// el webview apagaba el historial (K-14 de la auditoría del 2026-09-11). Una
+// función del paquete no se bindea. Va aparte del constructor porque los tests
+// que arman Queries sin historial son la mayoría.
+func UsarHistorial(q *Queries, h *history.Store) { q.historial = h }
 
 func NewQueries(s *Session) *Queries {
-	return &Queries{session: s, enCurso: map[string]context.CancelFunc{}}
+	q := &Queries{session: s, enCurso: map[string]context.CancelFunc{}}
+	// Una consulta o un volcado largos no son inactividad: la sesión pregunta
+	// acá antes de cerrarse sola. Ver inactividad.go.
+	s.vigilarActividad(func() bool { return q.running() > 0 })
+	return q
 }
 
 // RunResult es el resultado de ejecutar.
@@ -121,6 +129,21 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 		return RunResult{OK: true, Batch: &query.Batch{}}
 	}
 
+	// «Bloquear DROP y TRUNCATE» vale también para lo que se escribe a mano,
+	// y se mira sobre el lote ENTERO antes de correr la primera: si el DROP es
+	// la tercera sentencia, las dos anteriores tampoco corren. Igual que
+	// preparar no ejecuta nada si una sentencia no se sabe escribir.
+	if sesion.conn.Safety.BlockDropTruncate {
+		for i, st := range sentencias {
+			if f := bloqueadaPorPolitica(st.SQL, sesion.db.Dialect()); f != nil {
+				f.Statement = i + 1
+				f.Line = st.Line
+				f.TotalStatements = len(sentencias)
+				return RunResult{Failure: f}
+			}
+		}
+	}
+
 	limite := sesion.conn.Safety.EffectiveRowLimit()
 	inicio := time.Now()
 	lote := &query.Batch{Results: make([]query.Result, 0, len(sentencias))}
@@ -150,6 +173,39 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	lote.ElapsedMs = time.Since(inicio).Milliseconds()
 	q.anotar(sesion.conn.ID, sql, lote, nil)
 	return RunResult{OK: true, Batch: lote}
+}
+
+// dropDentroDeAlter reconoce un DROP adentro de un ALTER: columna,
+// restricción, índice, clave, partición. Es lo que `preparar` bloquea del lado
+// del changeset (`Op() == OpDrop` cubre DropColumn, DropConstraint, DropIndex),
+// y las dos puertas tienen que decir lo mismo.
+var dropDentroDeAlter = regexp.MustCompile(
+	`(?i)\bdrop\s+(column|constraint|index|key|foreign\s+key|primary\s+key|check|partition|subpartition)\b`)
+
+// bloqueadaPorPolitica dice si «Bloquear DROP y TRUNCATE» rechaza esta
+// sentencia. Mira el comando y no el texto: un `SELECT 'drop'` pasa, y un
+// `/* … */ DROP` no. Un `ALTER TABLE … DROP COLUMN` también se bloquea, y la
+// búsqueda es sobre el texto: un `ALTER` con la palabra adentro de una cadena
+// se bloquea de más, que es el lado tolerable del error. Lo que NO ve es un
+// DROP adentro del cuerpo de un `DO $$…$$` o de una rutina; la ayuda de la
+// casilla lo dice.
+func bloqueadaPorPolitica(sql string, d query.Dialect) *engine.Failure {
+	cmd := query.Command(sql, d)
+	switch {
+	case cmd == "DROP", cmd == "TRUNCATE":
+	case cmd == "ALTER" && dropDentroDeAlter.MatchString(sql):
+		cmd = "ALTER … DROP"
+	default:
+		return nil
+	}
+	return &engine.Failure{
+		Kind: engine.FailurePermission,
+		Message: fmt.Sprintf(
+			"«Bloquear DROP y TRUNCATE» está puesta en esta conexión y esta sentencia es un %s.",
+			cmd),
+		Hint: "No se ejecutó ninguna sentencia del lote. Para correrla, apagá la casilla " +
+			"en la pestaña Safety de la conexión.",
+	}
 }
 
 // anotar deja la corrida en el historial.
@@ -345,8 +401,10 @@ func (q *Queries) Cancel(runID string) {
 	}
 }
 
-// Running dice cuántas ejecuciones hay en curso. Para tests y diagnóstico.
-func (q *Queries) Running() int {
+// running dice cuántas ejecuciones hay en curso. Para los tests y para la
+// desconexión por inactividad. No se exporta: un método exportado del servicio
+// es un binding (K-14).
+func (q *Queries) running() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.enCurso)
@@ -383,6 +441,9 @@ func (q *Queries) registrar(ctx context.Context, runID string) (context.Context,
 		// Después de borrar del mapa: cancelar libera los recursos del context
 		// y ya no puede alcanzar a una ejecución posterior con el mismo runID.
 		cancel()
+		// Terminar es actividad para la desconexión por inactividad: ver
+		// Session.tocarActual.
+		q.session.tocarActual()
 	}
 }
 
@@ -394,7 +455,7 @@ func (q *Queries) registrar(ctx context.Context, runID string) (context.Context,
 // túnel— y quien lo lee tiene que descartarlas de a una. Preguntarle al cliente
 // SSH si sigue vivo convierte esa lista en una respuesta.
 func (q *Queries) porElTunel(f *engine.Failure) *engine.Failure {
-	if f == nil || !q.session.TunnelDown() {
+	if f == nil || !q.session.tunnelDown() {
 		return f
 	}
 	return &engine.Failure{
