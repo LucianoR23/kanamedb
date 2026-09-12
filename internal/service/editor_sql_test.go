@@ -191,3 +191,67 @@ func detalleDe(r RunResult) string {
 	}
 	return strings.SplitN(r.Failure.Detail, "\n", 2)[0]
 }
+
+// TestElEditorRechazaElControlManualDeTransacciones.
+//
+// `BEGIN; UPDATE …; ROLLBACK;` en el editor no hacía lo pedido sino lo
+// contrario. Cada sentencia toma su propia conexión del pool: contra Postgres,
+// pgxpool destruye la que vuelve en transacción, el UPDATE corre en OTRA en
+// autocommit y queda confirmado, y el ROLLBACK responde bien sobre una tercera
+// (K-03). Contra MySQL y SQLite «funcionaba» porque database/sql devuelve la
+// última conexión liberada, y un BEGIN sin cerrar dejaba la conexión en
+// transacción adentro del pool: lock del archivo en SQLite, commit implícito
+// en el próximo Apply de MySQL (C-01).
+//
+// Hasta que exista el control manual por pestaña, el editor corre en
+// autocommit y lo dice: el lote se rechaza ANTES de correr nada, con el motivo.
+func TestElEditorRechazaElControlManualDeTransacciones(t *testing.T) {
+	for _, caso := range motoresDeEnsayo {
+		t.Run(caso.nombre, func(t *testing.T) {
+			sesion, c := sesionDe(t, caso.nombre, caso.uri)
+			ctx := context.Background()
+			esq, tabla := tablaDeDatos(t, sesion, c, "kn_txn", true)
+			abierta, _ := sesion.abierta()
+			q := NewQueries(sesion)
+
+			res := q.Run(ctx, "txn1",
+				"BEGIN;\nDELETE FROM "+califica(c, esq, tabla)+";\nROLLBACK;")
+			if res.OK || res.Failure == nil {
+				t.Fatal("el editor aceptó BEGIN … ROLLBACK, que no puede cumplir")
+			}
+			if !strings.Contains(res.Failure.Message, "autocommit") {
+				t.Errorf("el mensaje no explica que el editor corre en autocommit: %s", res.Failure.Message)
+			}
+			if res.Failure.Statement != 1 {
+				t.Errorf("tenía que señalar la sentencia 1 y señala la %d", res.Failure.Statement)
+			}
+			n, f := abierta.db.Count(ctx, esq, tabla, nil)
+			if f != nil {
+				t.Fatal(f.Message)
+			}
+			if n != 2 {
+				t.Fatalf("el DELETE corrió (%d filas de 2): el lote tenía que rechazarse entero", n)
+			}
+
+			for _, sql := range []string{
+				"START TRANSACTION", "COMMIT", "ROLLBACK", "SAVEPOINT a", "RELEASE SAVEPOINT a",
+				"END", "set autocommit = 0", "SET SESSION autocommit=0",
+				// Un comentario adelante con la palabra adentro no despista.
+				"-- set\nSET autocommit = 0",
+			} {
+				if res := q.Run(ctx, "txn2", sql); res.OK {
+					t.Errorf("%q se aceptó", sql)
+				}
+			}
+			// Y lo que se parece pero no es, pasa: un SELECT con la palabra.
+			if res := q.Run(ctx, "txn3", "SELECT 'begin' AS x"); !res.OK {
+				t.Errorf("un SELECT con la palabra adentro se rechazó: %s", mensajeDe(res))
+			}
+			// START REPLICA no es START TRANSACTION: no se rechaza por esto (el
+			// servidor dirá lo suyo).
+			if f := controlDeTransaccion("START REPLICA", abierta.db.Dialect()); f != nil {
+				t.Errorf("START REPLICA se tomó por START TRANSACTION: %s", f.Message)
+			}
+		})
+	}
+}

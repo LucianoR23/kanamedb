@@ -55,6 +55,12 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 	}
 	defer conn.Release()
 
+	// De acá en adelante el error es de la SENTENCIA, no de la conexión, y se
+	// clasifica con ClassifyStatement: con Classify, un error de sintaxis, una
+	// tabla inexistente o una división por cero se mostraban todos como «El
+	// servidor rechazó la conexión con la consulta» (comprobado el 2026-09-12
+	// al atender la auditoría; no estaba en ella).
+
 	// Exec del protocolo simple y no pool.Query: Query devuelve UN resultado y
 	// descarta los demás en silencio. Con `select 1; drop table x;` mostraría la
 	// fila del select como si el drop no hubiera existido —y el drop se ejecuta
@@ -110,7 +116,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 		tag, err := rr.Close()
 		if err != nil {
 			lote.ElapsedMs = time.Since(arranque).Milliseconds()
-			return lote, conAvisoDeLote(Classify(err, "la consulta"), lote.Results)
+			return lote, conAvisoDeLote(ClassifyStatement(err, "la consulta"), lote.Results)
 		}
 		res.Command = tag.String()
 		res.AffectedRows = tag.RowsAffected()
@@ -120,7 +126,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 
 	if err := mrr.Close(); err != nil {
 		lote.ElapsedMs = time.Since(arranque).Milliseconds()
-		return lote, conAvisoDeLote(Classify(err, "la consulta"), lote.Results)
+		return lote, conAvisoDeLote(ClassifyStatement(err, "la consulta"), lote.Results)
 	}
 	lote.ElapsedMs = time.Since(arranque).Milliseconds()
 

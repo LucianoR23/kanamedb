@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as SessionSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/session";
 import * as SettingsSvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/settings";
 import { Application } from "@wailsio/runtime";
@@ -129,11 +129,16 @@ export function Shell({
   // con un error que también lo explica.
   const [cerrada, setCerrada] = useState<string | null>(null);
   const [reconectando, setReconectando] = useState(false);
+  // Se avisa UNA vez por cierre: si se descarta el aviso, el próximo sondeo no
+  // lo vuelve a abrir. Se rearma al reconectar.
+  const avisada = useRef(false);
   useEffect(() => {
     const id = window.setInterval(() => {
       SessionSvc.Current()
         .then((s) => {
-          if (!s.connected) setCerrada((prev) => prev ?? (s.closedReason || "La conexión se cerró."));
+          if (s.connected || avisada.current) return;
+          avisada.current = true;
+          setCerrada(s.closedReason || "La conexión se cerró.");
         })
         .catch(() => {});
     }, 30_000);
@@ -156,6 +161,7 @@ export function Shell({
         return;
       }
       setCerrada(null);
+      avisada.current = false;
       await load(true);
     } catch (err) {
       onDisconnect(textoDe(err));

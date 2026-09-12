@@ -142,6 +142,15 @@ func TestExportarEImportarEntreDosLibretas(t *testing.T) {
 	if p.Existing != "" || len(p.Problems) != 0 {
 		t.Errorf("una candidata nueva y válida sale con Existing=%q Problems=%v", p.Existing, p.Problems)
 	}
+	// Lo que el gestor mostraría después se ve antes: modo TLS efectivo,
+	// protecciones y avisos (K-10). `require` sin raíz no verifica el
+	// certificado, y eso es un aviso.
+	if p.SSLMode != connection.SSLRequire {
+		t.Errorf("SSLMode = %q, se esperaba el de la conexión (require)", p.SSLMode)
+	}
+	if len(p.Warnings) == 0 {
+		t.Errorf("una conexión en require sin raíz tiene que traer el aviso de TLS a la vista previa")
+	}
 
 	nuevas, err := destino.ImportConnections(path, vista.Fingerprint, []int{0, 1})
 	if err != nil {
@@ -369,5 +378,54 @@ func TestLaVistaPreviaMuestraLaSQLDeSesionDelArchivo(t *testing.T) {
 	}
 	if importadas[0].Connection.Advanced.SessionSQL != c.Advanced.SessionSQL {
 		t.Errorf("la importación perdió la SQL de sesión: %+v", importadas[0].Connection.Advanced)
+	}
+}
+
+// TestLaVistaPreviaDeImportarMuestraLasProteccionesQueTraeElArchivo.
+//
+// Un archivo de otra persona puede traer `ssl_mode = "disable"`,
+// `read_only = false` y `allow_apply_without_preview = true` para un host de
+// producción. La vista previa mostraba el entorno y el destino, y ninguno de
+// esos: la libreta quedaba con una conexión menos protegida de lo que quien
+// importó creía, hasta abrir el gestor (K-10).
+func TestLaVistaPreviaDeImportarMuestraLasProteccionesQueTraeElArchivo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ajena.toml")
+	escribir(t, path, `version = 1
+
+[[connection]]
+id = "x"
+name = "prod ajena"
+engine = "postgres"
+host = "db.prod.internal"
+port = 5432
+database = "shop"
+user = "app"
+environment = "staging"
+ssl_mode = "disable"
+
+[connection.safety]
+read_only = false
+allow_apply_without_preview = true
+allow_write_without_confirmation = true
+`)
+	vista, err := nuevo(t).PreviewImport(path)
+	if err != nil {
+		t.Fatalf("PreviewImport(): %v", err)
+	}
+	c := vista.Connections[0]
+	if c.SSLMode != connection.SSLDisable {
+		t.Errorf("SSLMode = %q", c.SSLMode)
+	}
+	if !c.Safety.AllowApplyWithoutPreview || !c.Safety.AllowWriteWithoutConfirmation || c.Safety.ReadOnly {
+		t.Errorf("Safety no es la del archivo: %+v", c.Safety)
+	}
+	campos := map[string]bool{}
+	for _, w := range c.Warnings {
+		campos[w.Field] = true
+	}
+	for _, f := range []string{"sslMode", "allowApplyWithoutPreview", "allowWriteWithoutConfirmation"} {
+		if !campos[f] {
+			t.Errorf("falta el aviso sobre %s en la vista previa: %+v", f, c.Warnings)
+		}
 	}
 }

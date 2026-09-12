@@ -409,9 +409,11 @@ function Versiones({
       <Field label="Buscar">
         <div className={styles.control}>
           <p className={styles.ayuda}>
-            Consulta la última versión publicada en GitHub. Es un pedido y nada más: sin
-            identificadores, sin la versión que tenés puesta —la comparación se hace acá— y
-            solo cuando apretás el botón. No descarga ni instala nada.
+            Consulta la última versión publicada en GitHub. Es la única salida a internet que
+            tiene Kaname, y solo pasa cuando apretás el botón: un pedido HTTPS a{" "}
+            <code>api.github.com</code>, sin identificadores ni la versión que tenés puesta
+            —la comparación se hace acá—. GitHub ve tu dirección IP, como cualquier sitio que
+            visitás. No descarga ni instala nada.
           </p>
           <div>
             <Button

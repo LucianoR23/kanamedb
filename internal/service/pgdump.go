@@ -245,8 +245,12 @@ func (d *Dumps) RunPgDump(ctx context.Context, r DumpRequest, path string) (PgDu
 }
 
 // opcionesDePgDump traduce el pedido de Kaname a las banderas de la herramienta.
+//
+// El TLS va tal como lo usa la propia conexión —modo efectivo y rutas
+// resueltas, de TLSOptions—: `pg_dump` es otro proceso y no hereda nada de
+// pgx, así que sin esto volcaba con el default de libpq (K-04).
 func opcionesDePgDump(sesion *openSession, r DumpRequest, salida string) dump.PgDumpOptions {
-	return dump.PgDumpOptions{
+	o := dump.PgDumpOptions{
 		Host:      sesion.conn.Host,
 		Port:      sesion.conn.Port,
 		User:      sesion.conn.User,
@@ -257,6 +261,20 @@ func opcionesDePgDump(sesion *openSession, r DumpRequest, salida string) dump.Pg
 		Clean:     r.DropFirst,
 		Salida:    salida,
 	}
+	if tls, err := sesion.conn.TLSOptions(); err == nil {
+		o.SSLMode = string(tls.Mode)
+		o.SSLRootCert = tls.RootCert
+		o.SSLCert = tls.ClientCert
+		o.SSLKey = tls.ClientKey
+	} else {
+		// Un `~` que no se pudo resolver: el modo va igual, que es lo que
+		// protege, y la ruta tal cual para que el error lo dé pg_dump al abrir.
+		o.SSLMode = string(sesion.conn.EffectiveSSLMode())
+		o.SSLRootCert = sesion.conn.TLS.RootCertPath
+		o.SSLCert = sesion.conn.TLS.ClientCertPath
+		o.SSLKey = sesion.conn.TLS.ClientKeyPath
+	}
+	return o
 }
 
 // versionDePgDump corre `pg_dump --version`.

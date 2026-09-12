@@ -87,9 +87,60 @@ func TestElEsquemaYElNombreDeLaBaseVanEnElComando(t *testing.T) {
 			t.Errorf("falta %q: %s", q, texto)
 		}
 	}
-	// La base va al final y sin bandera, que es como la espera pg_dump.
-	if !strings.HasSuffix(texto, " demo") {
-		t.Errorf("la base no está al final: %s", texto)
+	// La base va en la cadena de conexión de libpq, al final.
+	if !strings.HasSuffix(texto, "--dbname=dbname=demo") {
+		t.Errorf("la base no está al final como cadena de conexión: %s", texto)
+	}
+}
+
+// TestElComandoLlevaElTLSDeLaConexion.
+//
+// `pg_dump` es otro proceso: no hereda el modo TLS ni los certificados que
+// pgx usa en la conexión de Kaname, y sin ellos arranca con `prefer`, que no
+// verifica nada. Una conexión `verify-full` con raíz propia tiene que volcar
+// con `verify-full` y esa raíz, y el comando que se copia tiene que mostrarlo:
+// quien lo corre a mano hereda lo mismo. Hallazgo K-04 de la auditoría del
+// 2026-09-11.
+func TestElComandoLlevaElTLSDeLaConexion(t *testing.T) {
+	o := opts()
+	o.SSLMode = "verify-full"
+	o.SSLRootCert = `C:\Users\ana\certs\raiz ca.pem`
+	o.SSLCert = "/home/ana/cliente.crt"
+	o.SSLKey = "/home/ana/cliente.key"
+	// Se mira el argumento tal como lo recibe pg_dump, no el texto para el
+	// shell: el shell le agrega su propia capa de comillas encima.
+	args := Comando(o)
+	dbname := args[len(args)-1]
+	for _, q := range []string{
+		"--dbname=dbname=demo ",
+		"sslmode=verify-full",
+		// Citado como lo pide libpq: comillas simples por el espacio, y las
+		// barras de Windows dobladas adentro.
+		`sslrootcert='C:\\Users\\ana\\certs\\raiz ca.pem'`,
+		"sslcert=/home/ana/cliente.crt",
+		"sslkey=/home/ana/cliente.key",
+	} {
+		if !strings.Contains(dbname, q) {
+			t.Errorf("falta %q: %s", q, dbname)
+		}
+	}
+	// Todo adentro de UN --dbname: libpq lo lee de ahí. Y el texto copiable
+	// lo muestra, para que quien lo corra a mano herede el mismo modo.
+	texto := ComandoTexto(o)
+	if strings.Count(texto, "--dbname=") != 1 || !strings.Contains(texto, "sslmode=verify-full") {
+		t.Errorf("el comando copiable no lleva el TLS en una sola cadena: %s", texto)
+	}
+
+	// Sin TLS configurado no se inventa nada.
+	texto = ComandoTexto(opts())
+	if strings.Contains(texto, "ssl") {
+		t.Errorf("sin TLS el comando no tiene por qué mencionarlo: %s", texto)
+	}
+	// Y un nombre de base que empieza con guion ya no es una opción.
+	o = opts()
+	o.Database = "-rara"
+	if !strings.Contains(ComandoTexto(o), "dbname=-rara") {
+		t.Errorf("una base llamada -rara tiene que ir dentro de la cadena: %s", ComandoTexto(o))
 	}
 }
 

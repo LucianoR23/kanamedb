@@ -30,7 +30,13 @@ func TestElComandoDePgDumpSeArmaAunqueNoSePuedaCorrer(t *testing.T) {
 	if st.Command == "" {
 		t.Fatal("no se armó el comando")
 	}
-	for _, q := range []string{"pg_dump", "--host=" + abierta.conn.Host, "--no-password"} {
+	// El modo TLS es el de la conexión: la de pruebas va con sslmode=disable,
+	// y eso tiene que verse en el comando; una en verify-full llevaría el suyo
+	// y su raíz (K-04). Sin esto pg_dump volcaba con el default de libpq.
+	for _, q := range []string{
+		"pg_dump", "--host=" + abierta.conn.Host, "--no-password",
+		"sslmode=" + string(abierta.conn.EffectiveSSLMode()),
+	} {
 		if !strings.Contains(st.Command, q) {
 			t.Errorf("al comando le falta %q: %s", q, st.Command)
 		}

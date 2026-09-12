@@ -210,6 +210,13 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 			Hint:    "El ensayo también lo pide: inserta las filas de verdad antes de revertirlas.",
 		}}
 	}
+	// Una importación y un apply a la vez sobre la misma sesión se pisan: el
+	// mismo candado que Apply. Ver openSession.escritura.
+	soltar, err := tomarEscritura(sesion, "importar")
+	if err != nil {
+		return ImportResult{Failure: &engine.Failure{Kind: engine.FailureLock, Message: err.Error()}}
+	}
+	defer soltar()
 
 	destino, err := columnasDestino(p.Mapping)
 	if err != nil {

@@ -333,6 +333,19 @@ func esEspacio(c rune) bool {
 // Es una función y no un método porque la usan dos motores; Postgres no la
 // necesita, que recibe el comando del propio servidor.
 func Command(sql string, d Dialect) string {
+	r := []rune(Trim(sql, d))
+	if len(r) == 0 {
+		return ""
+	}
+	return strings.ToUpper(string(r[:finDePalabra(r, 0)]))
+}
+
+// Trim devuelve la sentencia desde su primera palabra, sin los comentarios
+// ni el espacio de adelante. Es el MISMO escaneo que hace Command, expuesto
+// para quien tenga que mirar más que la primera palabra —una expresión
+// anclada al principio, por ejemplo—. Volver a buscar la palabra en el texto
+// entero no sirve: la encontraría antes, adentro del comentario.
+func Trim(sql string, d Dialect) string {
 	r := []rune(sql)
 	i := 0
 	for i < len(r) {
@@ -353,7 +366,7 @@ func Command(sql string, d Dialect) string {
 			}
 			i = j
 		default:
-			return strings.ToUpper(string(r[i:finDePalabra(r, i)]))
+			return string(r[i:])
 		}
 	}
 	return ""

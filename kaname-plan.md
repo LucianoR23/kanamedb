@@ -1015,6 +1015,99 @@ falla antes del fix; el estado por hallazgo queda anotado en el propio
   también se bloquea; lo que sigue sin verse es un DROP adentro de un `DO
   $$…$$` o del cuerpo de una rutina, y la ayuda de la casilla lo dice.
 
+**Auditoría, segunda tanda: lo que se ve es lo que corre, y el editor no
+promete lo que no cumple.**
+
+- **K-03/C-01 (ALTO), transacciones manuales en el editor.** Comprobado
+  contra Postgres: `BEGIN; DELETE; ROLLBACK;` devolvía OK y la tabla quedaba
+  vacía —cada sentencia toma su conexión del pool, y pgxpool destruye la que
+  vuelve en transacción—. Decidido con el usuario: **hoy se rechaza**
+  (BEGIN/START TRANSACTION/COMMIT/ROLLBACK/SAVEPOINT/RELEASE/END y `SET
+  autocommit`, antes de correr nada, con el motivo) y **el control manual por
+  pestaña se implementa después**, con una conexión dedicada que sobreviva
+  entre ejecuciones, toggle de auto-commit, indicador de transacción abierta
+  y ROLLBACK al cerrar. Queda especificado en
+  `docs/reviews/pendientes-auditoria-2026-09-12.md`.
+- **K-04 (ALTO), `pg_dump` sin TLS.** La base va ahora en `--dbname=` como
+  cadena de conexión de libpq —`dbname=… sslmode=… sslrootcert=…`—, que es el
+  único lugar donde caben el modo y los certificados; el comando copiable los
+  muestra, así quien lo corre a mano hereda lo mismo. Sigue sin contraseña.
+- **K-05 (MEDIO), escrituras concurrentes.** `openSession.escritura` con
+  `TryLock` en Apply, DryRun e importar: el segundo falla enseguida con
+  `ErrBusy` en vez de encolarse; son operaciones largas y el segundo pedido
+  casi nunca es a propósito.
+- **K-06 (MEDIO), solo lectura reversible desde el editor.** Comprobado: `SET
+  default_transaction_read_only = off; DELETE` borraba. Se rechaza en `Run`
+  lo que apaga el modo en los cuatro motores. Es una red del lado del
+  cliente, y se dice así: el modo sigue siendo un parámetro de sesión.
+- **Fuera de la auditoría, encontrado al pasar:** `postgres.Run` clasificaba
+  los errores de sentencia con `Classify` —el de conexión—, así que un error
+  de sintaxis, una tabla inexistente o una división por cero se mostraban en
+  el editor como «El servidor rechazó la conexión con la consulta». Ahora usa
+  `ClassifyStatement`, que ya existía para esto.
+- **K-08 (MEDIO), la vista previa no ataba lo que se ejecuta.**
+  `ChangesetView.Fingerprint` (SHA-256 de las sentencias en orden) viaja de
+  vuelta en `ApplyOptions`: obligatoria salvo «Aplicar sin abrir la vista
+  previa» —casilla que hasta acá tampoco tenía código, porque la interfaz
+  siempre pasaba por la vista previa y Go no podía saberlo— y si no coincide
+  con lo que se va a ejecutar, no se ejecuta. `DryRun` no la exige: no deja
+  nada. **Al escribir el test apareció un bug de la misma clase que K-01, no
+  listado en la auditoría:** en SQLite, `AddColumn a` + `SetNotNull n` sobre
+  la misma tabla dejaba la tabla SIN `a`, y `SetNotNull n` + `SetNotNull m`
+  dejaba `n` nullable, las dos con OK. El guion de la reconstrucción se
+  escribe contra el catálogo de ANTES de que corra lo anterior. Hasta que
+  haya **una sola reconstrucción por tabla que acumule sus cambios**
+  (pendientes), un cambio que reconstruye tiene que ser el único cambio de
+  estructura de su tabla en el changeset: se rechaza en `Stage` —para
+  enterarse al preparar— y otra vez en `preparar` (`ErrRebuildNotAlone`).
+  Los cambios de datos sobre la misma tabla no molestan: corren después.
+- **K-09 (MEDIO), «Buscar actualizaciones».** Decidido dejarlo: es manual,
+  acotado y documentado. La ayuda de Ajustes dice ahora que es la única
+  salida a internet, que va a `api.github.com` solo al apretar, y que GitHub
+  ve la IP.
+- **K-10 (MEDIO), vista previa de importar conexiones.** `ImportCandidate`
+  lleva el modo TLS efectivo, `Safety` y `Warnings()`, y la pantalla los pinta
+  con badges y una lista de avisos por entrada: el mismo criterio que ya se
+  aplicaba a `SessionSQL`, extendido al resto.
+- **Review de la tanda (`high`)** encontró que `sinComentariosAdelante`
+  volvía a buscar la primera palabra en el texto entero y la encontraba
+  adentro del comentario inicial: `-- settings\nSET default_transaction_read_only
+  = off` pasaba las dos guardas nuevas. Ahora `query.Trim` expone el mismo
+  escaneo que `Command`. También: `ALTER TABLE t DROP c` sin la palabra
+  COLUMN pasaba (ahora cualquier `DROP x` dentro de un ALTER se bloquea salvo
+  `DROP NOT NULL|DEFAULT|IDENTITY|EXPRESSION`, que quitan una propiedad y no
+  borran nada); `READ WRITE` en otra línea pasaba (`(?s)`); `START REPLICA`
+  se tomaba por `START TRANSACTION`; `StageMany` renderizaba también los
+  cambios de datos (cuadrático en una sesión de grilla); el aviso de sesión
+  cerrada volvía cada 30 s tras descartarlo; y el badge de TLS de la vista
+  previa de importar decidía el tono por el modo en vez de por el aviso de Go
+  (`require` con raíz verifica). Todo corregido con casos en los tests.
+
+**Auditoría, tercera tanda: un volcado que se puede volver a correr.**
+
+- **C-05 (ALTO), identity y secuencias.** `engine.Conn.DumpHints(detalle)`:
+  lo que los INSERT de una tabla necesitan alrededor en este motor. Postgres
+  devuelve `OVERRIDING SYSTEM VALUE` cuando hay identity ALWAYS —sin eso el
+  archivo no corre, 428C9— y un `setval(pg_get_serial_sequence(…))` por
+  columna que se numera sola —sin eso el primer INSERT sin id sobre la base
+  restaurada choca, una vez por fila vieja—. MySQL y SQLite devuelven vacío:
+  InnoDB ajusta el contador con inserts explícitos y SQLite usa
+  `max(rowid)+1`. Se probó restaurando e insertando sin id en `serial`,
+  `BY DEFAULT` y `ALWAYS`.
+- **C-17 (MEDIO) y el lugar de la regla.** `volcar` es el único camino por el
+  que pasa toda exportación a SQL, así que ahí se resuelven las columnas
+  insertables y los hints; la grilla daba un archivo que fallaba con una
+  columna STORED. El volcado le pasa el detalle que ya leyó (campo no
+  exportado de `TableExport`) para no leerlo dos veces.
+- **C-16 (MEDIO), la vista previa leía la tabla entera.** `ScanOptions.Limit`
+  con el LIMIT del motor. Cortar del lado del cliente no servía: cerrar el
+  recorrido consume el resto por el cable.
+- **C-10 (MEDIO)** los DROP de «DROP primero» van todos juntos al principio y
+  en orden hijas → madres. **C-25 (BAJO)** las claves hacia esquemas fuera
+  del archivo no se escriben y se nombran en la cobertura
+  (`schema.ObjForeignKey`). **C-21 y C-31 (BAJO)** `SaveTables` y `Dumps.Save`
+  se registran para cancelar antes de la parte larga.
+
 ### Iteración 9 — 2026-09-11
 
 **S03 TLS, hecha: los certificados van por ruta, MySQL habla libpq, y el

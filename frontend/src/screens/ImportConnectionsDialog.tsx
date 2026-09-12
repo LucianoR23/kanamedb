@@ -100,7 +100,31 @@ export function ImportConnectionsDialog({
                   <EnvBadge env={c.environment as "local" | "dev" | "staging" | "production"} />
                   {c.folder ? <Badge tone="neutral">carpeta {c.folder}</Badge> : null}
                   {c.ssh ? <Badge tone="info">túnel SSH</Badge> : null}
+                  {/* Lo que el gestor mostraría después, antes de importar: el
+                      archivo lo escribió otra persona y puede traer TLS
+                      apagado o protecciones sacadas para un host que acá es
+                      producción. */}
+                  {c.engine !== "sqlite" ? (
+                    <Badge tone={avisaSobre(c, "sslMode") ? "warning" : "neutral"}>
+                      TLS {c.sslMode}
+                    </Badge>
+                  ) : null}
+                  {c.safety?.readOnly ? <Badge tone="info">solo lectura</Badge> : null}
+                  {c.safety?.allowApplyWithoutPreview ? (
+                    <Badge tone="warning">aplica sin vista previa</Badge>
+                  ) : null}
+                  {c.safety?.allowWriteWithoutConfirmation && !c.production ? (
+                    <Badge tone="warning">escribe sin confirmar</Badge>
+                  ) : null}
+                  {c.safety?.blockDropTruncate ? <Badge tone="info">bloquea DROP</Badge> : null}
                 </div>
+                {(c.warnings ?? []).length > 0 ? (
+                  <ul className={styles.avisosDeEntrada}>
+                    {(c.warnings ?? []).map((w) => (
+                      <li key={w.field}>{w.message}</li>
+                    ))}
+                  </ul>
+                ) : null}
                 {c.existing ? (
                   <p className={styles.nota}>
                     Ya apunta ahí <strong>{c.existing}</strong>. Se puede importar igual: queda otra
@@ -151,4 +175,10 @@ export function ImportConnectionsDialog({
 /** Tildada de entrada salvo que esté rota o ya se tenga una igual. */
 function elegiblePorDefecto(c: ImportCandidate): boolean {
   return (c.problems?.length ?? 0) === 0 && !c.existing;
+}
+
+/** Si Go avisó sobre ese campo. La regla de qué modo verifica vive allá
+ *  —`require` con una raíz cargada verifica— y acá solo se le pone tono. */
+function avisaSobre(c: ImportCandidate, campo: string): boolean {
+  return (c.warnings ?? []).some((w) => w.field === campo);
 }

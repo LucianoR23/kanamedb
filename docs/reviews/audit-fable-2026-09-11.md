@@ -168,6 +168,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-03] [ALTO] [VERIFICADO] Las transacciones manuales del editor SQL contra Postgres se pierden en silencio: cada sentencia va por su propia conexión y `pgxpool` destruye la que quedó en transacción
 
+> **Estado 2026-09-12:** CORREGIDO (mínimo). Comprobado contra Postgres: `BEGIN; DELETE; ROLLBACK;` devolvía OK y la tabla quedaba vacía. `Queries.Run` rechaza el lote entero ante BEGIN/START TRANSACTION/COMMIT/ROLLBACK/SAVEPOINT/RELEASE/END y `SET autocommit`, con el motivo. El control manual por pestaña queda en `docs/reviews/pendientes-auditoria-2026-09-12.md`. Test: `TestElEditorRechazaElControlManualDeTransacciones` (cuatro motores).
+
 > Actualización 2026-09-12: la parte de MySQL y SQLite, que acá quedó como sospechada,
 > está verificada y desarrollada en C-01.
 
@@ -218,6 +220,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-04] [ALTO] [VERIFICADO] `pg_dump` corre sin el modo TLS ni los certificados de la conexión: baja a `prefer` y manda `PGPASSWORD` por ese canal
 
+> **Estado 2026-09-12:** CORREGIDO. La base va en `--dbname=` como cadena de conexión de libpq con `sslmode`, `sslrootcert`, `sslcert` y `sslkey` de `TLSOptions()`; el comando copiable los muestra; el nombre con `-` inicial deja de ser opción. Tests: `dump/pgdump_test.go` (`TestElComandoLlevaElTLSDeLaConexion`) y la aserción del modo en `service/pgdump_test.go`.
+
 - Ubicación: `internal/service/pgdump.go:200-210` y `:248-260`; `internal/dump/pgdump.go:45-85`.
 - Evidencia:
 
@@ -264,6 +268,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-05] [MEDIO] [VERIFICADO] `Apply`, `DryRun` e `Imports.Run` no se excluyen entre sí: dos llamadas concurrentes ejecutan el mismo changeset dos veces
 
+> **Estado 2026-09-12:** CORREGIDO. `openSession.escritura` con `TryLock` en Apply, DryRun e `Imports.correr`; el segundo falla con `ErrBusy` (importar: `FailureLock`) sin tocar la base ni consumir el changeset. Test: `TestDosEscriturasALaVezNoSePisan`.
+
 - Ubicación: `internal/service/apply.go:639-692` y `:138-169`; `internal/service/importar.go:182-310`.
 - Evidencia:
 
@@ -297,6 +303,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   `Failure` de tipo lock en la segunda.
 
 ### [K-06] [MEDIO] [VERIFICADO] El modo «solo lectura» es un ajuste de sesión que el propio editor SQL puede revertir
+
+> **Estado 2026-09-12:** CORREGIDO (red del lado del cliente). Comprobado contra Postgres: `SET default_transaction_read_only = off; DELETE` borraba en una conexión de solo lectura. `Queries.Run` rechaza lo que apaga el modo en los cuatro motores (`SET … read_only/tx_read_only`, `SET … TRANSACTION … READ WRITE`, `RESET`, `PRAGMA query_only`). Test: `TestSoloLecturaNoSeApagaDesdeElEditor`. Además, de paso: `postgres.Run` clasificaba los errores de sentencia con el clasificador de CONEXIÓN («El servidor rechazó la conexión con la consulta» para un error de sintaxis); ahora usa `ClassifyStatement`.
 
 - Ubicación: `internal/postgres/connect.go:164-170`; `internal/mysql/sesion.go:93-97`; `internal/sqlite/connect.go:49-51` y `:67-71`; `internal/service/queries.go:128-129`; `puddle/v2@v2.2.2/internal/genstack/gen_stack.go:32` (Pop es LIFO).
 - Evidencia:
@@ -377,6 +385,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-08] [MEDIO] [SOSPECHADO] Nada ata lo que se previsualizó a lo que se ejecuta: `Apply` vuelve a renderizar, y en SQLite lo hace contra el catálogo del momento
 
+> **Estado 2026-09-12:** CORREGIDO. `ChangesetView.Fingerprint` (SHA-256 de las sentencias en orden) y `ApplyOptions.Fingerprint`: obligatoria salvo «Aplicar sin abrir la vista previa» —que hasta acá era un cartel, porque Go no podía distinguir—, y si viene y no coincide con lo que se va a ejecutar, no se ejecuta. Al escribir el test apareció un bug nuevo, no listado: en SQLite, un `AddColumn` + una reconstrucción de la misma tabla en el mismo changeset perdía la columna, y dos reconstrucciones se deshacían entre sí, con OK. Se rechaza la combinación en Stage y en Apply (`ErrRebuildNotAlone`); el rediseño va a pendientes. Tests: `TestApplyExigeLaHuellaDeLaVistaPrevia`, `TestUnaReconstruccionDeSQLiteVaSolaEnSuTabla`.
+
 - Ubicación: `internal/service/apply.go:699-718` (`preparar`); `internal/sqlite/rebuild.go:54-75` y `:94-105`; `internal/service/compartir.go:181-191` (el precedente con huella).
 - Evidencia:
 
@@ -411,6 +421,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-09] [MEDIO] [VERIFICADO] Salida a internet: «Buscar actualizaciones» consulta `api.github.com`
 
+> **Estado 2026-09-12:** DECIDIDO: se deja. La ayuda de Ajustes dice ahora que es la única salida a internet, que va a `api.github.com` solo al apretar, y qué ve GitHub (la IP).
+
 - Ubicación: `internal/update/update.go:38` y `:120-186`; `internal/service/ajustes.go:112-119`; `frontend/src/screens/Settings.tsx:423`; `README.md:72-73`.
 - Evidencia:
 
@@ -442,6 +454,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   sin el tag y confirme que `Settings` no expone `CheckForUpdates`.
 
 ### [K-10] [MEDIO] [VERIFICADO] La vista previa de «Importar conexiones» no muestra las protecciones ni los avisos de TLS que trae el archivo
+
+> **Estado 2026-09-12:** CORREGIDO. `ImportCandidate` lleva `SSLMode` efectivo, `Safety` y `Warnings()`; la vista previa los pinta como badges y lista de avisos por entrada. Test: `TestLaVistaPreviaDeImportarMuestraLasProteccionesQueTraeElArchivo`.
 
 - Ubicación: `internal/service/compartir.go:97-122` y `:148-171`; `internal/store/compartir.go:70-97`.
 - Evidencia:
@@ -727,6 +741,8 @@ compuesta correcta).
 
 ### [C-01] [ALTO] [VERIFICADO] Cierre de K-03 para MySQL y SQLite: la transacción del editor queda pegada a una conexión del pool, y el siguiente `Apply` o la app entera pagan por ella
 
+> **Estado 2026-09-12:** CORREGIDO por el mismo rechazo de K-03: ya no puede entrar un BEGIN ni un `SET autocommit = 0` al pool.
+
 - **Ubicación**: `$GOROOT/src/database/sql/sql.go` (`conn()`: `conn := db.freeConn[last]`);
   `go-sql-driver/mysql@v1.10.1/connection.go:777-809` (`ResetSession`);
   `modernc.org/sqlite@v1.58.0` (sin `ResetSession`); `internal/sqlite/query.go:30-34`;
@@ -871,6 +887,8 @@ compuesta correcta).
 
 ### [C-05] [ALTO] [VERIFICADO] Volcado de Postgres: las columnas `GENERATED ALWAYS AS IDENTITY` hacen fallar los `INSERT`, y ninguna secuencia se reposiciona después de los datos
 
+> **Estado 2026-09-12:** CORREGIDO. `engine.Conn.DumpHints`: Postgres devuelve `OVERRIDING SYSTEM VALUE` con identity ALWAYS y un `setval(pg_get_serial_sequence(…), COALESCE(max(col),1), max(col) IS NOT NULL)` por columna que se numera sola; MySQL y SQLite no necesitan nada. Test `TestLasSecuenciasVuelvenPosicionadasYLaIdentityAlwaysSeRestaura`: restaura e inserta sin id en las tres variantes (falla con 428C9 sin el fix).
+
 - **Ubicación**: `internal/postgres/objetos.go:200-217`; `internal/dump/ddl.go:73-86`;
   `internal/service/volcado.go:181-199,368-405`; `internal/export/sql.go:74-81`.
 - **Evidencia**: la estructura escribe `tipo GENERATED ALWAYS AS IDENTITY`
@@ -1005,6 +1023,8 @@ compuesta correcta).
 
 ### [C-10] [MEDIO] [VERIFICADO] Volcado con «DROP primero»: los `DROP TABLE` salen intercalados y en orden madre → hija, que es el único orden en que fallan
 
+> **Estado 2026-09-12:** CORREGIDO. Todos los `DROP TABLE IF EXISTS` juntos al principio, en orden inverso al topológico. Test `TestDropFirstSirveSobreUnaBaseQueYaTieneLasTablas` corre el archivo sin borrar nada antes.
+
 - **Ubicación**: `internal/service/volcado.go:319-325`; `internal/dump/orden.go:27-40`.
 - **Evidencia**:
   ```go
@@ -1132,6 +1152,8 @@ compuesta correcta).
 
 ### [C-16] [MEDIO] [VERIFICADO] La vista previa de exportación lee la tabla entera después del límite
 
+> **Estado 2026-09-12:** CORREGIDO. `ScanOptions.Limit` con el LIMIT del motor en los tres; `volcar` lo pasa desde la vista previa. Test `TestLaVistaPreviaNoLeeLaTablaEntera` (cuatro motores).
+
 - **Ubicación**: `internal/service/export.go:227-239,266-270`; `internal/postgres/scan.go:171-180`;
   `frontend/src/screens/ExportDialog.tsx:204-211`.
 - **Evidencia**: `defer listo()` se registra antes que `defer flujo.Close()`, así que al
@@ -1149,6 +1171,8 @@ compuesta correcta).
   `Next()`: hoy recorre todas las filas.
 
 ### [C-17] [MEDIO] [VERIFICADO] Exportar una tabla a SQL desde la grilla incluye las columnas generadas, y el archivo falla al correr
+
+> **Estado 2026-09-12:** CORREGIDO. `volcar` resuelve `insertables` y `DumpHints` para todo formato SQL; el volcado le pasa el detalle ya leído para no leerlo dos veces. Test `TestExportarASQLDesdeLaGrillaDejaAfueraLasGeneradas`.
 
 - **Ubicación**: `frontend/src/screens/ExportDialog.tsx:165-177`; `internal/service/export.go:230-235`;
   `internal/postgres/scan.go:187-190`; `internal/service/volcado.go:386-389`.
@@ -1220,6 +1244,8 @@ compuesta correcta).
 
 ### [C-21] [BAJO] [VERIFICADO] `SaveTables` no se registra para cancelar: entre una tabla y la siguiente, «Cancelar» se pierde
 
+> **Estado 2026-09-12:** CORREGIDO. `SaveTables` se registra una vez, después de validar la entrada. Sin test propio: la ventana entre tablas no se puede provocar a voluntad; el mecanismo es el mismo que `Dumps.Save` ya prueba.
+
 - **Ubicación**: `internal/service/export.go:358-402,412-453`; `internal/service/queries.go:355-387`;
   `internal/service/volcado.go:125-131`.
 - **Evidencia**: `aUnArchivo` y `aUnDirectorio` llaman a `volcar` por tabla, y cada
@@ -1281,6 +1307,8 @@ compuesta correcta).
   mayúsculas, comparar con `EqualFold` cuando el motor pliega.
 
 ### [C-25] [BAJO] [VERIFICADO] El volcado escribe claves foráneas hacia esquemas que no están en el archivo
+
+> **Estado 2026-09-12:** CORREGIDO. `dump.ClavesForaneas` recibe los esquemas del volcado, deja afuera las que apuntan a otro y las devuelve para la cobertura (`schema.ObjForeignKey`, «clave foránea hacia otro esquema»). Test `TestUnaClaveHaciaOtroEsquemaNoVaAlArchivoYSeNombra`.
 
 - **Ubicación**: `internal/service/volcado.go:347-353`; `internal/dump/orden.go:59-67`.
 - **Evidencia**: `Orden` ignora a propósito las aristas hacia tablas fuera del volcado;
@@ -1367,6 +1395,8 @@ compuesta correcta).
   esquema propio antes de comparar.
 
 ### [C-31] [BAJO] [VERIFICADO] El volcado planifica antes de registrarse: un esquema grande no se puede cancelar mientras se lee
+
+> **Estado 2026-09-12:** CORREGIDO. `Dumps.Save` se registra antes de planear.
 
 - **Ubicación**: `internal/service/volcado.go:125-131`.
 - **Evidencia**: `planear` (un `Introspect`, un `Detail` por tabla, `Objects` y un

@@ -76,6 +76,15 @@ type openSession struct {
 	// sesión, e inactividad el temporizador que la cierra. Ver inactividad.go.
 	ultimoUso   atomic.Int64
 	inactividad *time.Timer
+
+	// escritura excluye entre sí las operaciones que escriben en la base por
+	// lotes: Apply, DryRun e importar. Los bindings de Wails corren en
+	// goroutines independientes, así que un doble clic o dos ventanas podían
+	// leer el mismo changeset dos veces y ejecutarlo dos veces (K-05 de la
+	// auditoría del 2026-09-11). Se toma con TryLock y se falla, no se
+	// encola: son operaciones largas y el segundo pedido casi nunca es a
+	// propósito.
+	escritura sync.Mutex
 }
 
 // NewSession arma el servicio.

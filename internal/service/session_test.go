@@ -46,6 +46,7 @@ func sesionDePrueba(t *testing.T) (*Session, *Connections, string) {
 	// Los tests de este helper no son sobre la confirmación: escriben sin
 	// palabra. La casilla se pone a propósito; el test que la prueba la saca.
 	c.Safety.AllowWriteWithoutConfirmation = true
+	c.Safety.AllowApplyWithoutPreview = true
 	if err := st.Add(c.Normalize()); err != nil {
 		t.Fatalf("Add() error: %v", err)
 	}
@@ -475,6 +476,7 @@ func abrirMotorDePrueba(t *testing.T, caso motorDePrueba) (*Session, connection.
 	}
 	c.Environment = connection.Local
 	c.Safety.AllowWriteWithoutConfirmation = true
+	c.Safety.AllowApplyWithoutPreview = true
 	if err := st.Add(c.Normalize()); err != nil {
 		t.Fatalf("Add(): %v", err)
 	}

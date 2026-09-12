@@ -119,6 +119,19 @@ type ImportCandidate struct {
 	// Problems son los errores de validación. Una entrada rota se muestra
 	// igual, con sus problemas, y no se puede incluir.
 	Problems []connection.FieldError `json:"problems"`
+
+	// SSLMode, Safety y Warnings son lo que el archivo trae y el gestor
+	// mostraría después: el modo TLS efectivo, las protecciones tal cual
+	// vienen, y los avisos de la propia conexión (`prefer` sin verificar,
+	// «aplicar sin vista previa» contra staging, SessionSQL…). Se muestran
+	// ANTES de importar por el mismo criterio que SessionSQL: un archivo de
+	// otra persona puede traer `ssl_mode = "disable"` o `read_only = false`
+	// para un host de producción, y la libreta quedaba con una conexión menos
+	// protegida de lo que quien importó creía (K-10 de la auditoría del
+	// 2026-09-11).
+	SSLMode  connection.SSLMode   `json:"sslMode"`
+	Safety   connection.Safety    `json:"safety"`
+	Warnings []connection.Warning `json:"warnings"`
 }
 
 // PreviewImport lee un archivo compartido y dice qué trae, sin agregar nada.
@@ -158,6 +171,12 @@ func (s *Connections) PreviewImport(path string) (ImportPreview, error) {
 			Existing:    mismoDestino(propias, c),
 			SessionSQL:  c.Advanced.SessionSQL,
 			Problems:    []connection.FieldError{},
+			SSLMode:     c.EffectiveSSLMode(),
+			Safety:      c.Safety,
+			Warnings:    c.Warnings(),
+		}
+		if cand.Warnings == nil {
+			cand.Warnings = []connection.Warning{}
 		}
 		// El ID del archivo no cuenta —al importar se reemplaza—, así que la
 		// validación no lo mira: sin esto, toda entrada sin id saldría rota

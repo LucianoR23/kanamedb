@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,18 +130,23 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 		return RunResult{OK: true, Batch: &query.Batch{}}
 	}
 
-	// «Bloquear DROP y TRUNCATE» vale también para lo que se escribe a mano,
-	// y se mira sobre el lote ENTERO antes de correr la primera: si el DROP es
-	// la tercera sentencia, las dos anteriores tampoco corren. Igual que
-	// preparar no ejecuta nada si una sentencia no se sabe escribir.
-	if sesion.conn.Safety.BlockDropTruncate {
-		for i, st := range sentencias {
-			if f := bloqueadaPorPolitica(st.SQL, sesion.db.Dialect()); f != nil {
-				f.Statement = i + 1
-				f.Line = st.Line
-				f.TotalStatements = len(sentencias)
-				return RunResult{Failure: f}
-			}
+	// Lo que se rechaza se mira sobre el lote ENTERO antes de correr la
+	// primera: si la sentencia prohibida es la tercera, las dos anteriores
+	// tampoco corren. Igual que preparar no ejecuta nada si una sentencia no
+	// se sabe escribir.
+	for i, st := range sentencias {
+		f := controlDeTransaccion(st.SQL, sesion.db.Dialect())
+		if f == nil && sesion.conn.Safety.BlockDropTruncate {
+			f = bloqueadaPorPolitica(st.SQL, sesion.db.Dialect())
+		}
+		if f == nil && sesion.conn.Safety.ReadOnly {
+			f = revierteSoloLectura(st.SQL, sesion.db.Dialect())
+		}
+		if f != nil {
+			f.Statement = i + 1
+			f.Line = st.Line
+			f.TotalStatements = len(sentencias)
+			return RunResult{Failure: f}
 		}
 	}
 
@@ -175,12 +181,124 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	return RunResult{OK: true, Batch: lote}
 }
 
-// dropDentroDeAlter reconoce un DROP adentro de un ALTER: columna,
-// restricción, índice, clave, partición. Es lo que `preparar` bloquea del lado
-// del changeset (`Op() == OpDrop` cubre DropColumn, DropConstraint, DropIndex),
-// y las dos puertas tienen que decir lo mismo.
-var dropDentroDeAlter = regexp.MustCompile(
-	`(?i)\bdrop\s+(column|constraint|index|key|foreign\s+key|primary\s+key|check|partition|subpartition)\b`)
+// setAutocommit reconoce `SET [SESSION|GLOBAL|@@…] autocommit = …` de MySQL,
+// que deja la conexión fuera de autocommit igual que un BEGIN.
+var setAutocommit = regexp.MustCompile(`(?i)^\s*set\s+(session\s+|global\s+|local\s+|@@(session|global|local)\.|@@)?autocommit\b`)
+
+// controlDeTransaccion rechaza BEGIN, COMMIT y compañía escritos en el editor.
+//
+// No es una limitación cosmética: el editor manda cada sentencia por su
+// cuenta y cada una toma su propia conexión del pool. Contra Postgres,
+// pgxpool DESTRUYE la conexión que vuelve en transacción, así que `BEGIN;
+// UPDATE …; ROLLBACK;` corría el UPDATE en otra conexión, en autocommit, y el
+// ROLLBACK respondía bien sobre una tercera: la persona creía haber
+// revertido y el UPDATE estaba confirmado (K-03 de la auditoría del
+// 2026-09-11, comprobado). Contra MySQL y SQLite «funcionaba» por accidente
+// —database/sql devuelve la última conexión liberada— y un BEGIN sin cerrar
+// dejaba la conexión en transacción adentro del pool: lock del archivo en
+// SQLite, commit implícito de lo pendiente en el próximo Apply de MySQL
+// (C-01). Un `SET autocommit = 0` hace lo mismo por otro camino.
+//
+// Hasta que exista el control manual por pestaña —con una conexión dedicada
+// que sobreviva entre ejecuciones— el editor corre en autocommit, y decirlo
+// antes de correr nada es mejor que hacer lo contrario de lo pedido.
+func controlDeTransaccion(sql string, d query.Dialect) *engine.Failure {
+	cmd := query.Command(sql, d)
+	switch cmd {
+	case "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE", "END":
+	case "START":
+		// Solo START TRANSACTION: `START REPLICA` y `START GROUP_REPLICATION`
+		// de MySQL no tienen nada que ver.
+		if !startTransaction.MatchString(query.Trim(sql, d)) {
+			return nil
+		}
+		cmd = "START TRANSACTION"
+	case "SET":
+		if !setAutocommit.MatchString(query.Trim(sql, d)) {
+			return nil
+		}
+		cmd = "SET autocommit"
+	default:
+		return nil
+	}
+	return &engine.Failure{
+		Kind: engine.FailureOther,
+		Message: fmt.Sprintf(
+			"El editor corre en autocommit: cada sentencia se confirma sola, y %s no "+
+				"tendría efecto sobre las siguientes.", cmd),
+		Detail: "Cada sentencia del lote toma su propia conexión del pool. Un BEGIN acá " +
+			"no abre una transacción para el UPDATE que viene después: el UPDATE se " +
+			"confirmaría igual y el ROLLBACK respondería bien sin revertir nada.",
+		Hint: "No se ejecutó ninguna sentencia del lote. Para revertir, editá desde la " +
+			"grilla o el changeset, que sí van en transacción. El control manual de " +
+			"transacciones en el editor está agendado.",
+	}
+}
+
+// startTransaction distingue `START TRANSACTION` de los otros START de MySQL.
+var startTransaction = regexp.MustCompile(`(?i)^start\s+transaction\b`)
+
+// apagaSoloLectura reconoce las sentencias que revierten el modo solo lectura
+// de la sesión, en los tres motores de servidor y en SQLite:
+//
+//	SET [SESSION|LOCAL] default_transaction_read_only = off      Postgres
+//	SET [SESSION|LOCAL] transaction_read_only = off              Postgres
+//	SET [SESSION CHARACTERISTICS AS] TRANSACTION … READ WRITE    Postgres, MySQL
+//	SET [SESSION|GLOBAL|@@…] transaction_read_only / tx_read_only  MySQL
+//	RESET default_transaction_read_only / RESET ALL              Postgres
+//	PRAGMA query_only = 0                                        SQLite
+var apagaSoloLectura = regexp.MustCompile(
+	`(?is)^\s*(` +
+		`set\s+(session\s+|local\s+|global\s+|@@(session|global|local)\.|@@)?(default_)?(transaction_read_only|tx_read_only)\b` +
+		`|set\s+(session\s+characteristics\s+as\s+|session\s+|global\s+)?transaction\b.*\bread\s+write\b` +
+		`|reset\s+(default_transaction_read_only|transaction_read_only|all)\b` +
+		`|pragma\s+query_only\b` +
+		`)`)
+
+// revierteSoloLectura rechaza, en una conexión marcada solo lectura, lo que
+// la apaga desde el editor.
+//
+// El modo se pone como parámetro de sesión —`default_transaction_read_only`
+// en Postgres, `SET SESSION TRANSACTION READ ONLY` en MySQL, `PRAGMA
+// query_only` en SQLite— y un `SET … = off` escrito en el editor lo revertía
+// en la conexión que tomó del pool; la sentencia siguiente, por el orden LIFO
+// del pool, volvía a tomar esa misma y escribía (K-06 de la auditoría del
+// 2026-09-11, comprobado contra Postgres). Quien escribe eso es la persona,
+// no un atacante; pero la casilla se presenta como «bloquea toda escritura»
+// y el SessionSQL de la pestaña Advanced ya se protegía de esto. Es la misma
+// invariante en el otro camino.
+func revierteSoloLectura(sql string, d query.Dialect) *engine.Failure {
+	if !apagaSoloLectura.MatchString(query.Trim(sql, d)) {
+		return nil
+	}
+	return &engine.Failure{
+		Kind:    engine.FailurePermission,
+		Message: "Esta conexión está en solo lectura, y esta sentencia lo apagaría.",
+		Hint: "No se ejecutó ninguna sentencia del lote. El interruptor está en el gestor " +
+			"de conexiones, en «Abrir en solo lectura».",
+	}
+}
+
+// dropDentroDeAlter encuentra cada DROP adentro de un ALTER con la palabra
+// que le sigue. Un ALTER tira algo con `DROP COLUMN c`, `DROP c` (Postgres y
+// MySQL aceptan el atajo), `DROP IF EXISTS c`, `DROP CONSTRAINT`, `DROP INDEX`,
+// `DROP PARTITION`… Lo que NO tira nada es `DROP NOT NULL`, `DROP DEFAULT`,
+// `DROP IDENTITY` y `DROP EXPRESSION`, que quitan una propiedad de la columna
+// y en el changeset son OpAlter, no OpDrop. Es lo que `preparar` bloquea del
+// lado del changeset, y las dos puertas tienen que decir lo mismo.
+var dropDentroDeAlter = regexp.MustCompile(`(?i)\bdrop\s+(\w+)`)
+
+// alterQueTira dice si un ALTER tiene un DROP que borra algo.
+func alterQueTira(sql string) bool {
+	for _, m := range dropDentroDeAlter.FindAllStringSubmatch(sql, -1) {
+		switch strings.ToLower(m[1]) {
+		case "not", "default", "identity", "expression":
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 // bloqueadaPorPolitica dice si «Bloquear DROP y TRUNCATE» rechaza esta
 // sentencia. Mira el comando y no el texto: un `SELECT 'drop'` pasa, y un
@@ -193,7 +311,7 @@ func bloqueadaPorPolitica(sql string, d query.Dialect) *engine.Failure {
 	cmd := query.Command(sql, d)
 	switch {
 	case cmd == "DROP", cmd == "TRUNCATE":
-	case cmd == "ALTER" && dropDentroDeAlter.MatchString(sql):
+	case cmd == "ALTER" && alterQueTira(sql):
 		cmd = "ALTER … DROP"
 	default:
 		return nil

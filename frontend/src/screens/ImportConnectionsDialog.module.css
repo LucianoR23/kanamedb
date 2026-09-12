@@ -24,6 +24,9 @@
 
 .nota { margin: 0; padding-left: 19px; font: 400 11.5px/1.5 var(--font-ui); color: var(--text-3); }
 .problemas { margin: 0; padding-left: 35px; font: 400 11.5px/1.5 var(--font-ui); color: var(--danger); }
+/* Los avisos de UNA entrada —TLS que no verifica, protecciones sacadas—: lo
+   que el gestor diría después de importar, dicho antes. */
+.avisosDeEntrada { margin: 0; padding-left: 35px; font: 400 11.5px/1.5 var(--font-ui); color: var(--warning); }
 
 .avisos {
   margin: 0;

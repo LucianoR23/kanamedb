@@ -137,6 +137,9 @@ export function SqlPreview({
       const res = await SessionSvc.Apply({
         singleTransaction,
         confirm: confirmacion.trim(),
+        // La huella de lo que se está mostrando: Go la recalcula sobre lo
+        // que va a ejecutar y no aplica si difiere.
+        fingerprint: vista.fingerprint,
       });
       setResultado(res);
       if (res.ok) {

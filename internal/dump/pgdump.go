@@ -30,6 +30,18 @@ type PgDumpOptions struct {
 
 	// Salida es el archivo destino. Vacío deja el comando sin `--file`.
 	Salida string `json:"salida"`
+
+	// SSLMode y los tres certificados son los de la conexión de Kaname, con
+	// las rutas ya resueltas. Viajan en la cadena de conexión que se le pasa a
+	// `pg_dump`: sin ellos la herramienta arrancaba con el default de libpq
+	// —`prefer`, que cifra si el servidor ofrece y no verifica nada— aunque la
+	// conexión estuviera en `verify-full` con una raíz propia, y la
+	// contraseña y el volcado entero salían por ese canal (K-04 de la
+	// auditoría del 2026-09-11). Vacíos no se emiten.
+	SSLMode     string `json:"sslMode"`
+	SSLRootCert string `json:"sslRootCert"`
+	SSLCert     string `json:"sslCert"`
+	SSLKey      string `json:"sslKey"`
 }
 
 // Comando arma la línea de `pg_dump`, ya lista para copiar y pegar.
@@ -78,10 +90,41 @@ func Comando(o PgDumpOptions) []string {
 	if o.Salida != "" {
 		args = append(args, "--file="+o.Salida)
 	}
-	if o.Database != "" {
-		args = append(args, o.Database)
+	// La base va en `--dbname=` como cadena de conexión de libpq y no como
+	// argumento suelto al final. Es el único lugar donde caben el modo TLS y
+	// los certificados —`pg_dump` no tiene banderas para eso—, y de paso un
+	// nombre de base que empiece con `-` deja de parecerle una opción a
+	// getopt. Sigue sin llevar contraseña: ver arriba.
+	if conn := o.conninfo(); conn != "" {
+		args = append(args, "--dbname="+conn)
 	}
 	return args
+}
+
+// conninfo arma la cadena `clave=valor …` de libpq con la base y el TLS.
+func (o PgDumpOptions) conninfo() string {
+	var partes []string
+	for _, kv := range [][2]string{
+		{"dbname", o.Database},
+		{"sslmode", o.SSLMode},
+		{"sslrootcert", o.SSLRootCert},
+		{"sslcert", o.SSLCert},
+		{"sslkey", o.SSLKey},
+	} {
+		if kv[1] != "" {
+			partes = append(partes, kv[0]+"="+valorConninfo(kv[1]))
+		}
+	}
+	return strings.Join(partes, " ")
+}
+
+// valorConninfo cita un valor como lo pide libpq: comillas simples cuando hay
+// espacios o está vacío, y adentro `\` y `'` escapadas con barra.
+func valorConninfo(v string) string {
+	if v != "" && !strings.ContainsAny(v, " \t\n'\\") {
+		return v
+	}
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
 }
 
 // ComandoTexto es el comando como se pega en una terminal.

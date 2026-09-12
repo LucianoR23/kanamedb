@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,6 +23,75 @@ var ErrNeedsConfirmation = errors.New("hace falta confirmar el nombre de la cone
 // ErrBlockedByPolicy lo devuelven Apply y DryRun cuando una protección de la
 // conexión —«Bloquear DROP y TRUNCATE»— se niega a ejecutar el changeset.
 var ErrBlockedByPolicy = errors.New("una protección de la conexión lo impide")
+
+// ErrBusy lo devuelven Apply, DryRun e importar cuando otra de las tres ya
+// está corriendo sobre esta sesión.
+var ErrBusy = errors.New("ya hay una escritura en curso sobre esta conexión")
+
+// ErrStalePreview lo devuelve Apply cuando la SQL que va a ejecutar no es la
+// que se mostró en la vista previa, o cuando no se mostró ninguna y la
+// conexión la exige.
+var ErrStalePreview = errors.New("la SQL no es la de la vista previa")
+
+// ErrRebuildNotAlone lo devuelven Stage y Apply cuando un cambio que
+// reconstruye una tabla comparte el changeset con otro cambio de estructura
+// sobre la misma tabla. Ver reconstruccionesAisladas.
+var ErrRebuildNotAlone = errors.New("una reconstrucción de tabla tiene que aplicarse sola")
+
+// reconstruccionesAisladas exige que un cambio que reconstruye una tabla sea
+// el ÚNICO cambio de estructura sobre esa tabla en el changeset.
+//
+// El guion de una reconstrucción —CREATE de la copia, INSERT … SELECT, DROP,
+// RENAME— se escribe leyendo el catálogo en el momento de renderizar, y todos
+// los cambios se renderizan ANTES de ejecutar el primero. Con un ADD COLUMN
+// delante, la copia se crea sin la columna nueva y el RENAME la hace
+// desaparecer; con dos reconstrucciones sobre la misma tabla, la segunda se
+// escribe sin lo que hizo la primera y la deshace. En los dos casos el apply
+// dice que salió bien (comprobado el 2026-09-12: `AddColumn a` + `SetNotNull
+// n` dejaba la tabla sin `a`; `SetNotNull n` + `SetNotNull m` dejaba `n`
+// nullable). Es la misma clase de fallo que K-01: silencioso y con la forma
+// de un resultado correcto.
+//
+// Lo correcto a largo plazo es UNA reconstrucción por tabla que acumule todos
+// sus cambios; mientras tanto, se rechaza la combinación en Stage —para que
+// se sepa al preparar— y otra vez en preparar, por si el changeset se armó
+// por otro camino. Los cambios de DATOS sobre la misma tabla no molestan:
+// corren después, contra la tabla ya reconstruida, y nombran columnas.
+func reconstruccionesAisladas(cs []change.Change, sts []change.Statement) error {
+	type clave struct{ esquema, tabla string }
+	estructura := map[clave]int{}
+	reconstruye := map[clave]bool{}
+	for i, c := range cs {
+		if c.Kind() != change.KindSchema || c.Table == "" {
+			continue
+		}
+		k := clave{c.Schema, c.Table}
+		estructura[k]++
+		if sts[i].RebuildsTable {
+			reconstruye[k] = true
+		}
+	}
+	for k, n := range estructura {
+		if reconstruye[k] && n > 1 {
+			return fmt.Errorf(
+				"%w: hay %d cambios de estructura sobre %s y uno de ellos reconstruye la "+
+					"tabla entera. El guion de la reconstrucción se escribe contra la tabla como "+
+					"está ahora, así que los otros se perderían al aplicarla. Aplicá uno, volvé "+
+					"a leer la tabla y preparé el siguiente",
+				ErrRebuildNotAlone, n, k.tabla)
+		}
+	}
+	return nil
+}
+
+// tomarEscritura reserva la sesión para una escritura por lotes, o explica
+// que otra la tiene. Quien la toma la suelta con la función devuelta.
+func tomarEscritura(sesion *openSession, que string) (func(), error) {
+	if !sesion.escritura.TryLock() {
+		return nil, fmt.Errorf("%w: esperá a que termine antes de %s", ErrBusy, que)
+	}
+	return sesion.escritura.Unlock, nil
+}
 
 // ChangeView es un cambio pendiente con su sentencia ya escrita.
 //
@@ -77,6 +148,13 @@ type ChangesetView struct {
 	// Script es todo el changeset como una sola pieza de SQL, numerada y con
 	// sus avisos. Es lo que se muestra, se copia y se guarda como .sql.
 	Script string `json:"script"`
+
+	// Fingerprint identifica la SQL que se mostró: SHA-256 de las sentencias
+	// en su orden. Apply la exige de vuelta y la recalcula sobre lo que va a
+	// ejecutar; si difiere, no ejecuta. Es lo que ata «lo que se vio» a «lo
+	// que corre», que antes se cumplía solo por la disciplina de la interfaz
+	// (K-08 de la auditoría del 2026-09-11).
+	Fingerprint string `json:"fingerprint"`
 
 	// ReadOnly avisa que no se va a poder aplicar nada.
 	ReadOnly bool `json:"readOnly"`
@@ -234,10 +312,32 @@ func (s *Session) StageMany(ctx context.Context, cs []change.Change, confirm str
 	// Se renderiza ANTES de guardar, y todos antes de guardar el primero. Un
 	// cambio que no se sabe escribir no entra al changeset: dejarlo entrar
 	// sería prometer un apply que va a fallar.
+	nuevos := make([]change.Statement, 0, len(cs))
 	for _, c := range cs {
-		if _, err := sesion.db.RenderDDL(ctx, c); err != nil {
+		st, err := sesion.db.RenderDDL(ctx, c)
+		if err != nil {
 			return nil, err
 		}
+		nuevos = append(nuevos, st)
+	}
+	// Y una reconstrucción no entra si ya hay otro cambio de estructura sobre
+	// la misma tabla, ni al revés. Los de ESTRUCTURA que ya están, incluidos,
+	// se vuelven a escribir para saber cuáles reconstruyen: son pocos. Los de
+	// datos no se tocan —una sesión de grilla acumula cientos, y renderizarlos
+	// en cada Stage sería cuadrático— y la comprobación los ignora igual.
+	todos, sts := append([]change.Change(nil), cs...), nuevos
+	for _, c := range sesion.cambios.List() {
+		if c.Kind() != change.KindSchema || c.Excluded {
+			continue
+		}
+		st, err := sesion.db.RenderDDL(ctx, c)
+		if err != nil {
+			continue
+		}
+		todos, sts = append(todos, c), append(sts, st)
+	}
+	if err := reconstruccionesAisladas(todos, sts); err != nil {
+		return nil, err
 	}
 	out := make([]ChangeView, 0, len(cs))
 	for _, c := range cs {
@@ -340,7 +440,23 @@ func (s *Session) Changeset(ctx context.Context) (ChangesetView, error) {
 
 	vista.Warnings = avisos(sesion, vista.Order)
 	vista.Script = guion(vista.Order, true)
+	sts := make([]change.Statement, 0, len(vista.Order))
+	for _, v := range vista.Order {
+		sts = append(sts, v.Statement)
+	}
+	vista.Fingerprint = huellaDe(sts)
 	return vista, nil
+}
+
+// huellaDe resume las sentencias en su orden. Solo la SQL: los avisos y los
+// costos del guion son presentación y no cambian lo que se ejecuta.
+func huellaDe(sts []change.Statement) string {
+	h := sha256.New()
+	for _, st := range sts {
+		h.Write([]byte(st.SQL))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // nombreDeLaBase es contra qué se está trabajando de verdad.
@@ -633,6 +749,11 @@ type ApplyOptions struct {
 	// la configuró y puede ser «prod» en las dos máquinas, mientras que el de la
 	// base es lo que de verdad se va a modificar.
 	Confirm string `json:"confirm,omitempty"`
+
+	// Fingerprint es la de ChangesetView que se mostró. Obligatoria salvo que
+	// la conexión tenga «Aplicar sin abrir la vista previa»; en los dos casos,
+	// si viene y no coincide con la SQL que se va a ejecutar, no se ejecuta.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // StatementResult es cómo le fue a una sentencia.
@@ -706,10 +827,35 @@ func (s *Session) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	if err := confirmarEscritura(sesion, opts.Confirm, "para aplicar"); err != nil {
 		return ApplyResult{}, err
 	}
+	// Antes de preparar: preparar lee el changeset, y dos lecturas son dos
+	// ejecuciones. El botón se deshabilita en la pantalla, pero eso es una
+	// comprobación del lado de la interfaz.
+	soltar, err := tomarEscritura(sesion, "aplicar")
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	defer soltar()
 
 	pendientes, sentencias, err := s.preparar(ctx, sesion)
 	if err != nil {
 		return ApplyResult{}, err
+	}
+	// La SQL que corre es la que se acaba de escribir, no la que se mostró:
+	// Apply vuelve a renderizar, y en SQLite lo hace contra el catálogo de
+	// AHORA. La huella ata las dos: si otro proceso tocó la tabla entre la
+	// vista previa y el clic, o si entró un cambio más al changeset, la SQL
+	// cambió y no se ejecuta. Y sin huella no se aplica salvo que la conexión
+	// diga que la vista previa no hace falta: hasta acá esa casilla era un
+	// cartel, porque la interfaz siempre pasaba por la vista previa y Go no
+	// podía distinguirlo.
+	switch {
+	case opts.Fingerprint == "" && sesion.conn.Safety.RequiresPreview():
+		return ApplyResult{}, fmt.Errorf(
+			"%w: esta conexión exige abrir la vista previa antes de aplicar", ErrStalePreview)
+	case opts.Fingerprint != "" && opts.Fingerprint != huellaDe(sentencias):
+		return ApplyResult{}, fmt.Errorf(
+			"%w: cambió desde que se mostró —otro cambio entró al changeset, o la tabla "+
+				"cambió por fuera—. Volvé a abrir la vista previa", ErrStalePreview)
 	}
 
 	s.iniciarApply(sentencias)
@@ -786,6 +932,9 @@ func (s *Session) preparar(
 		}
 		sentencias = append(sentencias, st)
 	}
+	if err := reconstruccionesAisladas(pendientes, sentencias); err != nil {
+		return nil, nil, fmt.Errorf("no se puede aplicar: %w", err)
+	}
 	return pendientes, sentencias, nil
 }
 
@@ -850,6 +999,11 @@ func (s *Session) DryRun(ctx context.Context, confirm string) (ApplyResult, erro
 		"ensayar toma los mismos candados que aplicar, así que también"); err != nil {
 		return ApplyResult{}, err
 	}
+	soltar, err := tomarEscritura(sesion, "ensayar")
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	defer soltar()
 
 	_, sentencias, err := s.preparar(ctx, sesion)
 	if err != nil {
