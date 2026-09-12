@@ -60,6 +60,14 @@ jobs:
           "$SDKMANAGER" "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;35.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
+      # El CLI de Wails en Linux se compila con cgo y linkea GTK4 y WebKitGTK
+      # (internal/operatingsystem), aunque el objetivo sea Android. Son los
+      # mismos -dev del job build-linux.
+      - name: Dependencias de GTK4 y WebKitGTK para compilar el CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
       - name: Instalar el CLI de Wails
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
