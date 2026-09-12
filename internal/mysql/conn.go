@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
@@ -116,6 +117,68 @@ func (t *txMy) Commit(ctx context.Context) error {
 	return t.tx.Commit()
 }
 
+// codigoClaveDuplicada es el único aviso que «saltear las que chocan» admite.
+const codigoClaveDuplicada = 1062
+
+// VerifySkipped revisa los avisos del último INSERT IGNORE de esta
+// transacción: cualquiera que no sea un choque de clave —un valor inválido
+// convertido, uno recortado, un NULL en NOT NULL reemplazado— es un error, y
+// se devuelve con el texto del servidor para que se sepa qué fila y por qué.
+//
+// SHOW WARNINGS habla de la última sentencia de ESTA conexión, así que tiene
+// que correr en la transacción, antes de cualquier otra cosa.
+func (t *txMy) VerifySkipped(ctx context.Context) error {
+	// SHOW WARNINGS primero y cualquier otra consulta después: en el driver,
+	// un SELECT previo —aunque sea de @@warning_count— dejaba la lista vacía.
+	rows, err := t.tx.QueryContext(ctx, "SHOW WARNINGS")
+	if err != nil {
+		return fmt.Errorf("leer los avisos del lote: %w", err)
+	}
+	defer rows.Close()
+	vistos := 0
+	for rows.Next() {
+		var nivel, mensaje string
+		var codigo int
+		if err := rows.Scan(&nivel, &codigo, &mensaje); err != nil {
+			return fmt.Errorf("leer un aviso del lote: %w", err)
+		}
+		vistos++
+		if codigo != codigoClaveDuplicada {
+			return &avisoDeImportacion{codigo: codigo, mensaje: mensaje}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_ = rows.Close()
+	// Los que se produjeron contra los que se pudieron ver. El servidor guarda
+	// hasta max_error_count avisos —y con max_error_count = 0, ninguno—, pero
+	// @@warning_count cuenta todos y sobrevive al SHOW WARNINGS (comprobado
+	// contra MySQL 9.7). Si hubo más de los que se vieron, los que faltan
+	// pudieron ser cualquier cosa. Se lee DESPUÉS del SHOW: antes, lo vaciaba.
+	var total int
+	if err := t.tx.QueryRowContext(ctx, "SELECT @@warning_count").Scan(&total); err != nil {
+		return fmt.Errorf("leer la cuenta de avisos: %w", err)
+	}
+	if total > vistos {
+		return fmt.Errorf("el lote produjo %d avisos y el servidor mostró %d: no se puede "+
+			"comprobar que todos sean choques de clave. Importá en lotes más chicos o subí "+
+			"max_error_count", total, vistos)
+	}
+	return nil
+}
+
+// avisoDeImportacion es un aviso que IGNORE tapó y que no era un choque.
+type avisoDeImportacion struct {
+	codigo  int
+	mensaje string
+}
+
+func (a *avisoDeImportacion) Error() string {
+	return fmt.Sprintf("«saltear las que chocan» saltea solo los choques de clave, y una fila "+
+		"produjo otra cosa (código %d): %s", a.codigo, a.mensaje)
+}
+
 // Verify no tiene nada que adelantar: ni MySQL ni MariaDB tienen restricciones
 // diferidas —`SET CONSTRAINTS` no existe y una clave foránea se comprueba fila
 // por fila—, así que un COMMIT no puede fallar por algo que las sentencias no
@@ -151,15 +214,25 @@ func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement,
 // función suelta.
 func (c *Conn) Quoting() engine.Quoting {
 	d := dialectoDML(func(s string) string { return quoteString(s, c.sinEscapes) })
-	// Binary como Literal hasta que el recorrido entregue los binarios en
-	// hexadecimal (C-13): hoy llegan como bytes crudos en un string.
-	return engine.Quoting{Table: d.Table, Ident: d.QuoteIdent, Literal: d.QuoteLiteral, Binary: d.QuoteLiteral}
+	return engine.Quoting{
+		Table: d.Table, Ident: d.QuoteIdent, Literal: d.QuoteLiteral,
+		// El recorrido entrega los binarios en hexadecimal (ver textoDe).
+		Binary: func(hex string) string { return "X'" + hex + "'" },
+	}
 }
 
 func (c *Conn) InsertBatch(
 	esquema, tabla string, columnas []string, filas [][]*string, ignorar bool,
 ) (string, []any) {
 	cita := func(s string) string { return quoteString(s, c.sinEscapes) }
+	// Sigue siendo INSERT IGNORE, con una condición: IGNORE degrada a aviso
+	// TODOS los errores de datos —'abc' en un INT entra como 0, un valor fuera
+	// de rango se recorta— y la fila se contaba como insertada (C-04 de la
+	// auditoría del 2026-09-11). Por eso la transacción de la importación
+	// revisa los avisos después de cada lote (VerifySkipped) y falla con
+	// cualquiera que no sea un choque de clave. ON DUPLICATE KEY UPDATE no
+	// servía: con clientFoundRows, que esta conexión pone a propósito, las
+	// filas salteadas cuentan como afectadas.
 	return dml.InsertBatch(c.base(esquema), tabla, columnas, filas, dialectoDML(cita), ignorar)
 }
 

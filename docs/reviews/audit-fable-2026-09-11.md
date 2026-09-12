@@ -608,6 +608,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-15] [BAJO] [VERIFICADO] Sin CSP en el webview, con bindings que leen y escriben rutas arbitrarias
 
+> **Estado 2026-09-12:** CORREGIDO. La CSP la inyecta un plugin de Vite solo en el build (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; …`): en desarrollo Vite mete un script inline y usa websockets. Probado con el build de producción: la app arranca, el gestor lista las conexiones (binding `Connections.List`) con la política puesta. `TestElBuildLlevaUnaContentSecurityPolicy` fija el plugin. Las restricciones de ruta por extensión del lado de Go quedan anotadas.
+
 - Ubicación: `frontend/index.html:1-13`; `internal/service/export.go:90-97`, `:213-217`, `:340-351`; `internal/service/migracion.go:70-86`; `internal/service/compartir.go:39-78`, `:125-173`; `internal/service/certificado.go:24-37`; `internal/service/importar.go:28-30`; `internal/service/pgdump.go:173-245`.
 - Evidencia: `index.html` no declara `Content-Security-Policy`. Los bindings `Save`,
   `SaveTable`, `SaveTables`, `SaveMigration`, `ExportConnections`, `SaveCertificate`
@@ -699,6 +701,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   tenga la clave.
 
 ### [K-18] [BAJO] [VERIFICADO] `Compare` y `Test` abren conexiones con la contraseña guardada hacia el host que diga el pedido, y corren `SessionSQL`
+
+> **Estado 2026-09-12:** ANOTADO, sin cambio: coherente con el modelo de confianza del webview, como dice el propio hallazgo. Si se endurece el borde, `Test` debería resolver host/puerto/base por ID y `Compare` omitir `SessionSQL`; queda en `pendientes-auditoria-2026-09-12.md`.
 
 - Ubicación: `internal/service/connections.go:400-448`; `internal/service/comparar.go:87-160`; `internal/service/session.go:172-247`.
 - Evidencia: `Test(ctx, c, action, password)` toma `c` del frontend y, con
@@ -823,6 +827,8 @@ compuesta correcta).
 
 ### [C-03] [ALTO] [VERIFICADO] MySQL y MariaDB: todo `INSERT`/`UPDATE`/`DELETE` del editor muestra «0 filas devueltas», y una sentencia que falla se manda dos veces
 
+> **Estado 2026-09-12:** CORREGIDO. Confirmado contra MySQL 9.7 (`UPDATE` de 2 filas → `ReturnsRows=true`, `AffectedRows=0`). `run` usa una conexión dedicada, no reintenta nunca, y con `Columns()` vacío pregunta `SELECT ROW_COUNT()` solo tras DML. Test `TestEnMySQLUnDMLInformaLasFilasQueAfecto` (MySQL y MariaDB).
+
 - **Ubicación**: `internal/mysql/query.go:32-50,73`;
   `go-sql-driver/mysql@v1.10.1/connection.go:525-534`;
   `frontend/src/screens/SqlEditorScreen.tsx:510-523`.
@@ -863,6 +869,8 @@ compuesta correcta).
   prueba (o un proxy) que cuente ejecuciones: hoy una sentencia inválida llega dos veces.
 
 ### [C-04] [ALTO] [VERIFICADO] Importación CSV con «saltear las que chocan» en MySQL: `INSERT IGNORE` convierte valores inválidos en ceros, recortes y defaults, y los cuenta como insertados
+
+> **Estado 2026-09-12:** CORREGIDO. MySQL sigue con `INSERT IGNORE` —`ON DUPLICATE KEY UPDATE` contaba las salteadas porque la conexión pone `clientFoundRows` a propósito— y la transacción revisa `SHOW WARNINGS` tras cada lote (`engine.SkipVerifier`): cualquier código distinto de 1062 falla el lote, y si se alcanza `max_error_count` también. SQLite pasa de `OR IGNORE` a `ON CONFLICT DO NOTHING`. Test: `TestSaltearLasQueChocan` con una fila `abc` en un INT, cuatro motores.
 
 - **Ubicación**: `internal/mysql/ddl.go:430-437`; `internal/dml/dml.go:189`;
   `internal/service/importar.go:246`.
@@ -1064,6 +1072,8 @@ compuesta correcta).
 
 ### [C-11] [MEDIO] [VERIFICADO] El divisor de sentencias parte cualquier rutina de MySQL/MariaDB que tenga `END IF`, `END LOOP`, `END WHILE` o `END REPEAT`, y manda `DELIMITER` al servidor
 
+> **Estado 2026-09-12:** CORREGIDO. `END IF`/`END LOOP`/`END WHILE`/`END REPEAT` no restan (sus aperturas no suman); `END CASE` resta y consume la palabra. `DELIMITER x` al principio de una sentencia cambia el separador y la línea no viaja. `abreRutina` salta identificadores citados (`DEFINER = \`app\`@\`host\``). Test `TestUnProcedimientoConIfNoSeParte`.
+
 - **Ubicación**: `internal/query/split.go:161-170,203-228`; `internal/service/queries.go:117-149`.
 - **Evidencia**:
   ```go
@@ -1114,6 +1124,8 @@ compuesta correcta).
 
 ### [C-13] [MEDIO] [VERIFICADO / SOSPECHADO en la capa JSON] MySQL: los valores binarios viajan como bytes crudos dentro de un `string`, se corrompen hacia la interfaz y en JSON, y hacen ineditable una clave `BINARY(16)`
 
+> **Estado 2026-09-12:** CORREGIDO. Confirmado (`BINARY(16)` como bytes crudos, `BIT(8)=65` → «A»). `textoDe` entrega BINARY/VARBINARY/BLOB* en hexadecimal y BIT en decimal, en grilla y exportación; `Quoting.Binary` escribe `X'…'`. Ida y vuelta probada. Editar una clave binaria desde la grilla sigue sin soportarse (el WHERE compara texto): anotado.
+
 - **Ubicación**: `internal/mysql/query.go:104-105`; `internal/mysql/scan.go:96-106`;
   `internal/mysql/mysql.go:66-72`; `internal/export/json.go:136-158`; `internal/mysql/query.go:119-121`.
 - **Evidencia**: Postgres entrega `bytea` como `\x…` en texto; SQLite muestra `[N
@@ -1136,6 +1148,8 @@ compuesta correcta).
   `0x00` y `0xFF`: hoy `Run` devuelve un `string` con esos bytes.
 
 ### [C-14] [MEDIO] [VERIFICADO] MySQL y MariaDB: «Cancelar» cierra el socket y nada más; la sentencia sigue en el servidor y confirma
+
+> **Estado 2026-09-12:** CORREGIDO y confirmado: sin el fix, un `UPDATE … BENCHMARK(…)` cancelado a los 0,7 s terminaba y confirmaba las 2 filas; con `KILL QUERY <CONNECTION_ID()>` por otra conexión, no. Test `TestEnMySQLCancelarMataLaSentenciaEnElServidor`.
 
 - **Ubicación**: `go-sql-driver/mysql@v1.10.1/connection.go:575-578`; `internal/mysql/*`
   (sin `KILL`); `internal/service/queries.go:339-346`.
@@ -1227,6 +1241,8 @@ compuesta correcta).
   de un lado y uno del otro: hoy cero diferencias.
 
 ### [C-19] [MEDIO] [VERIFICADO] MySQL: `column_key = 'PRI'` también se reporta para un índice `UNIQUE NOT NULL` cuando la tabla no tiene clave primaria
+
+> **Estado 2026-09-12:** CORREGIDO. Confirmado (`UNIQUE (id)` con `id NOT NULL` → `HasPrimaryKey=true`). La columna de clave sale de `information_schema.statistics` con `index_name = 'PRIMARY'`. Test `TestEnMySQLUnIndiceUnicoNoEsClavePrimaria`.
 
 - **Ubicación**: `internal/mysql/introspect.go:90,111-113,532-537`.
 - **Evidencia**: `information_schema.columns.column_key` devuelve `PRI` para un índice
@@ -1374,6 +1390,8 @@ compuesta correcta).
 
 ### [C-27] [BAJO] [VERIFICADO] Divisor de sentencias: casos de Postgres y MySQL que parten donde no deben
 
+> **Estado 2026-09-12:** CORREGIDO. `E'…'` con escapes en Postgres; `BEGIN ATOMIC … END` se cuenta como bloque; los comentarios de bloque se anidan con `DollarQuotes` (también en `Command`/`Trim`); `DEFINER` ya no consume el presupuesto de palabras. Test `TestLosCasosDePostgresQuePartianDondeNoDebian`.
+
 - **Ubicación**: `internal/query/split.go:203-228,232-235`; `internal/postgres/conn.go:154`;
   `internal/engine/sesion.go:19`.
 - **Evidencia**: el dialecto de Postgres es `{DollarQuotes: true}` sin `Compound` ni
@@ -1413,6 +1431,8 @@ compuesta correcta).
   `sql.Result.RowsAffected()` de un `ExecContext` en la misma conexión dedicada.
 
 ### [C-30] [BAJO] [SOSPECHADO] Postgres: `format_type` califica los tipos de usuario según el `search_path` de cada conexión, y el diff los compara como texto
+
+> **Estado 2026-09-12:** ANOTADO en `pendientes-auditoria-2026-09-12.md` (§4): forzar `search_path` vacío en la transacción de la introspección o normalizar el prefijo.
 
 - **Ubicación**: `internal/postgres/introspect.go:184`; `internal/drift/drift.go:441,780-782`;
   `internal/connection/validate.go:94`.

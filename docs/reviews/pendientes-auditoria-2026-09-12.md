@@ -117,3 +117,23 @@ identity da cero diferencias y el primer INSERT sin id funciona.
   califican según el `search_path` de cada conexión, y el diff los compara
   como texto. Forzar `set_config('search_path', '', true)` en la transacción
   de la introspección, o normalizar quitando el prefijo del esquema propio.
+
+## 5. Chicos que se anotan sin cambio
+
+- **K-18**, `Test` y `Compare` desde el webview: `Test(ctx, c, …)` conecta a
+  `c.Host` con la contraseña guardada bajo `c.ID`, y `Compare` corre el
+  `SessionSQL` de las dos conexiones sin vista previa. Es coherente con el
+  modelo de confianza actual —el webview ya puede pedir `RevealPassword`— y
+  con la CSP puesta (K-15) el borde es más duro que antes. Si alguna vez se
+  endurece de verdad: `Test` resuelve host/puerto/base por ID desde la
+  libreta y acepta del frontend solo lo que se está editando; `Compare`
+  omite `SessionSQL`, que lee catálogos y no lo necesita.
+- **C-13, editar claves binarias en MySQL.** La grilla ya muestra un
+  `BINARY(16)` en hexadecimal, pero el `UPDATE` compararía el texto con la
+  columna binaria y no encontraría la fila. Hace falta que el DML de MySQL
+  envuelva los parámetros de columnas binarias en `UNHEX(?)`, sabiendo la
+  clase de la columna al armar el WHERE.
+- **K-15, la mitad de Go.** Las escrituras de `Save`, `SaveTable`,
+  `SaveMigration`, `ExportConnections`, `SaveCertificate` y `RunPgDump`
+  podrían exigir la extensión acorde al formato y rechazar rutas dentro del
+  directorio de la app que no maneje el store.

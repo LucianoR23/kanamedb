@@ -151,6 +151,16 @@ type CellClasses interface {
 	CellClasses() []query.Class
 }
 
+// SkipVerifier lo implementa la transacción de un motor que «saltea las que
+// chocan» degradando errores a avisos —MySQL y MariaDB, con INSERT IGNORE—.
+// Después de cada lote insertado con la política de saltear, la importación
+// lo llama: si algún aviso no es un choque de clave, el lote falla. Sin esto,
+// 'abc' en un INT entraba como 0 y se contaba como insertada (C-04 de la
+// auditoría del 2026-09-11).
+type SkipVerifier interface {
+	VerifySkipped(ctx context.Context) error
+}
+
 // DumpHints acompaña a los INSERT de una tabla en un volcado.
 //
 // Existe por Postgres (C-05 de la auditoría del 2026-09-11): una columna

@@ -146,6 +146,48 @@ func TestSaltearLasQueChocan(t *testing.T) {
 			if got := strings.Join(filas(t, sesion, c, esq, tabla), " "); got != "1=uno 2=dos 3=tres" {
 				t.Errorf("la tabla quedó con %q: la 1 no se tenía que pisar", got)
 			}
+			if res.Inserted != 1 {
+				t.Errorf("Inserted = %d: la salteada no se cuenta", res.Inserted)
+			}
+
+			// Y «saltear» saltea SOLO los choques de clave. Un valor inválido
+			// sigue siendo un error: con INSERT IGNORE en MySQL 'abc' entraba
+			// como 0 y se contaba como insertada, y con OR IGNORE en SQLite una
+			// fila que viola NOT NULL desaparecía en silencio (C-04).
+			plan.Path = csvDePrueba(t, "id,nombre\nabc,invalida\n4,cuatro\n")
+			if res := imp.Run(ctx, plan); res.OK {
+				t.Errorf("un id que no es un número entró con «saltear»: %+v", res)
+			}
+			if got := strings.Join(filas(t, sesion, c, esq, tabla), " "); got != "1=uno 2=dos 3=tres" {
+				t.Errorf("la tabla quedó con %q después de una fila inválida", got)
+			}
+			// Y con max_error_count = 0 —legal, y posible desde el SessionSQL—
+			// SHOW WARNINGS no muestra nada: tampoco puede pasar (review del
+			// 2026-09-12). Solo en MariaDB: MySQL 9 exige SESSION_VARIABLES_ADMIN
+			// para tocarla y el usuario de pruebas no lo tiene. El código que
+			// lo comprueba es el mismo para los dos.
+			if caso.nombre == "mariadb" {
+				// Por el SessionSQL de la conexión, que es justamente por
+				// donde alguien lo pondría: llega a cada conexión del pool.
+				guardada, err := sesion.store.Get(c.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				guardada.Advanced.SessionSQL = "SET SESSION max_error_count = 0"
+				if err := sesion.store.Update(guardada); err != nil {
+					t.Fatal(err)
+				}
+				if res := sesion.Connect(ctx, c.ID); !res.OK {
+					t.Fatal(res.Failure.Message)
+				}
+				imp = NewImports(NewQueries(sesion))
+				if res := imp.Run(ctx, plan); res.OK {
+					t.Errorf("con max_error_count = 0 la fila inválida entró: %+v", res)
+				}
+				if got := strings.Join(filas(t, sesion, c, esq, tabla), " "); got != "1=uno 2=dos 3=tres" {
+					t.Errorf("con max_error_count = 0 la tabla quedó con %q", got)
+				}
+			}
 		})
 	}
 }

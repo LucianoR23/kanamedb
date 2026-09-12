@@ -165,6 +165,29 @@ func TestElFrontendNoInyectaHTMLNiEscribeEnLaConsola(t *testing.T) {
 	}
 }
 
+// TestElBuildLlevaUnaContentSecurityPolicy: la CSP se inyecta en el build por
+// un plugin de Vite (ver frontend/vite.config.ts) y no está en index.html
+// porque en desarrollo rompería a Vite. Lo que se puede exigir desde acá es
+// que el plugin exista, esté enchufado y prohíba scripts que no sean propios.
+func TestElBuildLlevaUnaContentSecurityPolicy(t *testing.T) {
+	datos, err := os.ReadFile("frontend/vite.config.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(datos)
+	for _, q := range []string{
+		`"script-src 'self'"`, `"object-src 'none'"`, `"base-uri 'none'"`,
+		`http-equiv="Content-Security-Policy"`, `apply: "build"`, "csp(),",
+	} {
+		if !strings.Contains(cfg, q) {
+			t.Errorf("vite.config.ts no tiene %s", q)
+		}
+	}
+	if strings.Contains(cfg, "'unsafe-eval'") || strings.Contains(cfg, "script-src 'self' 'unsafe-inline'") {
+		t.Error("la CSP permite scripts inline o eval, que es no tener CSP")
+	}
+}
+
 func contiene(lista []string, s string) bool {
 	for _, x := range lista {
 		if x == s {

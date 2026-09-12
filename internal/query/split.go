@@ -84,6 +84,11 @@ func Split(sql string, d Dialect) []Statement {
 	profundidad := 0  // BEGIN … END anidados
 	empezada := false // si ya se leyó la primera palabra de la sentencia
 	compuesta := false
+	// separador es lo que corta una sentencia: `;` salvo que un `DELIMITER x`
+	// —la línea que pegan mysqldump y Workbench— diga otra cosa. La línea
+	// misma no es SQL y no se manda al servidor (C-11 de la auditoría del
+	// 2026-09-11).
+	separador := []rune{';'}
 
 	guardar := func() {
 		if hayAlgo {
@@ -114,17 +119,22 @@ func Split(sql string, d Dialect) []Statement {
 			continue
 		}
 		if c == '/' && i+1 < len(r) && r[i+1] == '*' {
-			j := i + 2
-			for j < len(r) && !(r[j] == '*' && j+1 < len(r) && r[j+1] == '/') {
-				j++
-			}
-			if j < len(r) {
-				j += 2
-			}
+			j := finDeComentario(r, i, d.DollarQuotes)
 			trozo := string(r[i:j])
 			actual.WriteString(trozo)
 			linea += strings.Count(trozo, "\n")
 			i = j
+			continue
+		}
+
+		// --- DELIMITER x, al principio de una sentencia: cambia el separador.
+		if d.Compound && !hayAlgo && esLetra(c) && esDelimiter(r, i) {
+			fin := finDeLinea(r, i)
+			campos := strings.Fields(string(r[i:fin]))
+			if len(campos) >= 2 {
+				separador = []rune(campos[1])
+			}
+			i = fin
 			continue
 		}
 
@@ -143,8 +153,12 @@ func Split(sql string, d Dialect) []Statement {
 			continue
 		}
 
-		// --- BEGIN … END del cuerpo de un trigger o un procedimiento
-		if d.Compound && esLetra(c) {
+		// --- BEGIN … END del cuerpo de un trigger o un procedimiento.
+		//
+		// En MySQL, MariaDB y SQLite el cuerpo va entre BEGIN y END (Compound).
+		// En Postgres va entre $$, salvo desde la 14: `BEGIN ATOMIC … END` es
+		// SQL puro con puntos y comas adentro, y se cuenta igual (C-27).
+		if (d.Compound || d.DollarQuotes) && esLetra(c) {
 			fin := finDePalabra(r, i)
 			palabra := strings.ToUpper(string(r[i:fin]))
 			if !hayAlgo {
@@ -160,11 +174,34 @@ func Split(sql string, d Dialect) []Statement {
 			}
 			if compuesta {
 				switch palabra {
-				case "BEGIN", "CASE":
+				case "BEGIN":
+					if d.Compound || palabraSiguiente(r, fin) == "ATOMIC" {
+						profundidad++
+					}
+				case "CASE":
 					profundidad++
 				case "END":
-					if profundidad > 0 {
-						profundidad--
+					// `END IF`, `END LOOP`, `END WHILE` y `END REPEAT` cierran
+					// construcciones que no se contaron al abrir —IF, LOOP,
+					// WHILE y REPEAT no suman— así que tampoco restan. Sin esto,
+					// el `END IF` de casi cualquier procedimiento de MySQL
+					// bajaba a cero y el `;` siguiente partía el cuerpo (C-11).
+					// `END CASE` sí resta: CASE sumó.
+					switch palabraSiguiente(r, fin) {
+					case "IF", "LOOP", "WHILE", "REPEAT":
+					case "CASE":
+						// `END CASE` cierra el CASE que sumó: resta una vez, y
+						// la palabra CASE se consume acá para que no vuelva a
+						// sumar al leerla suelta en la vuelta siguiente.
+						if profundidad > 0 {
+							profundidad--
+						}
+						j := saltarEspacio(r, fin)
+						fin = finDePalabra(r, j)
+					default:
+						if profundidad > 0 {
+							profundidad--
+						}
 					}
 				}
 			}
@@ -173,9 +210,9 @@ func Split(sql string, d Dialect) []Statement {
 			continue
 		}
 
-		if c == ';' && profundidad == 0 {
+		if empieza(r, i, separador) && profundidad == 0 {
 			guardar()
-			i++
+			i += len(separador)
 			continue
 		}
 
@@ -206,31 +243,94 @@ func abreRutina(r []rune, i int) bool {
 		return false
 	}
 	// Con mirar unas pocas palabras alcanza: entre CREATE y TRIGGER puede
-	// haber OR REPLACE, TEMP, DEFINER=…, pero no veinte palabras.
-	j := i
-	for n := 0; n < 8 && j < len(r); n++ {
-		j = saltarEspacio(r, finDePalabra(r, j))
-		if j >= len(r) {
-			break
-		}
-		if !esLetra(r[j]) {
+	// haber OR REPLACE, TEMP, DEFINER = `app`@`10.0.0.1`, pero no veinte
+	// palabras. Un identificador citado cuenta como UNA palabra: antes cada
+	// carácter del DEFINER consumía un turno y el cuerpo se partía (C-27).
+	j := saltarEspacio(r, finDePalabra(r, i))
+	for n := 0; n < 12 && j < len(r); n++ {
+		switch {
+		case esLetra(r[j]):
+			fin := finDePalabra(r, j)
+			switch strings.ToUpper(string(r[j:fin])) {
+			case "TRIGGER", "PROCEDURE", "FUNCTION":
+				return true
+			case "TABLE", "VIEW", "INDEX", "DATABASE", "SCHEMA", "USER", "ROLE":
+				return false
+			}
+			j = fin
+		case r[j] == '`' || r[j] == '"' || r[j] == '\'':
+			j = hastaElCierre(r, j, r[j], true, false)
+		default:
 			j++
-			continue
 		}
-		switch strings.ToUpper(string(r[j:finDePalabra(r, j)])) {
-		case "TRIGGER", "PROCEDURE", "FUNCTION":
-			return true
-		case "TABLE", "VIEW", "INDEX", "DATABASE", "SCHEMA", "USER", "ROLE":
+		j = saltarEspacio(r, j)
+	}
+	return false
+}
+
+// esDelimiter dice si en `i` empieza una línea `DELIMITER x`.
+func esDelimiter(r []rune, i int) bool {
+	fin := finDePalabra(r, i)
+	return strings.EqualFold(string(r[i:fin]), "DELIMITER") && fin < len(r) && (r[fin] == ' ' || r[fin] == '\t')
+}
+
+// empieza dice si en `i` está el separador.
+func empieza(r []rune, i int, sep []rune) bool {
+	if i+len(sep) > len(r) {
+		return false
+	}
+	for k, c := range sep {
+		if r[i+k] != c {
 			return false
 		}
 	}
-	return false
+	return true
+}
+
+// palabraSiguiente es la palabra que sigue a la posición `i`, saltando el
+// espacio, en mayúsculas; vacía si lo que sigue no es una palabra.
+func palabraSiguiente(r []rune, i int) string {
+	j := saltarEspacio(r, i)
+	if j >= len(r) || !esLetra(r[j]) {
+		return ""
+	}
+	return strings.ToUpper(string(r[j:finDePalabra(r, j)]))
+}
+
+// finDeComentario devuelve dónde termina el comentario de bloque que empieza
+// en `i`. En Postgres los comentarios se anidan y el primer `*/` no cierra
+// necesariamente (C-27); en los demás, sí.
+func finDeComentario(r []rune, i int, anidados bool) int {
+	nivel := 1
+	j := i + 2
+	for j < len(r) {
+		switch {
+		case anidados && r[j] == '/' && j+1 < len(r) && r[j+1] == '*':
+			nivel++
+			j += 2
+		case r[j] == '*' && j+1 < len(r) && r[j+1] == '/':
+			nivel--
+			j += 2
+			if nivel == 0 {
+				return j
+			}
+		default:
+			j++
+		}
+	}
+	return len(r)
 }
 
 // cierreDeCita devuelve dónde termina la cadena o el identificador que empieza
 // en `i`, y si de verdad empezaba uno.
 func cierreDeCita(r []rune, i int, d Dialect) (int, bool) {
 	switch c := r[i]; {
+	case (c == 'E' || c == 'e') && d.DollarQuotes && i+1 < len(r) && r[i+1] == '\'' &&
+		(i == 0 || !esLetra(r[i-1]) && r[i-1] != '_'):
+		// E'…' de Postgres: adentro, `\'` no cierra (C-27). Solo si la E no es
+		// el final de un identificador —`WHERE nombre'x'` no existe, pero
+		// `CASE'a'` tampoco, así que alcanza con mirar el carácter anterior—.
+		return hastaElCierre(r, i+1, '\'', true, true), true
 	case c == '\'' || c == '"':
 		return hastaElCierre(r, i, c, true, d.BackslashEscapes), true
 	case c == '`' && d.Backtick:
@@ -357,14 +457,7 @@ func Trim(sql string, d Dialect) string {
 		case d.HashComments && r[i] == '#':
 			i = finDeLinea(r, i)
 		case r[i] == '/' && i+1 < len(r) && r[i+1] == '*':
-			j := i + 2
-			for j < len(r) && !(r[j] == '*' && j+1 < len(r) && r[j+1] == '/') {
-				j++
-			}
-			if j < len(r) {
-				j += 2
-			}
-			i = j
+			i = finDeComentario(r, i, d.DollarQuotes)
 		default:
 			return string(r[i:])
 		}

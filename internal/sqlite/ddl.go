@@ -298,11 +298,15 @@ var dialectoDML = dml.Dialect{
 	QuoteLiteral: QuoteString,
 	Placeholder:  func(int) string { return "?" },
 	EmptyInsert:  "DEFAULT VALUES",
-	InsertPrefix: func(ignorar bool) string {
+	// «Saltear las que chocan» es ON CONFLICT DO NOTHING y no OR IGNORE: OR
+	// IGNORE descarta en silencio también las filas que violan NOT NULL o un
+	// CHECK, no solo las de clave (C-04 de la auditoría del 2026-09-11). El
+	// upsert sin destino aplica únicamente a las restricciones de unicidad.
+	InsertSuffix: func(ignorar bool) string {
 		if ignorar {
-			return "INSERT OR IGNORE INTO "
+			return " ON CONFLICT DO NOTHING"
 		}
-		return "INSERT INTO "
+		return ""
 	},
 }
 

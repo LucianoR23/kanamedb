@@ -87,10 +87,18 @@ func leerColumnas(ctx context.Context, db *sql.DB, base string, tablas map[strin
 		       column_type,
 		       is_nullable = 'YES',
 		       column_default IS NOT NULL OR extra LIKE '%%DEFAULT_GENERATED%%',
-		       column_key = 'PRI',
+		       -- La clave primaria de verdad: la de statistics. column_key = 'PRI'
+		       -- también se reporta para un índice UNIQUE NOT NULL cuando la
+		       -- tabla no tiene PRIMARY KEY, y eso hacía creer a la grilla y a
+		       -- la comparación que había clave donde había un índice (C-19 de
+		       -- la auditoría del 2026-09-11).
+		       EXISTS (
+		         SELECT 1 FROM information_schema.statistics s
+		          WHERE s.table_schema = c.table_schema AND s.table_name = c.table_name
+		            AND s.column_name = c.column_name AND s.index_name = 'PRIMARY'),
 		       ordinal_position,
 		       extra LIKE '%%auto_increment%%'
-		  FROM information_schema.columns
+		  FROM information_schema.columns c
 		 WHERE table_schema = ?
 		 ORDER BY table_name, ordinal_position`
 
@@ -272,10 +280,16 @@ func detalleColumnas(
 	const q = `
 		SELECT column_name, column_type, is_nullable = 'YES', ordinal_position,
 		       COALESCE(column_default, ''), COALESCE(column_comment, ''),
-		       column_key = 'PRI',
+		       -- La misma clave que el snapshot: la de statistics, no
+		       -- column_key = 'PRI' (C-19). Sin esto el volcado escribía una
+		       -- PRIMARY KEY que la tabla no tenía.
+		       EXISTS (
+		         SELECT 1 FROM information_schema.statistics s
+		          WHERE s.table_schema = c.table_schema AND s.table_name = c.table_name
+		            AND s.column_name = c.column_name AND s.index_name = 'PRIMARY'),
 		       COALESCE(generation_expression, ''),
 		       COALESCE(extra, '')
-		  FROM information_schema.columns
+		  FROM information_schema.columns c
 		 WHERE table_schema = ? AND table_name = ?
 		 ORDER BY ordinal_position`
 

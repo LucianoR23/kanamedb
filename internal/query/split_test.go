@@ -1,6 +1,7 @@
 package query
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -162,6 +163,82 @@ $$ LANGUAGE plpgsql;`
 // Es la trampa del caso anterior: si `BEGIN` contara siempre como apertura de
 // bloque, nunca encontraría su `END` y a partir de ahí NO SE PARTIRÍA NADA. El
 // editor quedaría peor que antes y sin ningún error que lo delate.
+// TestUnProcedimientoConIfNoSeParte: solo BEGIN y CASE abrían nivel, pero
+// todo END lo cerraba. El `END IF` de casi cualquier procedimiento de MySQL
+// bajaba a cero y el `;` siguiente partía el cuerpo (C-11). Y las líneas
+// `DELIMITER //` que pegan mysqldump y Workbench se mandaban al servidor.
+func TestUnProcedimientoConIfNoSeParte(t *testing.T) {
+	mysql := Dialect{Backtick: true, HashComments: true, BackslashEscapes: true, Compound: true}
+	proc := `CREATE PROCEDURE p()
+BEGIN
+  IF x THEN SET @a = 1; END IF;
+  WHILE @a < 3 DO SET @a = @a + 1; END WHILE;
+  lbl: LOOP LEAVE lbl; END LOOP lbl;
+  REPEAT SET @a = 0; UNTIL true END REPEAT;
+  CASE @a WHEN 1 THEN SELECT 1; ELSE SELECT 2; END CASE;
+  SELECT CASE WHEN @a = 1 THEN 'a' ELSE 'b' END;
+END`
+	got := Split(proc+";\nSELECT 2;", mysql)
+	if len(got) != 2 {
+		t.Fatalf("se esperaban 2 sentencias y hay %d:\n%s", len(got), imprimir(got))
+	}
+	if got[0].SQL != proc {
+		t.Errorf("el procedimiento se partió o se recortó:\n%s", got[0].SQL)
+	}
+
+	// Con DELIMITER, como lo escribe mysqldump: la línea no viaja y el cuerpo
+	// se corta donde dice el delimitador nuevo.
+	conDelimiter := "DELIMITER //\n" + proc + " //\nDELIMITER ;\nSELECT 3;\n"
+	got = Split(conDelimiter, mysql)
+	if len(got) != 2 {
+		t.Fatalf("con DELIMITER se esperaban 2 sentencias y hay %d:\n%s", len(got), imprimir(got))
+	}
+	if strings.Contains(got[0].SQL, "DELIMITER") || got[0].SQL != proc {
+		t.Errorf("la sentencia lleva la línea DELIMITER o no es el procedimiento:\n%s", got[0].SQL)
+	}
+	if got[1].SQL != "SELECT 3" {
+		t.Errorf("después de volver a `;` salió %q", got[1].SQL)
+	}
+	// Y con DEFINER, que consumía todas las palabras que abreRutina miraba.
+	got = Split("CREATE DEFINER = `app`@`10.0.0.1` PROCEDURE p() BEGIN SELECT 1; SELECT 2; END; SELECT 3;", mysql)
+	if len(got) != 2 {
+		t.Errorf("con DEFINER se esperaban 2 sentencias y hay %d:\n%s", len(got), imprimir(got))
+	}
+}
+
+// TestLosCasosDePostgresQuePartianDondeNoDebian (C-27): E'…' con escapes,
+// BEGIN ATOMIC de la 14, y comentarios de bloque anidados.
+func TestLosCasosDePostgresQuePartianDondeNoDebian(t *testing.T) {
+	pg := Dialect{DollarQuotes: true}
+	casos := []struct {
+		nombre, sql string
+		n           int
+	}{
+		{"E con escape", `SELECT E'O\'Brien; x'; SELECT 2;`, 2},
+		{"begin atomic", "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; SELECT 2; END; SELECT 3;", 2},
+		{"comentario anidado", "SELECT /* a /* b; */ c; */ 1; SELECT 2;", 2},
+		{"begin de transaccion", "BEGIN; SELECT 1; COMMIT;", 3},
+		{"case en un select", "SELECT CASE WHEN true THEN 1 END; SELECT 2;", 2},
+	}
+	for _, c := range casos {
+		got := Split(c.sql, pg)
+		if len(got) != c.n {
+			t.Errorf("%s: se esperaban %d sentencias y hay %d:\n%s", c.nombre, c.n, len(got), imprimir(got))
+		}
+	}
+	if cmd := Command("/* x /* y */ z */ SELECT 1", pg); cmd != "SELECT" {
+		t.Errorf("Command con comentario anidado dio %q", cmd)
+	}
+}
+
+func imprimir(sts []Statement) string {
+	var b strings.Builder
+	for i, s := range sts {
+		b.WriteString(fmt.Sprintf("  %d (línea %d): %q\n", i+1, s.Line, s.SQL))
+	}
+	return b.String()
+}
+
 func TestElBeginDeUnaTransaccionNoAbreBloque(t *testing.T) {
 	for _, d := range []Dialect{lite, my} {
 		got := Split("BEGIN; INSERT INTO t VALUES (1); COMMIT;", d)

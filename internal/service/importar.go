@@ -258,6 +258,13 @@ func (i *Imports) correr(ctx context.Context, p ImportPlan, ensayo bool) ImportR
 		if err != nil {
 			return &erroDeLinea{linea: primeraDelLote, err: err}
 		}
+		// En los motores que saltean degradando errores a avisos, el lote se
+		// da por bueno recién después de mirar los avisos. Ver engine.SkipVerifier.
+		if v, ok := tx.(engine.SkipVerifier); ok && p.OnConflict == ConflictSkip {
+			if err := v.VerifySkipped(ctx); err != nil {
+				return &erroDeLinea{linea: primeraDelLote, err: err}
+			}
+		}
 		res.Inserted += n
 		lote = lote[:0]
 		return nil

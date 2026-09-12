@@ -1163,6 +1163,70 @@ promete lo que no cumple.**
   NOT NULL` en MySQL; sin comparar objetos cuando una lista vino incompleta;
   `tipoAceptable` valida fuera de las comillas; DEFERRABLE/MATCH, orden de
   columnas y particionado en `NoComparado`.
+**Auditoría, sexta tanda: MySQL y MariaDB dicen la verdad.**
+
+- **C-03 (ALTO), «0 filas» en todo DML.** El driver entrega un paquete OK
+  como un resultado sin columnas, no como un error, así que la rama que
+  «reintentaba como Exec» no se alcanzaba nunca para un DML bueno y sí para
+  uno que había fallado de verdad: lo mandaba dos veces. `run` toma una
+  conexión dedicada —como SQLite—, no reintenta, y con `Columns()` vacío
+  pregunta `ROW_COUNT()` en esa misma conexión, solo tras DML.
+- **C-14 (MEDIO), cancelar no cancelaba.** El driver cierra el socket y el
+  servidor lo nota recién al escribir: un UPDATE cancelado terminaba y
+  confirmaba (confirmado con `BENCHMARK`). Con la conexión dedicada se lee
+  `CONNECTION_ID()` y, si el contexto se cancela, otra conexión manda `KILL
+  QUERY <id>` con su propio plazo. `KILL` no acepta parámetros; el id lo dio
+  el servidor.
+- **C-04 (ALTO), «saltear» corrompía.** `INSERT IGNORE` degrada TODOS los
+  errores de datos a aviso. Se probó `ON DUPLICATE KEY UPDATE c = c` y no
+  sirve: esta conexión pone `clientFoundRows` a propósito —para que la grilla
+  cuente filas alcanzadas— y con eso las salteadas cuentan 1. Se queda
+  `IGNORE` y **la transacción revisa `SHOW WARNINGS` tras cada lote**
+  (`engine.SkipVerifier`): cualquier código que no sea 1062 falla el lote, y
+  si se llegó a `max_error_count` no se puede afirmar nada y también falla.
+  `SHOW WARNINGS` va PRIMERO: un `SELECT @@warning_count` previo dejaba la
+  lista vacía en el driver. En SQLite, `OR IGNORE` —que también callaba NOT
+  NULL y CHECK— pasa a `ON CONFLICT DO NOTHING`, que solo aplica a unicidad.
+- **C-13 (MEDIO), binarios crudos.** BINARY/VARBINARY/BLOB salen en
+  hexadecimal y BIT como el número que es, en grilla y exportación;
+  `Quoting.Binary` los escribe `X'…'`. Editar una clave `BINARY(16)` desde
+  la grilla sigue sin andar —el WHERE compararía texto— y queda anotado.
+- **C-19 (MEDIO)** la clave primaria del snapshot Y del detalle sale de
+  `statistics` con `index_name = 'PRIMARY'`, no de `column_key = 'PRI'`, que
+  también marca un índice UNIQUE NOT NULL cuando no hay clave.
+- **Review de la tanda (`high`)**: el detalle seguía con `column_key` y el
+  volcado escribía una PRIMARY KEY que la tabla no tenía; `VECTOR` es de
+  clase binaria y no se pasaba a hex; el vigilante del `KILL` podía disparar
+  al terminar una corrida normal —el contexto también se cancela ahí— y
+  matar la sentencia siguiente de esa conexión del pool: vuelve a mirar
+  `listo` antes de matar; y con `max_error_count = 0` `SHOW WARNINGS` no
+  mostraba nada y el lote pasaba: ahora se compara `@@warning_count` (que
+  sobrevive al SHOW, leído después) con lo visto.
+
+**Auditoría, séptima tanda: el divisor y la segunda capa del webview.**
+
+- **C-11 (MEDIO) y C-27 (BAJO), el divisor de sentencias.** `END IF`, `END
+  LOOP`, `END WHILE` y `END REPEAT` cierran construcciones que no se contaron
+  al abrir —IF, LOOP, WHILE y REPEAT no suman, porque `IF()` y `IF EXISTS`
+  aparecen en cualquier expresión— así que tampoco restan; `END CASE` resta y
+  consume la palabra CASE para que no vuelva a sumar. `DELIMITER x` al
+  principio de una sentencia cambia el separador y la línea no se manda:
+  es lo que pegan mysqldump y Workbench. En Postgres, `E'…'` respeta los
+  escapes, `BEGIN ATOMIC … END` (14+) se cuenta como bloque y los
+  comentarios de bloque se anidan. `abreRutina` trata un identificador
+  citado como una palabra: `DEFINER = \`app\`@\`10.0.0.1\`` consumía el
+  presupuesto carácter por carácter.
+- **K-15 (BAJO), CSP.** La inyecta un plugin de Vite **solo en el build**:
+  en desarrollo Vite mete el preámbulo de React Refresh inline y habla por
+  websocket, y una política que los permita no protege nada. `style-src
+  'unsafe-inline'` hace falta porque CodeMirror y xyflow inyectan sus hojas;
+  `connect-src 'self'` alcanza para el puente de Wails. Probado con el build
+  de producción: arranca y el gestor lista las conexiones. Un script
+  inyectado desde un valor de celda ya no correría; los bindings que
+  escriben rutas siguen siendo la razón para no relajarla.
+- **K-18 y C-30** se anotan sin cambio, con el porqué, en el documento de
+  pendientes.
+
 - **Review de las tandas cuatro y cinco (`high`)**, diez hallazgos, dos
   altos: (1) al emparejar esquemas de distinto nombre, las claves foráneas
   del origen seguían apuntando al esquema de origen y la migración emitía

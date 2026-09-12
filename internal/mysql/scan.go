@@ -58,23 +58,28 @@ func scan(
 		return nil, fmt.Errorf("leer las columnas de %s.%s: %w", base, tabla, err)
 	}
 	columnas := make([]query.Column, len(tipos))
+	nombres := make([]string, len(tipos))
 	for i, t := range tipos {
 		columnas[i] = query.Column{
 			Name:     t.Name(),
 			DataType: strings.ToLower(t.DatabaseTypeName()),
 			Class:    claseDe(t.DatabaseTypeName()),
 		}
+		nombres[i] = t.DatabaseTypeName()
 	}
-	return &flujo{rows: rows, columnas: columnas}, nil
+	return &flujo{rows: rows, columnas: columnas, tipos: nombres}, nil
 }
 
 // flujo adapta *sql.Rows a engine.RowStream.
 type flujo struct {
 	rows     *sql.Rows
 	columnas []query.Column
-	fila     []*string
-	cerrado  bool
-	err      error
+	// tipos son los nombres de tipo del driver, para convertir los binarios y
+	// los BIT igual que en la grilla (textoDe).
+	tipos   []string
+	fila    []*string
+	cerrado bool
+	err     error
 }
 
 func (f *flujo) Columns() []query.Column { return f.columnas }
@@ -105,7 +110,7 @@ func (f *flujo) Next() bool {
 		// RawBytes apunta al búfer del driver y se invalida en el Next
 		// siguiente: hay que copiar. Sin la copia, todas las filas del archivo
 		// terminarían con el valor de la última.
-		s := string(b)
+		s := textoDe(b, f.tipos[i])
 		fila[i] = &s
 	}
 	f.fila = fila
