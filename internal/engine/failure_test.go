@@ -25,6 +25,12 @@ func TestRedactTapaLasContrasenasDeLosTresFormatos(t *testing.T) {
 		{"mysql", `dial error kaname:s3cr3t@tcp(127.0.0.1:3306)/kaname_test`, "s3cr3t"},
 		{"mysql por socket", `kaname:s3cr3t@unix(/var/run/mysqld.sock)/db`, "s3cr3t"},
 		{"mysql por el túnel", `kaname:s3cr3t@kaname-tunnel-3(host:3306)/db`, "s3cr3t"},
+		// Una contraseña con `@`. El DSN de MySQL se arma sin escaparla —el
+		// driver parte por el ÚLTIMO `@`— así que la expresión tiene que ser
+		// codiciosa hasta el `@` que precede a `tcp(`; con `[^@]*` no había
+		// coincidencia y el DSN entero quedaba sin enmascarar (K-11).
+		{"mysql con @ en la clave", `kaname:p@ss@w0rd@tcp(127.0.0.1:3306)/db`, "p@ss@w0rd"},
+		{"postgres con @ escapado", `postgres://kaname:p%40ss@host:5432/db`, "p%40ss"},
 	}
 	for _, c := range casos {
 		t.Run(c.nombre, func(t *testing.T) {

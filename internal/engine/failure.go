@@ -112,7 +112,12 @@ var dsnCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^:/?#\[\]
 // Va aparte porque la expresión de arriba exige el `esquema://` y por lo tanto
 // no lo reconocía. Mientras el DSN se armó solo para Postgres eso alcanzaba;
 // desde la Iteración 6 hay cuatro motores y dos formatos más.
-var dsnMySQL = regexp.MustCompile(`([^\s:/@]+):([^@\s]*)@(tcp|unix|kaname-tunnel-\d+)\(`)
+//
+// La contraseña es `\S*` y no `[^@]*`, a propósito: el DSN de MySQL se arma
+// sin escaparla —el driver parte por el ÚLTIMO `@`— así que una contraseña con
+// `@` adentro tiene que llegar codiciosa hasta el `@` que precede a `tcp(`.
+// Con `[^@]*` no había coincidencia y el DSN quedaba entero (K-11).
+var dsnMySQL = regexp.MustCompile(`([^\s:/@]+):(\S*)@(tcp|unix|kaname-tunnel-\d+)\(`)
 
 // Redact enmascara las contraseñas de cualquier cadena de conexión que aparezca
 // en un texto.
