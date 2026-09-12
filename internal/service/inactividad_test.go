@@ -109,6 +109,57 @@ func TestLaSesionSeCierraSolaTrasLaInactividadConfigurada(t *testing.T) {
 	}
 }
 
+// TestElChangesetSobreviveAlCierrePorInactividad: treinta ediciones
+// preparadas, quince minutos afuera, y al volver «Reconectar» las devuelve.
+// Solo a la misma conexión contra la misma base; desconectar a mano las tira.
+func TestElChangesetSobreviveAlCierrePorInactividad(t *testing.T) {
+	sesion, c := sesionDe(t, "sqlite", "")
+	ctx := context.Background()
+	abierta, _ := sesion.abierta()
+	if err := abierta.db.Exec(ctx, `CREATE TABLE kn_resc (id integer PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sesion.Schema(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	ahora := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	sesion.usarReloj(func() time.Time { return ahora })
+	if _, err := sesion.Stage(ctx, change.Change{
+		Type: change.AddColumn, Schema: "main", Table: "kn_resc", Source: "test",
+		Column: &change.Column{Name: "a", DataType: "text", Nullable: true},
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	ahora = ahora.Add(abierta.conn.Safety.IdleDisconnect() + time.Minute)
+	sesion.vencerInactividad(abierta)
+	if v := sesion.Current(); v.Connected || !strings.Contains(v.ClosedReason, "se conservan") {
+		t.Fatalf("Connected=%v ClosedReason=%q", v.Connected, v.ClosedReason)
+	}
+	if res := sesion.Connect(ctx, c.ID); !res.OK {
+		t.Fatalf("no reconectó: %+v", res.Failure)
+	}
+	v, err := sesion.Changeset(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Summary.Total != 1 {
+		t.Fatalf("el changeset no volvió con la reconexión: %d cambios", v.Summary.Total)
+	}
+
+	// Desconectar a mano y volver: no.
+	abierta, _ = sesion.abierta()
+	ahora = ahora.Add(abierta.conn.Safety.IdleDisconnect() + time.Minute)
+	sesion.vencerInactividad(abierta)
+	sesion.Disconnect()
+	if res := sesion.Connect(ctx, c.ID); !res.OK {
+		t.Fatalf("no reconectó: %+v", res.Failure)
+	}
+	if v, _ := sesion.Changeset(ctx); v.Summary.Total != 0 {
+		t.Errorf("después de desconectar a mano el changeset volvió igual: %d", v.Summary.Total)
+	}
+}
+
 // TestConNuncaNoHayTemporizador: -1 es «no desconectar nunca», y eso es no
 // armar nada.
 func TestConNuncaNoHayTemporizador(t *testing.T) {

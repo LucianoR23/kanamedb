@@ -87,9 +87,15 @@ func celdaMarkdown(b []byte, v *string, o Options) []byte {
 }
 
 // escaparMarkdown agrega el texto sin lo que rompería la tabla.
+//
+// La barra invertida también se escapa: sin eso, `a\|b` salía como `a\\|b`,
+// que GFM lee como una barra escapada seguida de un separador de celda, y la
+// fila se partía (C-26 de la auditoría del 2026-09-11).
 func escaparMarkdown(b []byte, s string) []byte {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
+		case '\\':
+			b = append(b, '\\', '\\')
 		case '|':
 			b = append(b, '\\', '|')
 		case '\r':

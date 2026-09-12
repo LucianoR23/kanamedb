@@ -1108,6 +1108,82 @@ promete lo que no cumple.**
   (`schema.ObjForeignKey`). **C-21 y C-31 (BAJO)** `SaveTables` y `Dumps.Save`
   se registran para cancelar antes de la parte larga.
 
+**Auditoría, cuarta tanda: lo que se muestra y se exporta es lo que hay.**
+
+- **C-12 (MEDIO), fechas de SQLite.** El driver parsea a `time.Time` todo
+  TEXT de una columna declarada DATE/DATETIME/TIMESTAMP y no se le puede
+  pedir que no lo haga. La grilla y la exportación **leen esas columnas con
+  `CAST(… AS TEXT)`** —una expresión no tiene tipo declarado y llega tal
+  cual— y reponen el tipo en el encabezado desde `pragma_table_xinfo`, que
+  ahora se lee una vez por página o recorrido. El editor no puede reescribir
+  la consulta: ahí `textoDeFecha` escribe el formato más probable de SQLite
+  en vez de RFC 3339 con una `Z` que nadie escribió. Es una heurística y se
+  dice; la lectura fiel es la de la grilla.
+- **C-02 (CRÍTICO), BLOB de SQLite.** El recorrido de exportación entrega
+  hexadecimal y `engine.Quoting.Binary` lo escribe `X'…'`; la grilla sigue
+  mostrando `[N bytes]`, que es lo que se quiere ver en una celda. Postgres
+  cita el `\x…` que ya entrega. MySQL queda como literal hasta C-13.
+- **C-29, C-26, C-28 (BAJO)** `changes()` solo tras DML; `\` escapada en
+  Markdown, encabezado CSV sin neutralizar, REAL con `.0`; líneas físicas en
+  el CSV y filas con campos de más rechazadas.
+- **K-16 (BAJO)** `Caps.StatementTimeoutOnlyReads` para MySQL: el editor, la
+  ayuda y el aviso del changeset dicen que el límite corta solo lecturas.
+- **K-17 (BAJO)** guardar recuerda los secretos y los repone si la libreta
+  falla; borrar intenta los dos secretos y dice cuál mitad quedó.
+- **K-13 (BAJO)** `HostKeyAlgorithms` con el tipo de clave guardado, en
+  `Inspect` y `Dial`.
+
+**Auditoría, quinta tanda: `drift` converge.**
+
+- **C-06 (ALTO), identidad de las claves foráneas.** Se emparejan por lo que
+  hacen —columnas, tabla destino (sin distinguir mayúsculas), columnas
+  destino— y se comparan por acciones. El nombre no sirve para emparejar:
+  SQLite lo sintetiza con el `id` posicional del pragma y MySQL nombra las
+  automáticas `<t>_ibfk_N`; con dos claves en distinto orden a cada lado, la
+  comparación no convergía y cada apply duplicaba una. El nombre viaja a la
+  sentencia solo cuando lo eligió alguien: `nombreSintetizado` reconoce los
+  dos patrones y los deja vacíos.
+- **C-07 (ALTO), esquemas de distinto nombre.** Un solo esquema de cada lado
+  se empareja por posición —es el caso MySQL/MariaDB, donde el esquema se
+  llama como la base— y las sentencias nombran el del destino. Se dice en
+  `NoComparado`. Postgres con varios esquemas sigue por nombre exacto.
+- **C-09 (ALTO), clave primaria como conjunto.** Se compara a nivel tabla:
+  un `AddPrimaryKey` con todas las columnas, o ninguna sentencia si el
+  destino ya tiene otra clave. Antes salía uno por columna, y en MySQL el
+  primero quedaba confirmado con una clave equivocada.
+- **C-08 (ALTO), provisorio.** `schema.Column.AutoIncrement` viaja desde las
+  tres introspecciones (Postgres: `attidentity` o default `nextval(`; MySQL:
+  `extra like '%auto_increment%'`; SQLite: `INTEGER PRIMARY KEY` sola). El
+  CREATE TABLE de `drift` sube el riesgo a Medio y nombra las columnas que se
+  crean sin numerarse solas. Escribirlas exige que `change.Column` modele el
+  autoincremento —«el modelo no promete lo que no se puede escribir»— y eso
+  va a pendientes.
+- **C-18, C-20, C-22, C-23, C-24.** Objetos por `Kind + Table + Name + Args`;
+  tipo y nulabilidad completos en los cambios de columna y `MODIFY … NULL |
+  NOT NULL` en MySQL; sin comparar objetos cuando una lista vino incompleta;
+  `tipoAceptable` valida fuera de las comillas; DEFERRABLE/MATCH, orden de
+  columnas y particionado en `NoComparado`.
+- **Review de las tandas cuatro y cinco (`high`)**, diez hallazgos, dos
+  altos: (1) al emparejar esquemas de distinto nombre, las claves foráneas
+  del origen seguían apuntando al esquema de origen y la migración emitía
+  `REFERENCES shop_dev.…` contra prod —`renombrado` reescribe `RefSchema`—;
+  (2) `X'…'` se aplicaba a TODO valor de una columna declarada BLOB, y SQLite
+  tipa el valor: un texto `'hello'` salía `X'hello'` (archivo roto) y un `42`
+  se volvía un blob de un byte. **El recorrido de SQLite expone la clase de
+  cada celda** (`engine.CellClasses`) y el escritor SQL decide por celda
+  (`export.ClassAware`); los motores tipados siguen por columna. Los medios:
+  `HostKeyAlgorithms` con el tipo conocido PRIMERO y los demás después —solo
+  el conocido dejaba sin entrada a quien cambió de tipo de clave y escondía el
+  diálogo de «cambió»—; `recordarSecreto` no lee el keychain con «dejar como
+  está» ni toma un error transitorio por «no había»; **el changeset sobrevive
+  al cierre por inactividad** y vuelve con «Reconectar» a la misma base
+  (`rescate`), porque tirar treinta ediciones por quince minutos afuera era
+  peor que la sesión abierta. Los bajos: `setval` con `GREATEST(…, 1)` para
+  ids en 0 o negativos; el encabezado del CSV se neutraliza solo si parece
+  una llamada (`=HYPERLINK(…)`), no por empezar con `-`; `textoDeFecha`
+  colapsa a fecha sola únicamente en columnas DATE; la línea del error de
+  lectura del CSV sale del `ParseError`.
+
 ### Iteración 9 — 2026-09-11
 
 **S03 TLS, hecha: los certificados van por ruta, MySQL habla libpq, y el

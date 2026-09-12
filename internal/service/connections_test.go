@@ -527,3 +527,39 @@ func TestElNombreSaleDelArchivoEnLosDosSeparadores(t *testing.T) {
 		}
 	}
 }
+
+// TestSiLaLibretaFallaUnaConexionNuevaNoDejaSuSecretoEnElKeychain.
+//
+// El keychain se escribe antes que la libreta, a propósito. La otra mitad: si
+// la libreta falla —disco lleno, archivo roto— la contraseña ya quedó guardada
+// bajo un ID que ninguna libreta conoce, un secreto que solo se ve auditando
+// el keychain (K-17). Para una conexión nueva se deshace.
+func TestSiLaLibretaFallaUnaConexionNuevaNoDejaSuSecretoEnElKeychain(t *testing.T) {
+	// Una libreta que no se puede escribir: la ruta es un directorio.
+	kr := newFakeKeyring()
+	s := &Connections{store: store.New(t.TempDir()), keyring: kr}
+	c := base("n1", "nueva")
+	if _, err := s.Save(c, PasswordSet, "s3cr3t"); err == nil {
+		t.Fatal("guardar en una libreta imposible no dio error")
+	}
+	if _, err := kr.Get("n1"); err == nil {
+		t.Error("la contraseña quedó en el keychain aunque la conexión no se guardó")
+	}
+}
+
+// Y en una edición, la contraseña que había vuelve a su lugar.
+func TestSiLaLibretaFallaAlEditarLaContrasenaAnteriorSeQueda(t *testing.T) {
+	kr := newFakeKeyring()
+	s := &Connections{store: store.New(filepath.Join(t.TempDir(), "connections.toml")), keyring: kr}
+	c := base("e1", "editada")
+	if _, err := s.Save(c, PasswordSet, "vieja"); err != nil {
+		t.Fatal(err)
+	}
+	s.store = store.New(t.TempDir()) // un directorio: no se puede escribir
+	if _, err := s.Save(c, PasswordSet, "nueva"); err == nil {
+		t.Fatal("guardar en una libreta imposible no dio error")
+	}
+	if v, _ := kr.Get("e1"); v != "vieja" {
+		t.Errorf("la contraseña quedó en %q; la libreta no se escribió y tenía que seguir siendo la vieja", v)
+	}
+}

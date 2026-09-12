@@ -54,7 +54,7 @@ func Inspect(ctx context.Context, cfg Config, kh *KnownHosts) (*Inspection, erro
 		return nil, err
 	}
 
-	presentada, err := capturarClaveDelHost(ctx, cfg)
+	presentada, err := capturarClaveDelHost(ctx, cfg, algoritmosPreferidos(kh, cfg.Address()))
 	if err != nil {
 		return nil, fmt.Errorf("inspeccionar %s: %w", cfg.Describe(), err)
 	}
@@ -81,6 +81,56 @@ func Inspect(ctx context.Context, cfg Config, kh *KnownHosts) (*Inspection, erro
 	return insp, nil
 }
 
+// algoritmosPreferidos ordena la negociación para que el servidor presente el
+// MISMO tipo de clave que ya tenemos guardado.
+//
+// known_hosts guarda una clave por dirección, y un servidor suele tener
+// varias —ed25519, ecdsa, rsa—. Sin esto, la negociación elige el tipo por la
+// lista por defecto del cliente y lo que ofrece el servidor: si el
+// administrador agrega un tipo o cambia el orden, el servidor presenta OTRA
+// clave legítima y el veredicto es «la clave cambió». Cada falso positivo
+// entrena a apretar «Reemplazar la clave y conectar», que es justo el botón
+// que un intermediario necesita (K-13 de la auditoría del 2026-09-11). Es lo
+// que hace OpenSSH, y lo que hace `knownhosts.HostKeyAlgorithms` en otras
+// librerías.
+//
+// Con una clave RSA se piden también las firmas rsa-sha2, que son las que un
+// servidor moderno acepta para ese tipo. Sin clave conocida se deja la lista
+// por defecto: no hay preferencia que respetar.
+func algoritmosPreferidos(kh *KnownHosts, address string) []string {
+	if kh == nil {
+		return nil
+	}
+	conocida, err := kh.Lookup(address)
+	if err != nil || conocida == nil {
+		return nil
+	}
+	var primero []string
+	switch conocida.Algorithm {
+	case ssh.KeyAlgoRSA:
+		primero = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+	case "":
+		return nil
+	default:
+		primero = []string{conocida.Algorithm}
+	}
+	// Los conocidos PRIMERO y los demás después, como OpenSSH. Solo los
+	// conocidos dejaba afuera a un servidor que cambió de tipo de clave —RSA
+	// a ed25519—: el handshake fallaba con «no common algorithm» y el diálogo
+	// de «la clave cambió» ni aparecía, con la persona sin forma de entrar
+	// salvo editar known_hosts a mano (review del 2026-09-12).
+	vistos := make(map[string]bool, len(primero))
+	for _, a := range primero {
+		vistos[a] = true
+	}
+	for _, a := range ssh.SupportedAlgorithms().HostKeys {
+		if !vistos[a] {
+			primero = append(primero, a)
+		}
+	}
+	return primero
+}
+
 // capturarClaveDelHost abre el handshake, se queda con la clave que presenta el
 // servidor y lo aborta ahí mismo.
 //
@@ -92,7 +142,7 @@ func Inspect(ctx context.Context, cfg Config, kh *KnownHosts) (*Inspection, erro
 //
 // La configuración va sin métodos de autenticación además, para que no haya
 // nada que mandar aunque el protocolo siguiera.
-func capturarClaveDelHost(ctx context.Context, cfg Config) (ssh.PublicKey, error) {
+func capturarClaveDelHost(ctx context.Context, cfg Config, algoritmos []string) (ssh.PublicKey, error) {
 	var presentada ssh.PublicKey
 	conf := &ssh.ClientConfig{
 		User: cfg.User,
@@ -101,7 +151,8 @@ func capturarClaveDelHost(ctx context.Context, cfg Config) (ssh.PublicKey, error
 			presentada = key
 			return errSoloInspeccion
 		},
-		Timeout: DefaultConnectTimeout,
+		HostKeyAlgorithms: algoritmos,
+		Timeout:           DefaultConnectTimeout,
 	}
 
 	conn, err := discar(ctx, cfg.Address())
@@ -229,7 +280,10 @@ func Dial(ctx context.Context, cfg Config, kh *KnownHosts, sec Secrets, opts Dia
 		User:            cfg.User,
 		Auth:            metodos,
 		HostKeyCallback: verificador(cfg, kh, opts.AcceptOnce),
-		Timeout:         DefaultConnectTimeout,
+		// Se pide primero el tipo de clave que ya se conoce: ver
+		// algoritmosPreferidos.
+		HostKeyAlgorithms: algoritmosPreferidos(kh, cfg.Address()),
+		Timeout:           DefaultConnectTimeout,
 		// El nombre queda en los logs del servidor. No lleva ningún dato del
 		// usuario ni de la conexión.
 		ClientVersion: "SSH-2.0-Kaname",

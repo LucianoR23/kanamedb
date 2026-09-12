@@ -475,3 +475,49 @@ func TestExportarASQLDesdeLaGrillaDejaAfueraLasGeneradas(t *testing.T) {
 		t.Errorf("quedaron %d filas de 2", n)
 	}
 }
+
+// TestUnBlobDeSQLiteSobreviveALaExportacionSQL: el archivo que escribe la
+// exportación vuelve a correr y el BLOB vuelve como BLOB, con los mismos
+// bytes. Antes escribía `'[3 bytes]'` (C-02).
+func TestUnBlobDeSQLiteSobreviveALaExportacionSQL(t *testing.T) {
+	sesion, _ := sesionDe(t, "sqlite", "")
+	ctx := context.Background()
+	abierta, _ := sesion.abierta()
+	// SQLite tipa el VALOR, no la columna: en una columna BLOB conviven un
+	// blob, un texto y un entero, y solo el blob va como X'…'. Escribir
+	// `X'hello'` rompía el archivo y `X'42'` lo convertía en un blob de un
+	// byte (review del 2026-09-12).
+	for _, sql := range []string{
+		`CREATE TABLE kn_blob (id integer PRIMARY KEY, dato BLOB, nota TEXT)`,
+		`INSERT INTO kn_blob VALUES (1, X'00FF10', 'x'), (2, NULL, NULL), (3, 'hello', NULL), (4, 42, NULL)`,
+	} {
+		if err := abierta.db.Exec(ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := NewExports(NewQueries(sesion))
+	ruta := filepath.Join(t.TempDir(), "blob.sql")
+	if _, err := e.SaveTable(ctx, TableExport{
+		RunID: "b1", Schema: "main", Table: "kn_blob", Format: export.SQL,
+	}, ruta); err != nil {
+		t.Fatalf("SaveTable(): %v", err)
+	}
+	guion := leer(t, ruta)
+	if !strings.Contains(guion, "X'00FF10'") || strings.Contains(guion, "bytes]") {
+		t.Fatalf("el BLOB no se escribió como literal binario:\n%s", guion)
+	}
+	if err := abierta.db.Exec(ctx, "DELETE FROM kn_blob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, guion); err != nil {
+		t.Fatalf("la exportación no se puede volver a correr: %v\n%s", err, guion)
+	}
+	res := NewQueries(sesion).Run(ctx, "b2",
+		"SELECT group_concat(typeof(dato) || ':' || coalesce(hex(dato), 'NULL'), ' ') FROM kn_blob")
+	if !res.OK {
+		t.Fatal(mensajeDe(res))
+	}
+	if got := *res.Batch.Results[0].Rows[0][0]; got != "blob:00FF10 null: text:68656C6C6F integer:3432" {
+		t.Errorf("las cuatro filas volvieron como %q", got)
+	}
+}

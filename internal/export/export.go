@@ -124,6 +124,14 @@ type Options struct {
 	NeutralizeFormulas bool `json:"neutralizeFormulas"`
 }
 
+// ClassAware lo implementa un Writer que decide cómo escribir cada celda por
+// la clase del VALOR y no por la de la columna. Lo usa el formato SQL con
+// SQLite, que dice fila por fila qué es cada celda (engine.CellClasses).
+type ClassAware interface {
+	// RowClasses es Row con la clase de cada celda.
+	RowClasses(vals []*string, clases []query.Class) error
+}
+
 // Writer escribe filas a medida que llegan.
 //
 // End es obligatorio: cierra el array de JSON, vacía el búfer y termina el
@@ -187,6 +195,15 @@ type conCierre struct {
 	Writer
 	bw *bufio.Writer
 	gz *gzip.Writer
+}
+
+// RowClasses delega en el escritor de formato si decide por celda, y si no
+// cae en Row: la envoltura no puede esconder la capacidad.
+func (c *conCierre) RowClasses(vals []*string, clases []query.Class) error {
+	if b, ok := c.Writer.(ClassAware); ok {
+		return b.RowClasses(vals, clases)
+	}
+	return c.Writer.Row(vals)
 }
 
 func (c *conCierre) End() error {

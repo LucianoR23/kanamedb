@@ -151,7 +151,9 @@ func (c *Conn) RenderDDL(_ context.Context, ch change.Change) (change.Statement,
 // función suelta.
 func (c *Conn) Quoting() engine.Quoting {
 	d := dialectoDML(func(s string) string { return quoteString(s, c.sinEscapes) })
-	return engine.Quoting{Table: d.Table, Ident: d.QuoteIdent, Literal: d.QuoteLiteral}
+	// Binary como Literal hasta que el recorrido entregue los binarios en
+	// hexadecimal (C-13): hoy llegan como bytes crudos en un string.
+	return engine.Quoting{Table: d.Table, Ident: d.QuoteIdent, Literal: d.QuoteLiteral, Binary: d.QuoteLiteral}
 }
 
 func (c *Conn) InsertBatch(

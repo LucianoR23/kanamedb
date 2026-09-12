@@ -30,6 +30,7 @@ package drift
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -149,6 +150,12 @@ type Opciones struct {
 	// Lo que sí se compara igual es qué tablas y qué columnas existen de cada
 	// lado, que es lo que uno mira cuando está migrando de un motor a otro.
 	MismoMotor bool
+
+	// SinObjetos pide no comparar vistas, funciones y demás objetos, porque la
+	// lista de algún lado no se pudo leer entera. Compararlos igual sobre una
+	// lista parcial daba «existe solo en el destino» por cada objeto que el
+	// origen no llegó a listar (C-22 de la auditoría del 2026-09-11).
+	SinObjetos bool
 }
 
 // Comparar produce las diferencias que llevarían el destino al estado del
@@ -171,6 +178,9 @@ func Comparar(origen, destino schema.Snapshot, opts Opciones) Resultado {
 			"el detalle de cada tabla, que es una consulta por tabla. La clave primaria "+
 			"sí está en el catálogo y sí se compara.",
 		"Los datos. Esta pantalla no lee una sola fila de ninguna de las dos bases.",
+		"De las claves foráneas, DEFERRABLE y MATCH: dos claves que difieren solo en eso se "+
+			"ven iguales, y la que se crea no lleva la propiedad.",
+		"El orden de las columnas y el particionado de las tablas.",
 	)
 	if !opts.MismoMotor {
 		res.NoComparado = append(res.NoComparado,
@@ -182,6 +192,24 @@ func Comparar(origen, destino schema.Snapshot, opts Opciones) Resultado {
 
 	porNombreOrigen := indexarEsquemas(origen)
 	porNombreDestino := indexarEsquemas(destino)
+
+	// Un solo esquema de cada lado con distinto nombre se empareja por
+	// posición: en MySQL y MariaDB el esquema se llama como la base, así que
+	// `shop_dev` contra `shop_prod` —el caso normal de dev → prod— salía como
+	// «el esquema no existe en el destino» y «existe solo en el destino», con
+	// cero tablas comparadas (C-07 de la auditoría del 2026-09-11). Se
+	// compara con el nombre del DESTINO, que es donde las sentencias van a
+	// correr, y se dice.
+	if len(origen.Schemas) == 1 && len(destino.Schemas) == 1 &&
+		origen.Schemas[0].Name != destino.Schemas[0].Name {
+		so, sd := origen.Schemas[0], destino.Schemas[0]
+		res.NoComparado = append(res.NoComparado, fmt.Sprintf(
+			"Los nombres de los esquemas: se comparó `%s` del origen con `%s` del destino, "+
+				"que es el único de cada lado. Las sentencias nombran `%s`.",
+			so.Name, sd.Name, sd.Name))
+		res.Diferencias = append(res.Diferencias, compararEsquema(renombrado(so, sd.Name), sd, opts)...)
+		return res
+	}
 
 	for _, nombre := range nombresOrdenados(porNombreOrigen, porNombreDestino) {
 		so, hayOrigen := porNombreOrigen[nombre]
@@ -226,6 +254,40 @@ func Comparar(origen, destino schema.Snapshot, opts Opciones) Resultado {
 	return res
 }
 
+// renombrado devuelve el esquema como si se llamara `nombre`, con las claves
+// foráneas que apuntaban a sí mismo apuntando al nombre nuevo. Sin esto, la
+// clave que falta en `shop_prod` se creaba con `REFERENCES shop_dev.productos`:
+// falla, o peor, crea una clave entre bases (review del 2026-09-12).
+func renombrado(s schema.Schema, nombre string) schema.Schema {
+	viejo := s.Name
+	s.Name = nombre
+	tablas := make([]schema.Table, len(s.Tables))
+	for i, t := range s.Tables {
+		fks := make([]schema.ForeignKey, len(t.ForeignKeys))
+		for j, fk := range t.ForeignKeys {
+			if fk.Schema == viejo {
+				fk.Schema = nombre
+			}
+			if fk.RefSchema == viejo {
+				fk.RefSchema = nombre
+			}
+			fks[j] = fk
+		}
+		t.ForeignKeys = fks
+		tablas[i] = t
+	}
+	s.Tables = tablas
+	objetos := make([]schema.Object, len(s.Objects))
+	for i, o := range s.Objects {
+		if o.Schema == viejo {
+			o.Schema = nombre
+		}
+		objetos[i] = o
+	}
+	s.Objects = objetos
+	return s
+}
+
 // compararEsquema compara las tablas y los objetos de un esquema que está en
 // los dos lados.
 func compararEsquema(origen, destino schema.Schema, opts Opciones) []Diferencia {
@@ -259,7 +321,9 @@ func compararEsquema(origen, destino schema.Schema, opts Opciones) []Diferencia 
 		}
 	}
 
-	out = append(out, compararObjetos(origen, destino)...)
+	if !opts.SinObjetos {
+		out = append(out, compararObjetos(origen, destino)...)
+	}
 	return out
 }
 
@@ -292,22 +356,23 @@ func tablaSoloEnOrigen(esquema string, t schema.Table, opts Opciones) Diferencia
 	}
 
 	cols := make([]change.Column, 0, len(t.Columns))
-	var clave []string
+	var numeradas []string
 	for _, c := range t.Columns {
 		cols = append(cols, change.Column{
 			Name:     c.Name,
 			DataType: c.DataType,
 			Nullable: c.Nullable,
 		})
-		// La clave primaria viaja en `Names`, que es lo que el renderizador
-		// convierte en `PRIMARY KEY (…)`. Sin esto la tabla se creaba SIN clave
-		// —y `HasPrimaryKey` es lo que habilita editar la grilla, así que la
-		// tabla nueva quedaba de solo lectura— y la comparación siguiente no lo
-		// notaba, porque la clave no se comparaba.
-		if c.PrimaryKey {
-			clave = append(clave, c.Name)
+		if c.AutoIncrement {
+			numeradas = append(numeradas, c.Name)
 		}
 	}
+	// La clave primaria viaja en `Names`, que es lo que el renderizador
+	// convierte en `PRIMARY KEY (…)`, en el ORDEN de la clave y no en el de
+	// las columnas. Sin esto la tabla se creaba SIN clave —y `HasPrimaryKey`
+	// es lo que habilita editar la grilla, así que la tabla nueva quedaba de
+	// solo lectura— y la comparación siguiente no lo notaba.
+	clave := clavePrimariaDe(t)
 
 	d.Cambio = &change.Change{
 		Type:    change.CreateTable,
@@ -326,6 +391,22 @@ func tablaSoloEnOrigen(esquema string, t schema.Table, opts Opciones) Diferencia
 		d.Riesgo = RiesgoMedio
 		d.Nota += " Ojo: el catálogo dice QUÉ columnas tienen valor por defecto pero no CUÁL es, " +
 			"así que la tabla se crea sin ellos."
+	}
+	// Una columna que se numera sola —identity, serial, AUTO_INCREMENT— se
+	// crea como una columna común: el modelo de cambios no sabe escribirla.
+	// Callarlo escondía la deriva adentro de la corrección: el primer INSERT
+	// en el destino fallaba por `id` nulo y la comparación siguiente decía
+	// «alineadas» (C-08). Hasta que el CreateTable la sepa escribir, se dice y
+	// se sube el riesgo.
+	if len(numeradas) > 0 {
+		d.Riesgo = RiesgoMedio
+		d.Nota += " " + cuentaDe(len(numeradas),
+			"La columna "+strings.Join(numeradas, ", ")+" se numera sola en el origen y acá se "+
+				"crea sin eso: el primer INSERT sin ese valor va a fallar. Agregale el "+
+				"autoincremento a mano después de crearla.",
+			"Las columnas "+strings.Join(numeradas, ", ")+" se numeran solas en el origen y acá "+
+				"se crean sin eso: el primer INSERT sin esos valores va a fallar. Agregales el "+
+				"autoincremento a mano después de crearlas.")
 	}
 
 	// Las claves foráneas de una tabla nueva tampoco viajan: el CREATE TABLE
@@ -428,8 +509,75 @@ func compararTabla(esquema string, origen, destino schema.Table, opts Opciones) 
 		}
 	}
 
+	out = append(out, compararClavePrimaria(esquema, origen, destino)...)
 	out = append(out, compararForaneas(esquema, origen, destino)...)
 	return out
+}
+
+// compararClavePrimaria compara la clave como CONJUNTO ordenado, a nivel
+// tabla.
+//
+// Antes se comparaba columna por columna y salía un ADD PRIMARY KEY por cada
+// una: con `(order_id, line_no)` en el origen y sin clave en el destino, dos
+// sentencias, la primera con una clave equivocada que en MySQL —sin DDL
+// transaccional— quedaba confirmada antes de que la segunda fallara (C-09 de
+// la auditoría del 2026-09-11).
+func compararClavePrimaria(esquema string, origen, destino schema.Table) []Diferencia {
+	co, cd := clavePrimariaDe(origen), clavePrimariaDe(destino)
+	if strings.Join(co, "\x00") == strings.Join(cd, "\x00") {
+		return nil
+	}
+	d := Diferencia{
+		ID:      idDe("pk", esquema, origen.Name),
+		Lado:    Distinto,
+		Clase:   ClaseColumna,
+		Schema:  esquema,
+		Objeto:  origen.Name,
+		Origen:  clavePrimariaComoTexto(co),
+		Destino: clavePrimariaComoTexto(cd),
+		Riesgo:  RiesgoMedio,
+	}
+	switch {
+	case len(co) > 0 && len(cd) == 0:
+		d.Resumen = "tiene clave primaria en el origen y no en el destino · " + clavePrimariaComoTexto(co)
+		d.Nota = "Crear la clave exige que no haya repetidos ni NULL, y el servidor construye " +
+			"un índice único mientras tanto. Una tabla sin clave primaria además no se puede " +
+			"editar desde la grilla."
+		d.Cambio = &change.Change{
+			Type: change.AddPrimaryKey, Schema: esquema, Table: origen.Name,
+			Names: append([]string(nil), co...), Source: "drift",
+		}
+	case len(co) == 0:
+		d.Resumen = "tiene clave primaria en el destino y no en el origen"
+		d.Nota = "Soltar una clave primaria es borrar una restricción, y puede haber cosas " +
+			"que dependan de ella."
+		d.SinSentencia = "Borrar no se genera nunca."
+	default:
+		d.Resumen = "la clave primaria es distinta · " + clavePrimariaComoTexto(co) + " contra " + clavePrimariaComoTexto(cd)
+		d.Nota = "Cambiarla es soltar la que hay y crear la nueva; las claves foráneas que " +
+			"apunten a la vieja dejan de poder hacerlo."
+		d.SinSentencia = "Reemplazar una clave primaria son dos operaciones y una borra: se " +
+			"arma a mano en el editor de estructura."
+	}
+	return []Diferencia{d}
+}
+
+// clavePrimariaDe son las columnas de la clave, en el orden de la tabla.
+func clavePrimariaDe(t schema.Table) []string {
+	var out []string
+	for _, c := range t.Columns {
+		if c.PrimaryKey {
+			out = append(out, c.Name)
+		}
+	}
+	return out
+}
+
+func clavePrimariaComoTexto(cols []string) string {
+	if len(cols) == 0 {
+		return "sin clave"
+	}
+	return "(" + strings.Join(cols, ", ") + ")"
 }
 
 // compararColumna mira tipo y nulabilidad, que es lo que el snapshot trae.
@@ -452,11 +600,15 @@ func compararColumna(esquema, tabla string, origen, destino schema.Column, opts 
 			Nota: "Cambiar el tipo puede reescribir la tabla entera y tomarse un bloqueo " +
 				"exclusivo mientras lo hace. Y si los datos del destino no entran en el tipo " +
 				"nuevo, falla.",
+			// La columna viaja COMPLETA —tipo y nulabilidad—: en MySQL la
+			// nulabilidad es parte de la definición y MODIFY la reescribe
+			// entera; con solo el tipo, un `int` → `bigint` en la clave le
+			// quitaba el NOT NULL (C-20).
 			Cambio: &change.Change{
 				Type:     change.SetColumnType,
 				Schema:   esquema,
 				Table:    tabla,
-				Column:   &change.Column{Name: origen.Name, DataType: origen.DataType},
+				Column:   &change.Column{Name: origen.Name, DataType: origen.DataType, Nullable: origen.Nullable},
 				DataType: origen.DataType,
 				Source:   "drift",
 			},
@@ -477,9 +629,12 @@ func compararColumna(esquema, tabla string, origen, destino schema.Column, opts 
 			d.Resumen = "acepta NULL en el origen y no en el destino"
 			d.Riesgo = RiesgoBajo
 			d.Nota = "Soltar el NOT NULL no toca ninguna fila: es solo metadatos."
+			// Con el tipo: MySQL no tiene DROP NOT NULL y reescribe la
+			// definición con MODIFY, así que sin el tipo «no supo escribir» la
+			// operación (C-20).
 			d.Cambio = &change.Change{
 				Type: change.DropNotNull, Schema: esquema, Table: tabla,
-				Column: &change.Column{Name: origen.Name}, Source: "drift",
+				Column: &change.Column{Name: origen.Name, DataType: origen.DataType, Nullable: true}, Source: "drift",
 			}
 		} else {
 			d.Resumen = "es NOT NULL en el origen y acepta NULL en el destino"
@@ -488,43 +643,8 @@ func compararColumna(esquema, tabla string, origen, destino schema.Column, opts 
 				"y falla si encuentra uno. Conviene rellenarlos antes."
 			d.Cambio = &change.Change{
 				Type: change.SetNotNull, Schema: esquema, Table: tabla,
-				Column: &change.Column{Name: origen.Name}, Source: "drift",
+				Column: &change.Column{Name: origen.Name, DataType: origen.DataType}, Source: "drift",
 			}
-		}
-		out = append(out, d)
-	}
-
-	// La clave primaria SÍ se compara: el flag está en el snapshot.
-	//
-	// El resto de las restricciones no —viven en el detalle de cada tabla— y
-	// eso está dicho en NoComparado, pero meter la clave primaria en esa misma
-	// bolsa era inexacto y caro: una tabla que perdió su clave es una tabla que
-	// Kaname no deja editar en la grilla, y la comparación decía «alineadas».
-	if origen.PrimaryKey != destino.PrimaryKey {
-		d := Diferencia{
-			ID:      idDe("columnPK", esquema, objeto),
-			Lado:    Distinto,
-			Clase:   ClaseColumna,
-			Schema:  esquema,
-			Objeto:  objeto,
-			Origen:  esClave(origen.PrimaryKey),
-			Destino: esClave(destino.PrimaryKey),
-			Riesgo:  RiesgoMedio,
-		}
-		if origen.PrimaryKey {
-			d.Resumen = "es clave primaria en el origen y no en el destino"
-			d.Nota = "Crear la clave exige que no haya repetidos ni NULL, y el servidor construye " +
-				"un índice único mientras tanto. Una tabla sin clave primaria además no se puede " +
-				"editar desde la grilla."
-			d.Cambio = &change.Change{
-				Type: change.AddPrimaryKey, Schema: esquema, Table: tabla,
-				Names: []string{origen.Name}, Source: "drift",
-			}
-		} else {
-			d.Resumen = "es clave primaria en el destino y no en el origen"
-			d.Nota = "Soltar una clave primaria es borrar una restricción, y puede haber cosas " +
-				"que dependan de ella."
-			d.SinSentencia = "Borrar no se genera nunca."
 		}
 		out = append(out, d)
 	}
@@ -570,7 +690,13 @@ func compararForaneas(esquema string, origen, destino schema.Table) []Diferencia
 	for _, nombre := range nombresOrdenados(fo, fd) {
 		o, hayOrigen := fo[nombre]
 		d, hayDestino := fd[nombre]
-		objeto := origen.Name + " → " + nombre
+		// La etiqueta sale de la clave y no del índice: el índice es la firma
+		// técnica, y esto se lee en una lista.
+		etiquetada := o
+		if !hayOrigen {
+			etiquetada = d
+		}
+		objeto := origen.Name + " (" + strings.Join(etiquetada.Columns, ", ") + ") → " + etiquetada.RefTable
 
 		switch {
 		case hayOrigen && !hayDestino:
@@ -589,13 +715,11 @@ func compararForaneas(esquema string, origen, destino schema.Table) []Diferencia
 					Type:   change.AddForeignKey,
 					Schema: esquema,
 					Table:  origen.Name,
-					// El NOMBRE de la restricción viaja, y no es cosmético: sin
-					// él el motor le pone uno generado, y como las claves se
-					// comparan por nombre, la comparación siguiente reportaría
-					// la MISMA clave como «falta en el destino» y «sobra en el
-					// destino» a la vez, para siempre. Aplicar dos veces dejaba
-					// además una clave duplicada.
-					Name:      o.Name,
+					// El NOMBRE viaja cuando lo eligió alguien; uno que inventó
+					// el motor —`fk_t_0`, `t_ibfk_1`— no, porque en el destino
+					// el número sería otro. Las claves se emparejan por lo que
+					// hacen, así que la comparación converge igual.
+					Name:      nombreDeForanea(o),
 					Names:     append([]string(nil), o.Columns...),
 					RefSchema: o.RefSchema,
 					RefTable:  o.RefTable,
@@ -621,7 +745,10 @@ func compararForaneas(esquema string, origen, destino schema.Table) []Diferencia
 			})
 
 		default:
-			if resumenDeForanea(o) != resumenDeForanea(d) {
+			// Se comparan las ACCIONES: columnas y destino ya coinciden por
+			// construcción del índice, y el destino se comparó sin distinguir
+			// mayúsculas.
+			if o.OnDelete != d.OnDelete || o.OnUpdate != d.OnUpdate {
 				out = append(out, Diferencia{
 					ID:      idDe("fk", esquema, origen.Name+"."+nombre),
 					Lado:    Distinto,
@@ -720,29 +847,76 @@ func indexarColumnas(cs []schema.Column) map[string]schema.Column {
 	return m
 }
 
+// indexarForaneas identifica cada clave por lo que HACE —columnas locales,
+// tabla y columnas destino— y no por su nombre.
+//
+// El nombre no sirve para emparejar: SQLite no lo devuelve y se sintetiza a
+// partir del `id` posicional del pragma, y MySQL nombra las automáticas
+// `<tabla>_ibfk_N`, también ordinal. Con dos claves creadas en distinto orden a
+// cada lado, la comparación no convergía y cada apply agregaba una clave
+// duplicada (C-06 de la auditoría del 2026-09-11). El nombre queda para la
+// sentencia, cuando es uno que alguien eligió.
+//
+// La tabla destino se compara sin distinguir mayúsculas: SQLite guarda el
+// texto tal cual se escribió en REFERENCES, y MySQL en Windows pliega los
+// nombres (C-24).
 func indexarForaneas(fks []schema.ForeignKey) map[string]schema.ForeignKey {
 	m := make(map[string]schema.ForeignKey, len(fks))
 	for _, f := range fks {
-		// La clave es el NOMBRE de la restricción cuando lo hay. Sin nombre,
-		// las columnas: dos claves distintas de la misma tabla no pueden tener
-		// las mismas columnas de origen.
-		clave := f.Name
-		if clave == "" {
-			clave = strings.Join(f.Columns, ",")
+		clave := firmaDeForanea(f)
+		if _, repetida := m[clave]; repetida {
+			// Dos claves iguales en la misma tabla: legal y raro. Se
+			// distinguen por nombre para no perder ninguna.
+			clave += "#" + f.Name
 		}
 		m[clave] = f
 	}
 	return m
 }
 
+func firmaDeForanea(f schema.ForeignKey) string {
+	return strings.Join(f.Columns, ",") + "→" + strings.ToLower(f.RefTable) +
+		"(" + strings.Join(f.RefColumns, ",") + ")"
+}
+
+// nombreSintetizado reconoce los nombres que un motor inventa para una clave
+// sin nombre: `fk_<tabla>_<n>` de la introspección de SQLite y
+// `<tabla>_ibfk_<n>` de MySQL. Copiarlos al destino no tiene sentido: allá el
+// número sería otro.
+var nombreSintetizado = regexp.MustCompile(`^(fk_.+_\d+|.+_ibfk_\d+)$`)
+
+// nombreDeForanea es el nombre que viaja en la sentencia: el del origen si lo
+// eligió alguien, y vacío si lo inventó el motor.
+func nombreDeForanea(f schema.ForeignKey) string {
+	if nombreSintetizado.MatchString(f.Name) {
+		return ""
+	}
+	return f.Name
+}
+
 func indexarObjetos(os []schema.Object) map[string]schema.Object {
 	m := make(map[string]schema.Object, len(os))
 	for _, o := range os {
-		// La clase entra en la clave: una vista y una función pueden llamarse
-		// igual, y compararlas entre sí no tiene sentido.
-		m[string(o.Kind)+":"+o.Name] = o
+		// La identidad ENTERA: clase, tabla y argumentos, además del nombre.
+		// Una vista y una función pueden llamarse igual; un trigger
+		// `set_updated_at` vive en cinco tablas; `calcular(int)` y
+		// `calcular(text)` son dos funciones. Con solo clase y nombre, el
+		// último ganaba en el mapa y una tabla nueva sin su trigger salía
+		// «alineada» (C-18 de la auditoría del 2026-09-11).
+		m[claveDeObjeto(o)] = o
 	}
 	return m
+}
+
+func claveDeObjeto(o schema.Object) string {
+	clave := string(o.Kind) + ":" + o.Name
+	if o.Table != "" {
+		clave = string(o.Kind) + ":" + o.Table + "." + o.Name
+	}
+	if o.Args != "" {
+		clave += "(" + o.Args + ")"
+	}
+	return clave
 }
 
 // nombresOrdenados devuelve la unión de las claves de dos mapas, ordenada.

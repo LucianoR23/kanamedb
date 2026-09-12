@@ -143,6 +143,10 @@ func leerColumnas(ctx context.Context, db *sql.DB, tablas map[string]*schema.Tab
 		// significa que no participa.
 		c.PrimaryKey = pk > 0
 		c.Position = cid + 1
+		// Una INTEGER PRIMARY KEY sola es el alias del rowid: se numera sola,
+		// con o sin AUTOINCREMENT. Se decide después de leer toda la tabla,
+		// cuando se sabe si la clave tiene una columna o varias.
+		c.AutoIncrement = pk == 1 && strings.EqualFold(strings.TrimSpace(c.DataType), "INTEGER")
 		if t, ok := tablas[tabla]; ok {
 			t.Columns = append(t.Columns, c)
 			if c.PrimaryKey {
@@ -150,7 +154,28 @@ func leerColumnas(ctx context.Context, db *sql.DB, tablas map[string]*schema.Tab
 			}
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	// El alias del rowid es una INTEGER PRIMARY KEY SOLA: en una clave
+	// compuesta ninguna columna se numera. WITHOUT ROWID tampoco tiene rowid,
+	// pero ahí una INTEGER PRIMARY KEY sigue sin numerarse sola; ese caso se
+	// distingue en el detalle y acá se acepta el falso positivo, que solo
+	// agrega un aviso.
+	for _, t := range tablas {
+		var enClave int
+		for _, c := range t.Columns {
+			if c.PrimaryKey {
+				enClave++
+			}
+		}
+		if enClave != 1 {
+			for i := range t.Columns {
+				t.Columns[i].AutoIncrement = false
+			}
+		}
+	}
+	return nil
 }
 
 // leerClavesDelEsquema trae todas las claves foráneas de una vez: son las

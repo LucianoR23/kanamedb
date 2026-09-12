@@ -186,8 +186,11 @@ const columnsQuery = `
 	       a.atthasdef,
 	       a.attnum,
 	       coalesce(pk.si, false),
-	       coalesce(fk.si, false)
+	       coalesce(fk.si, false),
+	       -- identity, o un default que arranca con nextval( (serial).
+	       a.attidentity <> '' OR coalesce(pg_catalog.pg_get_expr(d.adbin, d.adrelid) LIKE 'nextval(%', false)
 	FROM pg_catalog.pg_attribute a
+	LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
 	JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
 	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 	LEFT JOIN LATERAL (
@@ -226,7 +229,7 @@ func readColumns(ctx context.Context, pool *pgxpool.Pool, esquemas map[string]*s
 		var col schema.Column
 		if err := rows.Scan(&nsp, &tabla, &col.Name, &col.DataType,
 			&col.Nullable, &col.HasDefault, &col.Position,
-			&col.PrimaryKey, &col.ForeignKey); err != nil {
+			&col.PrimaryKey, &col.ForeignKey, &col.AutoIncrement); err != nil {
 			return fmt.Errorf("leer una columna: %w", err)
 		}
 		// Las particiones no están en el mapa —el árbol no las muestra— así que

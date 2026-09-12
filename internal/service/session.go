@@ -44,6 +44,10 @@ type Session struct {
 	// la persona: hoy, la desconexión por inactividad. Se muestra en la vista
 	// y en el error de la próxima llamada, y se limpia al conectar.
 	motivoDeCierre string
+	// rescatado es el changeset que la desconexión por inactividad dejó sin
+	// sesión, guardado para devolvérselo a la próxima conexión a la MISMA
+	// base. Ver inactividad.go.
+	rescatado *rescate
 	// ocupado dice si hay una ejecución registrada fuera de Apply (consultas,
 	// exportaciones, volcados). Lo pone NewQueries. Ver inactividad.go.
 	ocupado func() bool
@@ -176,6 +180,7 @@ func (s *Session) ConnectAccepting(ctx context.Context, id, acceptOnce string) C
 	anterior := s.current
 	s.current = abierta
 	s.motivoDeCierre = ""
+	s.devolverRescatado(abierta)
 	s.armarInactividad(abierta)
 	vista := s.viewLocked()
 	s.mu.Unlock()
@@ -288,6 +293,8 @@ func (s *Session) Disconnect() {
 	s.mu.Lock()
 	anterior := s.current
 	s.current = nil
+	// Desconectar a mano es decidirlo: lo que hubiera rescatado se va.
+	s.rescatado = nil
 	s.mu.Unlock()
 
 	if anterior != nil {

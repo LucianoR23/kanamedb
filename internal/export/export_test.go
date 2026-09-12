@@ -291,6 +291,55 @@ func TestExtension(t *testing.T) {
 	}
 }
 
+// TestElEncabezadoNoSeNeutraliza: una columna llamada `-x` o `@id` es un
+// nombre, no una fórmula (C-26).
+func TestElEncabezadoNoSeNeutraliza(t *testing.T) {
+	var b strings.Builder
+	w, err := NewInto(CSV, &b, Options{NeutralizeFormulas: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Begin([]query.Column{{Name: "-x"}, {Name: "@id"}, {Name: `=HYPERLINK("x")`}}); err != nil {
+		t.Fatal(err)
+	}
+	v := "=1+1"
+	if err := w.Row([]*string{&v, &v, &v}); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.End()
+	lineas := strings.Split(strings.TrimSpace(b.String()), "\n")
+	// Los nombres que solo empiezan con el carácter quedan; una llamada de
+	// función en el nombre de una columna sí se neutraliza: es una fórmula
+	// viva al abrir el archivo.
+	if lineas[0] != `-x,@id,"'=HYPERLINK(""x"")"` {
+		t.Errorf("encabezado: %q", lineas[0])
+	}
+	if lineas[1] != `"'=1+1","'=1+1","'=1+1"` {
+		t.Errorf("los valores no se neutralizaron: %q", lineas[1])
+	}
+}
+
+// TestLaBarraInvertidaSeEscapaEnMarkdown: `a\|b` salía como `a\\|b`, que GFM
+// lee como barra escapada + separador, y la fila se partía (C-26).
+func TestLaBarraInvertidaSeEscapaEnMarkdown(t *testing.T) {
+	var b strings.Builder
+	w, err := NewInto(Markdown, &b, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Begin([]query.Column{{Name: "c"}}); err != nil {
+		t.Fatal(err)
+	}
+	v := `a\|b`
+	if err := w.Row([]*string{&v}); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.End()
+	if !strings.Contains(b.String(), `a\\\|b`) {
+		t.Errorf("la celda no escapa la barra:\n%s", b.String())
+	}
+}
+
 func TestNeutralizarFormulasDePlanilla(t *testing.T) {
 	cols := []query.Column{{Name: "v", Class: query.ClassText}}
 	rows := [][]*string{

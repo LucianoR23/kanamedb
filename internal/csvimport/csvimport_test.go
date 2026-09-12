@@ -346,3 +346,31 @@ func TestLaBasuraDespuesDelPrefijoTambienSeAvisa(t *testing.T) {
 		t.Error("un archivo grande con acentos válidos se avisó como que no es UTF-8")
 	}
 }
+
+// TestLaLineaEsLaFisicaAunqueUnCampoTengaSaltos.
+//
+// Un campo citado con un salto de línea adentro ocupa dos líneas del archivo.
+// Contar registros desplazaba todos los números de ahí en adelante: «el lote
+// que falló empieza en la línea N» apuntaba a otra fila en el editor de texto
+// (C-28). La línea es la física, la que cualquier editor muestra.
+func TestLaLineaEsLaFisicaAunqueUnCampoTengaSaltos(t *testing.T) {
+	ruta := archivo(t, "id,nota\n1,\"dos\nlíneas\"\n2,una\n3,x,de más\n")
+	var lineas []int
+	if err := Rows(ruta, Options{HasHeader: true}, func(l int, _ []*string) error {
+		lineas = append(lineas, l)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// El registro 2 arranca en la línea 4: la 2 y la 3 son el primero.
+	if len(lineas) != 3 || lineas[0] != 2 || lineas[1] != 4 || lineas[2] != 5 {
+		t.Errorf("líneas = %v, quería [2 4 5]", lineas)
+	}
+	insp, err := Inspect(ruta, Options{HasHeader: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(insp.Ragged) != 1 || insp.Ragged[0].Line != 5 || insp.Ragged[0].Fields != 3 {
+		t.Errorf("la despareja tenía que estar en la línea 5 con 3 campos: %+v", insp.Ragged)
+	}
+}

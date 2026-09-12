@@ -257,10 +257,17 @@ func (s *Connections) SaveWithSSH(
 
 	// Los secretos se guardan ANTES que la conexión: si el keychain falla, no
 	// queda una conexión a medias apuntando a una credencial que no existe.
+	// Y se recuerda lo que había, para poder volver atrás si es la libreta la
+	// que falla: si no, la contraseña quedaba en el keychain bajo un ID que
+	// ninguna libreta conoce —un secreto que solo se ve auditando el
+	// keychain— (K-17 de la auditoría del 2026-09-11).
+	deshacer := s.recordarSecreto(c.ID, action)
 	if err := s.aplicarSecreto(c.ID, action, password); err != nil {
 		return ConnectionView{}, err
 	}
+	deshacerSSH := s.recordarSecreto(SSHSecretID(c.ID), sshAction)
 	if err := s.aplicarSecreto(SSHSecretID(c.ID), sshAction, sshSecret); err != nil {
+		deshacer()
 		return ConnectionView{}, err
 	}
 
@@ -272,9 +279,34 @@ func (s *Connections) SaveWithSSH(
 		err = s.store.Add(c)
 	}
 	if err != nil {
+		deshacerSSH()
+		deshacer()
 		return ConnectionView{}, err
 	}
 	return s.view(c), nil
+}
+
+// recordarSecreto devuelve la función que deja ese secreto del keychain como
+// estaba ahora: lo vuelve a poner si existía, lo borra si no.
+//
+// Solo cuando la acción lo va a tocar: con «dejar como está» no hay nada que
+// deshacer, y leer el keychain de más pide desbloquearlo en macOS y libsecret.
+// Y si la lectura falla por otra cosa que «no existe» —un keychain
+// bloqueado— no se puede saber qué había, así que no se toca nada: borrar
+// ahí sería perder la contraseña que la persona pidió conservar.
+func (s *Connections) recordarSecreto(id string, action PasswordAction) func() {
+	if action == PasswordKeep || action == "" {
+		return func() {}
+	}
+	anterior, err := s.keyring.Get(id)
+	switch {
+	case err == nil && anterior != "":
+		return func() { _ = s.keyring.Set(id, anterior) }
+	case err == nil || errors.Is(err, secrets.ErrNotFound):
+		return func() { _ = s.keyring.Delete(id) }
+	default:
+		return func() {}
+	}
 }
 
 // aplicarSecreto guarda, borra o deja como está un secreto del keychain.
@@ -300,15 +332,25 @@ func (s *Connections) aplicarSecreto(id string, action PasswordAction, secreto s
 // que decirlo. Dejarla huérfana sería peor: quedaría un secreto en el sistema
 // que ya nadie sabe a qué corresponde.
 func (s *Connections) Delete(id string) error {
+	// La libreta primero, para saber que existe. Después los dos secretos —el
+	// de la base y el del bastión— y, si alguno falla, se dice cuál mitad
+	// quedó: antes el error cortaba en el primero y el segundo quedaba
+	// huérfano sin que nadie lo supiera (K-17). Borrar un secreto que ya no
+	// está es un no-op, así que reintentar es seguro.
 	if err := s.store.Delete(id); err != nil {
 		return err
 	}
-	// Los dos secretos: el de la base y el del bastión. Dejar uno huérfano
-	// sería un secreto en el sistema que ya nadie sabe a qué corresponde.
-	if err := s.keyring.Delete(id); err != nil {
-		return err
+	errBase := s.keyring.Delete(id)
+	errSSH := s.keyring.Delete(SSHSecretID(id))
+	switch {
+	case errBase != nil && errSSH != nil:
+		return fmt.Errorf("la conexión se borró de la libreta, pero sus dos secretos siguen en el keychain: %w", errors.Join(errBase, errSSH))
+	case errBase != nil:
+		return fmt.Errorf("la conexión se borró de la libreta, pero su contraseña sigue en el keychain: %w", errBase)
+	case errSSH != nil:
+		return fmt.Errorf("la conexión se borró de la libreta, pero el secreto del bastión sigue en el keychain: %w", errSSH)
 	}
-	return s.keyring.Delete(SSHSecretID(id))
+	return nil
 }
 
 // Duplicate copia una conexión con un ID nuevo.

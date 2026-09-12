@@ -23,6 +23,10 @@ type SQLTarget struct {
 	// InsertModifier va entre la lista de columnas y VALUES, si el motor lo
 	// necesita: `OVERRIDING SYSTEM VALUE` en Postgres con identity ALWAYS.
 	InsertModifier string
+	// QuoteBinary escribe el valor de una columna binaria. Nil cae en
+	// QuoteLiteral, que es lo correcto cuando el motor ya entrega el binario
+	// como texto que él mismo acepta (Postgres).
+	QuoteBinary func(string) string
 }
 
 // filasPorSentencia es cuántas filas entran en cada INSERT.
@@ -48,6 +52,16 @@ type escritorSQL struct {
 	cabecera string
 	enLote   int
 	buf      []byte
+	// clases es, en la fila en curso, la clase de cada VALOR. Nil es
+	// «decidilo por la clase de la columna».
+	clases []query.Class
+}
+
+// RowClasses escribe la fila sabiendo de qué clase es cada celda.
+func (e *escritorSQL) RowClasses(vals []*string, clases []query.Class) error {
+	e.clases = clases
+	defer func() { e.clases = nil }()
+	return e.Row(vals)
 }
 
 func (e *escritorSQL) Begin(cols []query.Column) error {
@@ -83,7 +97,11 @@ func (e *escritorSQL) Row(vals []*string) error {
 		if i > 0 {
 			e.buf = append(e.buf, ", "...)
 		}
-		e.buf = e.literal(e.buf, e.columnas[i].Class, v)
+		clase := e.columnas[i].Class
+		if e.clases != nil {
+			clase = e.clases[i]
+		}
+		e.buf = e.literal(e.buf, clase, v)
 	}
 	e.buf = append(e.buf, ')')
 
@@ -117,6 +135,9 @@ func (e *escritorSQL) End() error {
 func (e *escritorSQL) literal(b []byte, clase query.Class, v *string) []byte {
 	if v == nil {
 		return append(b, "NULL"...)
+	}
+	if clase == query.ClassBinary && e.t.QuoteBinary != nil {
+		return append(b, e.t.QuoteBinary(*v)...)
 	}
 	if clase == query.ClassNumber && numeroJSON.MatchString(*v) {
 		return append(b, *v...)

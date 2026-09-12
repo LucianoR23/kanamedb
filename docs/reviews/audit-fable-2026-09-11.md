@@ -546,6 +546,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-13] [BAJO] [SOSPECHADO] La verificación de host key no fija `HostKeyAlgorithms` según la clave guardada: un servidor con varias claves puede dar falsos «la clave cambió»
 
+> **Estado 2026-09-12:** CORREGIDO. `algoritmosPreferidos` fija `HostKeyAlgorithms` con el tipo guardado (RSA: las tres firmas) en `Inspect` y en `Dial`. Test unitario `TestLaNegociacionPideElTipoDeClaveQueYaSeConoce`; el caso con dos tipos en el sshd de docker queda para la próxima corrida de la batería de túnel.
+
 - Ubicación: `internal/tunnel/dial.go:228-236` y `:253-273`; `internal/tunnel/hostkey.go:110-148`.
 - Evidencia:
 
@@ -634,6 +636,8 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-16] [BAJO] [VERIFICADO] En MySQL, el «timeout de sentencia» solo corta `SELECT`
 
+> **Estado 2026-09-12:** CORREGIDO en lo que se promete: `Caps.StatementTimeoutOnlyReads` (MySQL); el editor dice «corta un SELECT; una escritura no», la ayuda de Safety lo explica y el aviso del changeset deja de decir lo contrario. No se agregó un vigilante del lado del cliente.
+
 - Ubicación: `internal/mysql/sesion.go:98-107`; `internal/service/session.go:94-99` y `:423-424`.
 - Evidencia:
 
@@ -659,6 +663,8 @@ otro —exactamente lo que una revisión por diff no ve—.
   `UPDATE … WHERE SLEEP(3)`, exigiendo el corte.
 
 ### [K-17] [BAJO] [VERIFICADO] Orden de secretos y libreta al guardar y al borrar: puede quedar un secreto huérfano o una conexión sin secreto
+
+> **Estado 2026-09-12:** CORREGIDO. `SaveWithSSH` recuerda los dos secretos antes de tocarlos y los repone si la libreta falla (nueva: se borran; edición: vuelve el anterior). `Delete` borra los dos secretos aunque el primero falle y dice cuál mitad quedó. Tests `TestSiLaLibretaFalla…` (dos).
 
 - Ubicación: `internal/service/connections.go:258-277` y `:302-312`.
 - Evidencia:
@@ -783,6 +789,8 @@ compuesta correcta).
   desde otra conexión: hoy vale 1.
 
 ### [C-02] [CRÍTICO] [VERIFICADO] SQLite: la exportación y el volcado escriben `[N bytes]` en lugar del contenido de cada BLOB
+
+> **Estado 2026-09-12:** CORREGIDO. El recorrido de exportación entrega los BLOB en hexadecimal (mayúsculas, sin prefijo) y `engine.Quoting.Binary` los escribe `X'…'` en SQLite; Postgres cita el `\x…` que ya entrega. La grilla sigue mostrando `[N bytes]`. Como SQLite tipa el valor y no la columna, el recorrido expone la clase de cada celda (`engine.CellClasses`) y el escritor SQL decide por celda: un texto o un entero en una columna BLOB no van como `X'…'`. Tests: `sqlite/fidelidad_test.go`, `TestUnBlobDeSQLiteSobreviveALaExportacionSQL` (ida y vuelta con blob, texto y entero en la misma columna). MySQL (C-13) queda como Literal hasta que su recorrido entregue hex.
 
 - **Ubicación**: `internal/sqlite/query.go:148-152`; `internal/sqlite/scan.go:94-101`;
   `internal/service/volcado.go:381-395`; `internal/export/sql.go:110-118`;
@@ -916,6 +924,8 @@ compuesta correcta).
 
 ### [C-06] [ALTO] [VERIFICADO] `drift` identifica las claves foráneas por nombre, y en SQLite el nombre se inventa a partir del `id` posicional del pragma: la comparación no converge y cada apply agrega una clave duplicada
 
+> **Estado 2026-09-12:** CORREGIDO. Las claves se emparejan por firma (columnas, tabla destino sin distinguir mayúsculas, columnas destino) y se comparan por acciones; el nombre viaja a la sentencia solo si lo eligió alguien (`fk_<t>_<n>` y `<t>_ibfk_<n>` se tratan como vacío). Test `TestLasForaneasSeEmparejanPorLoQueHacenYNoPorSuNombre`.
+
 - **Ubicación**: `internal/sqlite/introspect.go:223-238`; `internal/drift/drift.go:723-736,588-606,623-631`;
   `internal/sqlite/rebuild.go:260-263`.
 - **Evidencia**:
@@ -946,6 +956,8 @@ compuesta correcta).
 
 ### [C-07] [ALTO] [VERIFICADO] `drift` empareja esquemas por nombre exacto: dos bases MySQL con distinto nombre —o cualquier comparación cruzada con MySQL o SQLite— no comparan ni una tabla
 
+> **Estado 2026-09-12:** CORREGIDO para el caso de un solo esquema por lado: se emparejan por posición, las sentencias nombran el esquema del destino y `NoComparado` lo dice. Postgres con varios esquemas sigue por nombre. Test `TestDosBasesConDistintoNombreSeComparan`.
+
 - **Ubicación**: `internal/drift/drift.go:183-225`; `internal/mysql/introspect.go:22`;
   `internal/sqlite/introspect.go:17,27`; `internal/service/comparar.go:122-124`.
 - **Evidencia**: MySQL nombra su único esquema como la base (`esq := schema.Schema{Name:
@@ -968,6 +980,8 @@ compuesta correcta).
   esquema y ninguna de tabla.
 
 ### [C-08] [ALTO] [VERIFICADO] `drift` crea tablas y columnas sin identity, `AUTO_INCREMENT` ni columnas generadas, y la comparación siguiente las da por alineadas
+
+> **Estado 2026-09-12:** PROVISORIO. `schema.Column.AutoIncrement` viaja desde las tres introspecciones (identity/serial, AUTO_INCREMENT, INTEGER PRIMARY KEY sola); `tablaSoloEnOrigen` sube el riesgo a Medio y nombra las columnas que se van a crear sin numerarse solas. Escribirlas en el CREATE TABLE exige que `change.Column` lo modele: en pendientes.
 
 - **Ubicación**: `internal/drift/drift.go:294-329`; `internal/schema/snapshot.go:105-125`;
   `internal/postgres/introspect.go:184-186`; `internal/mysql/introspect.go:89`.
@@ -998,6 +1012,8 @@ compuesta correcta).
   hoy la SQL generada no contiene `IDENTITY` ni `serial`.
 
 ### [C-09] [ALTO] [VERIFICADO] `drift` compara la clave primaria columna por columna y emite un `ADD PRIMARY KEY` por cada una
+
+> **Estado 2026-09-12:** CORREGIDO. La clave primaria se compara como conjunto ordenado a nivel tabla: un solo `AddPrimaryKey` con todas las columnas, ninguna sentencia si el destino ya tiene otra. Test `TestUnaClaveCompuestaSeCreaEnUnaSolaSentencia`.
 
 - **Ubicación**: `internal/drift/drift.go:503-529`; `internal/service/migracion.go:230-237`.
 - **Evidencia**:
@@ -1075,6 +1091,8 @@ compuesta correcta).
   hoy devuelve tres sentencias.
 
 ### [C-12] [MEDIO] [VERIFICADO] SQLite: las columnas declaradas `DATE`, `DATETIME` o `TIMESTAMP` se muestran y exportan con un formato que no está en el archivo
+
+> **Estado 2026-09-12:** CORREGIDO en grilla y exportación: `page` y `scan` leen las columnas declaradas DATE/DATETIME/TIMESTAMP con `CAST(… AS TEXT)` —el driver no parsea lo que no tiene tipo declarado— y reponen el tipo en el encabezado. En el editor no se puede reescribir la consulta: `textoDeFecha` escribe el formato más probable de SQLite en vez de RFC 3339 con `Z`. Test `TestLasFechasSeLeenComoEstanGuardadas` (falla 6 veces sin el CAST).
 
 - **Ubicación**: `modernc.org/sqlite@v1.58.0/rows.go:196-201`; `internal/sqlite/query.go:164-165`;
   `internal/sqlite/scan.go:96`; `internal/connection/connection.go:516-524`.
@@ -1188,6 +1206,8 @@ compuesta correcta).
 
 ### [C-18] [MEDIO] [VERIFICADO] `drift` identifica los objetos por `clase:nombre`: los triggers de distintas tablas y las funciones sobrecargadas se pisan entre sí
 
+> **Estado 2026-09-12:** CORREGIDO. Clave `Kind + Table + Name + Args`. Test `TestLosObjetosSeIdentificanPorTablaYArgumentos`.
+
 - **Ubicación**: `internal/drift/drift.go:738-746,651-695`; `internal/schema/detail.go`
   (`Object.Table`, `Object.Args`); `internal/schema/snapshot.go:186-187`.
 - **Evidencia**:
@@ -1224,6 +1244,8 @@ compuesta correcta).
 
 ### [C-20] [MEDIO] [VERIFICADO] `drift` en MySQL: los cambios de nulabilidad no se pueden escribir y los de tipo borran `NOT NULL`, `DEFAULT`, `AUTO_INCREMENT` y comentario
 
+> **Estado 2026-09-12:** CORREGIDO. `drift` manda tipo y nulabilidad en `SetColumnType`/`SetNotNull`/`DropNotNull`, y el renderizador de MySQL escribe `NULL`/`NOT NULL` en el `MODIFY` de `SetColumnType` (la nota dice qué sigue perdiéndose: default, AUTO_INCREMENT, comentario). Test `TestLaNulabilidadYElTipoViajanCompletos`.
+
 - **Ubicación**: `internal/drift/drift.go:455-462,480-492`; `internal/mysql/ddl.go:119-143`;
   `internal/service/comparar.go:182-187`.
 - **Evidencia**: `SetNotNull`/`DropNotNull` salen con `Column{Name}` sin `DataType`
@@ -1258,6 +1280,8 @@ compuesta correcta).
 
 ### [C-22] [BAJO] [VERIFICADO] Un fallo parcial al listar objetos se compara como si la lista estuviera completa
 
+> **Estado 2026-09-12:** CORREGIDO. `Opciones.SinObjetos` cuando algún lado tiene `ObjectsError`; `comparar.go` lo pasa. Test `TestSinLaListaDeObjetosNoSeComparanObjetos`.
+
 - **Ubicación**: `internal/postgres/objetos.go:44-77`; `internal/service/session.go:517-536`;
   `internal/service/comparar.go:125-137`; `internal/drift/drift.go:651-695`.
 - **Evidencia**: `Objects` devuelve lo leído junto con `errors.Join`; `session` guarda
@@ -1270,6 +1294,8 @@ compuesta correcta).
   comparar solo las clases que sí se leyeron, si `Objects` las distingue).
 
 ### [C-23] [BAJO] [VERIFICADO] La migración generada falla en dos casos comunes: tipos que se usan antes de existir y `ENUM` con guiones
+
+> **Estado 2026-09-12:** CORREGIDO a medias: `tipoAceptable` valida solo fuera de las comillas (`enum('in-progress')` pasa; comillas sin cerrar, control y `\` adentro no). El riesgo de una tabla nueva que usa un tipo faltante queda como estaba: anotado en pendientes.
 
 - **Ubicación**: `internal/service/migracion.go:273-291`; `internal/drift/drift.go:277,683-684`;
   `internal/mysql/ddl.go:25,59,93,120`.
@@ -1284,6 +1310,8 @@ compuesta correcta).
   dentro de comillas (o validar solo fuera de las comillas).
 
 ### [C-24] [BAJO] [VERIFICADO] Casos que el diff no ve o ve mal, sin decirlo en `NoComparado`
+
+> **Estado 2026-09-12:** PARCIAL. `RefTable` se compara sin distinguir mayúsculas; DEFERRABLE/MATCH, orden de columnas y particionado entran en `NoComparado`; la clave primaria se emite en el orden de las columnas de la tabla (el orden de declaración de la clave no está en el snapshot). El plegado de nombres de tabla en MySQL/Windows sigue byte a byte.
 
 - **Ubicación**: `internal/drift/drift.go:166-174,296-310,707-713,624,824-834`;
   `internal/sqlite/introspect.go:216-235`; `internal/schema/snapshot.go:63,124`.
@@ -1318,6 +1346,8 @@ compuesta correcta).
 - **Fix recomendado**: filtrar por `RefSchema ∈ esquemas` y nombrar las excluidas.
 
 ### [C-26] [BAJO] [VERIFICADO] Detalles de fidelidad en los formatos de exportación
+
+> **Estado 2026-09-12:** CORREGIDO lo que era corregible: `\` se escapa en Markdown; el encabezado del CSV no se neutraliza; el REAL de SQLite conserva el `.0`. Lo de `standard_conforming_strings` y el float de MySQL por protocolo binario quedan como estaban (anotados, no objetados).
 
 - **Ubicación**: `internal/export/markdown.go:90-108`; `internal/export/csv.go:42-46,76-82,105-117`;
   `internal/sqlite/query.go:155-158`; `internal/postgres/ddl.go:498`; `internal/export/json.go:110-113`.
@@ -1360,6 +1390,8 @@ compuesta correcta).
 
 ### [C-28] [BAJO] [VERIFICADO] Importación CSV: los «números de línea» son de registro, y las filas con campos de más se aceptan en silencio
 
+> **Estado 2026-09-12:** CORREGIDO. `Inspect` y `Rows` informan la línea FÍSICA (`FieldPos(0)`) y una fila con más campos que el mapeo se rechaza como despareja. Test `TestLaLineaEsLaFisicaAunqueUnCampoTengaSaltos`.
+
 - **Ubicación**: `internal/csvimport/csvimport.go:157,348`; `internal/service/importar.go:367-379`.
 - **Evidencia**: `linea++` por cada `r.Read()`: un campo citado con salto de línea
   desplaza todos los `Ragged.Line` e `ImportResult.Line` posteriores («el lote que falló
@@ -1370,6 +1402,8 @@ compuesta correcta).
   desparejo igual que «menos».
 
 ### [C-29] [BAJO] [VERIFICADO] SQLite: `SELECT changes()` después de una sentencia sin columnas puede devolver el conteo de una sentencia anterior
+
+> **Estado 2026-09-12:** CORREGIDO. `changes()` solo se consulta tras INSERT/UPDATE/DELETE/REPLACE/WITH. Test `TestElConteoDeAfectadasEsDeEstaSentencia` con pool de una conexión (falla sin el fix).
 
 - **Ubicación**: `internal/sqlite/query.go:57-63`.
 - **Evidencia**: `db.Conn(ctx)` entrega una conexión del pool; `changes()` reporta el

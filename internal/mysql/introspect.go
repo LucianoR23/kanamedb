@@ -88,7 +88,8 @@ func leerColumnas(ctx context.Context, db *sql.DB, base string, tablas map[strin
 		       is_nullable = 'YES',
 		       column_default IS NOT NULL OR extra LIKE '%%DEFAULT_GENERATED%%',
 		       column_key = 'PRI',
-		       ordinal_position
+		       ordinal_position,
+		       extra LIKE '%%auto_increment%%'
 		  FROM information_schema.columns
 		 WHERE table_schema = ?
 		 ORDER BY table_name, ordinal_position`
@@ -103,7 +104,7 @@ func leerColumnas(ctx context.Context, db *sql.DB, base string, tablas map[strin
 		var tabla string
 		var c schema.Column
 		if err := rows.Scan(&tabla, &c.Name, &c.DataType, &c.Nullable,
-			&c.HasDefault, &c.PrimaryKey, &c.Position); err != nil {
+			&c.HasDefault, &c.PrimaryKey, &c.Position, &c.AutoIncrement); err != nil {
 			return fmt.Errorf("leer una columna: %w", err)
 		}
 		if t, ok := tablas[tabla]; ok {

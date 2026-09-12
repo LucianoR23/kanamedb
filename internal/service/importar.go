@@ -375,6 +375,13 @@ func columnasDestino(mapping []string) ([]string, error) {
 
 // elegir se queda con los campos que van a alguna columna.
 func elegir(fila []*string, mapping []string, n int) ([]*string, error) {
+	// Una fila con MÁS campos que el mapeo es tan despareja como una con
+	// menos: los sobrantes se descartaban en silencio, y una coma de más en
+	// el medio corre todos los valores una columna a la derecha sin que nadie
+	// lo note (C-28).
+	if len(fila) > len(mapping) {
+		return nil, fmt.Errorf("la línea tiene %d campos y el archivo %d columnas", len(fila), len(mapping))
+	}
 	out := make([]*string, 0, n)
 	for i, c := range mapping {
 		if c == "" {

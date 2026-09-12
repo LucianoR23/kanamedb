@@ -138,6 +138,9 @@ func (c *Conn) Quoting() engine.Quoting {
 		Table:   dialectoDML.Table,
 		Ident:   dialectoDML.QuoteIdent,
 		Literal: dialectoDML.QuoteLiteral,
+		// bytea llega como `\x…` en texto, que es exactamente el literal de
+		// entrada con standard_conforming_strings.
+		Binary: dialectoDML.QuoteLiteral,
 	}
 }
 

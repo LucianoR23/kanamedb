@@ -54,6 +54,7 @@ export function SqlEditorScreen({
   snapshot,
   readOnly,
   statementTimeoutSeconds,
+  timeoutSoloLecturas = false,
   rowLimit,
   connectionLabel,
   engine,
@@ -68,6 +69,8 @@ export function SqlEditorScreen({
   snapshot: Snapshot | null;
   readOnly: boolean;
   statementTimeoutSeconds: number;
+  /** MySQL: max_execution_time solo corta SELECT (K-16). */
+  timeoutSoloLecturas?: boolean;
   rowLimit: number;
   connectionLabel: string;
   /** El motor de la conexión abierta. Decide con qué reglas se resalta y se
@@ -482,7 +485,9 @@ export function SqlEditorScreen({
               <div className={styles.corriendoMeta}>
                 {(transcurrido / 1000).toFixed(1)} s
                 {statementTimeoutSeconds > 0
-                  ? ` · el servidor la corta si supera ${statementTimeoutSeconds} s`
+                  ? timeoutSoloLecturas
+                    ? ` · el servidor corta un SELECT si supera ${statementTimeoutSeconds} s; una escritura no`
+                    : ` · el servidor la corta si supera ${statementTimeoutSeconds} s`
                   : ""}
               </div>
               <button type="button" className={styles.cancel} onClick={cancelar}>

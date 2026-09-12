@@ -702,10 +702,18 @@ func avisos(sesion *openSession, orden []ChangeView) []string {
 	if t := sesion.conn.Safety.StatementTimeout(); t > 0 {
 		for _, v := range orden {
 			if v.Statement.Impact == change.ImpactRewrite || v.Statement.Impact == change.ImpactScan {
-				out = append(out, fmt.Sprintf(
-					"Esta conexión corta las sentencias a los %s. Hay operaciones que leen o "+
-						"reescriben la tabla entera y pueden tardar más: si el corte llega "+
-						"primero, la sentencia se cancela.", t))
+				if caps.StatementTimeoutOnlyReads {
+					// MySQL: max_execution_time corta solo SELECT. Decir que «el
+					// servidor corta a los N s» acá era falso (K-16).
+					out = append(out, fmt.Sprintf(
+						"El límite de %s por sentencia de esta conexión no aplica acá: en MySQL "+
+							"corta solo lecturas. Una reescritura larga corre hasta terminar.", t))
+				} else {
+					out = append(out, fmt.Sprintf(
+						"Esta conexión corta las sentencias a los %s. Hay operaciones que leen o "+
+							"reescriben la tabla entera y pueden tardar más: si el corte llega "+
+							"primero, la sentencia se cancela.", t))
+				}
 				break
 			}
 		}

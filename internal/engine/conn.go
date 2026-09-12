@@ -137,6 +137,20 @@ type RowStream interface {
 	Close()
 }
 
+// CellClasses lo implementa un RowStream que sabe, fila por fila, de qué
+// clase es cada VALOR. Hace falta en SQLite, donde el tipo es del valor y no
+// de la columna: una columna declarada BLOB puede tener un blob en una fila,
+// un texto en otra y un entero en la tercera, y decidir por la columna
+// escribía `X'hello'` —archivo roto— o `'42'` —un entero convertido en texto—
+// (review del 2026-09-12). Los motores tipados no lo necesitan: ahí la clase
+// de la columna alcanza.
+type CellClasses interface {
+	// CellClasses corresponde a Row(): ClassBinary donde la celda es un
+	// binario que viene en hexadecimal, ClassNumber donde es un número, y
+	// ClassText en el resto. Una celda NULL puede llevar cualquiera.
+	CellClasses() []query.Class
+}
+
 // DumpHints acompaña a los INSERT de una tabla en un volcado.
 //
 // Existe por Postgres (C-05 de la auditoría del 2026-09-11): una columna
@@ -172,6 +186,12 @@ type Quoting struct {
 	Ident func(string) string
 	// Literal cita un texto como literal.
 	Literal func(string) string
+	// Binary escribe un valor binario como literal, a partir de cómo lo
+	// entrega el recorrido de este motor: Postgres ya da `\x…` en texto y lo
+	// cita como literal; SQLite da hexadecimal y lo escribe `X'…'`. Sin esto,
+	// el volcado de SQLite escribía `'[12 bytes]'` por cada BLOB (C-02 de la
+	// auditoría del 2026-09-11).
+	Binary func(string) string
 }
 
 // Conn es una conexión abierta a una base, del motor que sea.

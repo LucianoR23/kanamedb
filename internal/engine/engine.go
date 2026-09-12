@@ -145,6 +145,14 @@ type Caps struct {
 	// silencio a 63, que es un bug esperando, y por eso ya se rechaza.
 	MaxIdentifier int
 
+	// StatementTimeoutOnlyReads dice que el «tiempo por sentencia» de la
+	// conexión solo corta lecturas: es MySQL, cuyo `max_execution_time` aplica
+	// únicamente a SELECT. Un UPDATE sin WHERE o un ALTER que reescribe una
+	// tabla grande no se cortan nunca ahí, y la interfaz lo decía al revés
+	// (K-16 de la auditoría del 2026-09-11). MariaDB usa `max_statement_time`,
+	// que corta todo.
+	StatementTimeoutOnlyReads bool
+
 	// ExplainPrefix es lo que se antepone a una sentencia para pedir su plan
 	// SIN ejecutarla: `EXPLAIN` en Postgres, MySQL y MariaDB, `EXPLAIN QUERY
 	// PLAN` en SQLite (un `EXPLAIN` a secas ahí devuelve el bytecode de la

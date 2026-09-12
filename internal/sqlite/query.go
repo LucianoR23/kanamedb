@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,15 +59,23 @@ func run(
 	if len(columnas) == 0 {
 		// No devuelve filas: es un INSERT, un UPDATE, un DELETE o un DDL.
 		_ = rows.Close()
+		cmd := query.Command(sql_, d)
 		var afectadas int64
-		if err := cn.QueryRowContext(ctx, "SELECT changes()").Scan(&afectadas); err != nil {
-			return nil, ClassifyStatement(err, "")
+		// changes() cuenta el último INSERT/UPDATE/DELETE DE ESTA CONEXIÓN,
+		// aunque la última sentencia haya sido otra cosa: después de un CREATE
+		// TABLE o un PRAGMA devolvía el conteo de un UPDATE anterior que pasó
+		// por la misma conexión del pool (C-29 de la auditoría del
+		// 2026-09-11). Solo se pregunta cuando la sentencia pudo cambiar filas.
+		if modificaFilas(cmd) {
+			if err := cn.QueryRowContext(ctx, "SELECT changes()").Scan(&afectadas); err != nil {
+				return nil, ClassifyStatement(err, "")
+			}
 		}
 		return &query.Batch{
 			Results: []query.Result{{
 				ReturnsRows:  false,
 				AffectedRows: afectadas,
-				Command:      query.Command(sql_, d),
+				Command:      cmd,
 			}},
 			ElapsedMs: time.Since(inicio).Milliseconds(),
 		}, nil
@@ -120,7 +130,7 @@ func leerFilas(rows *sql.Rows, limite int) (*query.Result, *engine.Failure) {
 		}
 		fila := make([]*string, n)
 		for i, v := range crudo {
-			s, ok := aTexto(v)
+			s, ok := aTexto(v, tipos[i].DatabaseTypeName())
 			if !ok {
 				continue
 			}
@@ -134,37 +144,179 @@ func leerFilas(rows *sql.Rows, limite int) (*query.Result, *engine.Failure) {
 	return r, nil
 }
 
+// modificaFilas dice si una sentencia puede haber cambiado filas, que es
+// cuando changes() habla de ella.
+func modificaFilas(cmd string) bool {
+	switch cmd {
+	case "INSERT", "UPDATE", "DELETE", "REPLACE", "WITH":
+		return true
+	}
+	return false
+}
+
 // aTexto pasa a texto lo que el driver haya entregado, sin perder el NULL.
+// Es la forma de la GRILLA: un BLOB se muestra por su tamaño.
+func aTexto(v any, tipoDeclarado string) (string, bool) {
+	return valorATexto(v, false, esSoloFecha(tipoDeclarado))
+}
+
+// esSoloFecha dice si el tipo declarado es una fecha sin hora: DATE, y no
+// DATETIME ni TIMESTAMP.
+func esSoloFecha(tipo string) bool {
+	t := strings.ToUpper(tipo)
+	return strings.Contains(t, "DATE") && !strings.Contains(t, "TIME")
+}
+
+// texto pasa a texto lo que el driver haya entregado, sin perder el NULL.
 //
 // Se escanea a `any` y no a *string porque el driver de SQLite devuelve el tipo
 // del VALOR —int64, float64, string, []byte o nil— y un *string obligaría al
 // driver a convertir, que es donde se pierden los blobs.
-func aTexto(v any) (string, bool) {
+//
+// Con blobHex, un BLOB sale en hexadecimal (mayúsculas, sin prefijo): es la
+// forma de la EXPORTACIÓN, que tiene que ser fiel, y el escritor SQL la
+// convierte en X'…'. Sin él sale como `[N bytes]`, para la grilla: volcar
+// bytes crudos en una celda llena la pantalla de basura. El volcado escribía
+// `'[12 bytes]'` en el lugar de cada BLOB y decía que no había dejado nada
+// afuera (C-02 de la auditoría del 2026-09-11).
+func valorATexto(v any, blobHex, soloFecha bool) (string, bool) {
 	switch x := v.(type) {
 	case nil:
 		return "", false
 	case string:
 		return x, true
 	case []byte:
-		// Es un BLOB. Se muestra su tamaño y no el contenido: volcar bytes
-		// crudos en una celda llena la pantalla de basura, y si son UTF-8 el
-		// driver ya los habría entregado como string.
+		if blobHex {
+			return strings.ToUpper(hex.EncodeToString(x)), true
+		}
 		return fmt.Sprintf("[%d bytes]", len(x)), true
 	case int64:
 		return fmt.Sprintf("%d", x), true
 	case float64:
-		// %v da la representación más corta que vuelve a leer igual, que es lo
-		// que hay que mostrar: 0.1 y no 0.10000000000000001.
-		return fmt.Sprintf("%v", x), true
+		return textoDeReal(x), true
 	case bool:
 		if x {
 			return "1", true
 		}
 		return "0", true
 	case time.Time:
-		return x.Format(time.RFC3339Nano), true
+		return textoDeFecha(x, soloFecha), true
 	}
 	return fmt.Sprintf("%v", v), true
+}
+
+// textoDeReal escribe un REAL como lo escribiría SQLite: la representación
+// más corta que vuelve a leer igual —0.1 y no 0.10000000000000001— y con el
+// `.0` cuando es entero. `%v` de 3.0 daba `3`, que al volver a cargar en una
+// columna sin afinidad quedaba INTEGER (C-26).
+func textoDeReal(x float64) string {
+	s := strconv.FormatFloat(x, 'g', -1, 64)
+	if strings.ContainsAny(s, ".eIN") {
+		return s
+	}
+	return s + ".0"
+}
+
+// textoDeFecha deshace lo que el driver hizo con una columna declarada DATE,
+// DATETIME o TIMESTAMP: parsea el texto a time.Time sin que se le pueda pedir
+// que no lo haga. El texto original no se puede recuperar, pero sí escribir el
+// formato más probable de los que el propio driver reconoce, en vez de un
+// RFC 3339 con una `Z` que nadie escribió (C-12). La grilla y la exportación
+// no pasan por acá —leen esas columnas con CAST(… AS TEXT), ver lecturaFiel—;
+// esto es para el editor SQL, donde la consulta la escribe la persona.
+//
+// soloFecha es para una columna declarada DATE: ahí una medianoche es una
+// fecha. En una DATETIME se escribe la hora aunque sea 00:00:00, porque
+// `2021-01-02` no encuentra la fila guardada como `2021-01-02 00:00:00`.
+func textoDeFecha(t time.Time, soloFecha bool) string {
+	formato := "2006-01-02 15:04:05"
+	if t.Nanosecond() != 0 {
+		formato = "2006-01-02 15:04:05.999999999"
+	} else if soloFecha && t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Location() == time.UTC {
+		formato = "2006-01-02"
+	}
+	if t.Location() != time.UTC {
+		formato += "-07:00"
+	}
+	return t.Format(formato)
+}
+
+// declarada es una columna de la tabla según pragma_table_xinfo.
+type declarada struct {
+	nombre string
+	tipo   string
+}
+
+// columnasDeclaradas lee la definición de la tabla: nombre y tipo declarado de
+// cada columna, en orden, con las generadas (que `SELECT *` incluye) y sin las
+// ocultas de las tablas virtuales (que no).
+func columnasDeclaradas(ctx context.Context, db *sql.DB, tabla string) ([]declarada, error) {
+	rows, err := db.QueryContext(ctx,
+		"SELECT name, type FROM pragma_table_xinfo(?) WHERE hidden <> 1 ORDER BY cid", tabla)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []declarada
+	for rows.Next() {
+		var d declarada
+		if err := rows.Scan(&d.nombre, &d.tipo); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// lecturaFiel arma la lista del SELECT para leer una tabla tal como está
+// guardada.
+//
+// El driver parsea a time.Time todo TEXT de una columna declarada DATE,
+// DATETIME o TIMESTAMP, y no se le puede pedir que no lo haga: un
+// `2021-01-02 16:39` guardado se veía como `2021-01-02T16:39:00Z`, y si esa
+// columna era parte de la clave, el UPDATE de la grilla buscaba la fila con el
+// texto reescrito y no la encontraba (C-12). Un `CAST(col AS TEXT)` no tiene
+// tipo declarado, así que el driver entrega el texto tal cual; el tipo
+// declarado se repone en el encabezado con `reponerDeclarados`, para que la
+// grilla lo siga mostrando y alineando como fecha.
+func lecturaFiel(declaradas []declarada, pedidas []string) string {
+	tipoDe := make(map[string]string, len(declaradas))
+	for _, d := range declaradas {
+		tipoDe[d.nombre] = d.tipo
+	}
+	nombres := pedidas
+	if len(nombres) == 0 {
+		nombres = make([]string, 0, len(declaradas))
+		for _, d := range declaradas {
+			nombres = append(nombres, d.nombre)
+		}
+	}
+	partes := make([]string, 0, len(nombres))
+	for _, n := range nombres {
+		if claseDe(tipoDe[n]) == query.ClassTemporal {
+			partes = append(partes, "CAST("+QuoteIdent(n)+" AS TEXT) AS "+QuoteIdent(n))
+		} else {
+			partes = append(partes, QuoteIdent(n))
+		}
+	}
+	return strings.Join(partes, ", ")
+}
+
+// reponerDeclarados devuelve al encabezado el tipo declarado de las columnas
+// que lecturaFiel leyó con CAST, que llegan sin tipo.
+func reponerDeclarados(cols []query.Column, declaradas []declarada) {
+	tipoDe := make(map[string]string, len(declaradas))
+	for _, d := range declaradas {
+		tipoDe[d.nombre] = d.tipo
+	}
+	for i := range cols {
+		if cols[i].DataType == "" {
+			if t, ok := tipoDe[cols[i].Name]; ok && t != "" {
+				cols[i].DataType = strings.ToLower(t)
+				cols[i].Class = claseDe(t)
+			}
+		}
+	}
 }
 
 // claseDe agrupa el tipo declarado en las clases que la grilla sabe alinear.
@@ -208,8 +360,12 @@ func claseDe(tipo string) query.Class {
 func page(
 	ctx context.Context, db *sql.DB, tabla string, opts engine.PageOptions,
 ) (*query.Result, *engine.Failure) {
+	declaradas, err := columnasDeclaradas(ctx, db, tabla)
+	if err != nil {
+		return nil, ClassifyStatement(err, "")
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "SELECT * FROM %s", QuoteIdent(tabla))
+	fmt.Fprintf(&b, "SELECT %s FROM %s", lecturaFiel(declaradas, nil), QuoteIdent(tabla))
 	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
 	if err != nil {
 		return nil, &engine.Failure{Kind: engine.FailureOther, Message: err.Error()}
@@ -241,7 +397,12 @@ func page(
 	if limite <= 0 {
 		limite = DefaultRowLimit
 	}
-	return leerFilas(rows, limite)
+	r, fail := leerFilas(rows, limite)
+	if fail != nil {
+		return nil, fail
+	}
+	reponerDeclarados(r.Columns, declaradas)
+	return r, nil
 }
 
 // count cuenta las filas, exacto. Recorre la tabla entera: es a propósito.

@@ -156,7 +156,7 @@ func TestCadaDiferenciaConOperacionTraeSuSentencia(t *testing.T) {
 
 	// La clave foránea es la que necesita el destino ABIERTO: en SQLite se
 	// agrega reconstruyendo la tabla, y para eso el motor lee lo que hay.
-	fk := diferencia(t, res, "fk:main.pedidos.fk_pedidos_0")
+	fk := diferencia(t, res, "fk:main.pedidos.producto_id→productos(id)")
 	stFK, hay := res.Statements[fk.ID]
 	if !hay {
 		t.Fatalf("la clave foránea quedó sin sentencia: %q", fk.SinSentencia)
@@ -482,7 +482,7 @@ func TestUnaReconstruccionDespuesDeOtraSentenciaSobreLaTablaNoVaAlArchivo(t *tes
 
 	// La clave foránea de pedidos también reconstruye, pero es la ÚNICA
 	// sentencia sobre pedidos: se queda.
-	fk := diferencia(t, res, "fk:main.pedidos.fk_pedidos_0")
+	fk := diferencia(t, res, "fk:main.pedidos.producto_id→productos(id)")
 	if fk.Cambio == nil {
 		t.Errorf("una reconstrucción sola sobre su tabla se suprimió sin motivo: %+v", fk)
 	}

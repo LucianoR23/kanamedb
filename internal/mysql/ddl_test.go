@@ -219,3 +219,24 @@ func TestElErrorDeEscrituraEnSoloLecturaSeEntiende(t *testing.T) {
 		t.Error("sin sugerencia: el usuario no sabe dónde se saca esa casilla")
 	}
 }
+
+// TestUnEnumConGuionesEsUnTipoValido: `enum('in-progress','done')` es un tipo
+// que el propio servidor produce, y la validación lo rechazaba por el guion;
+// el CREATE TABLE entero pasaba a «no supo escribir» (C-23). Adentro de las
+// comillas vale casi todo; afuera, lo de siempre.
+func TestUnEnumConGuionesEsUnTipoValido(t *testing.T) {
+	for _, tipo := range []string{
+		"enum('in-progress','done')", "set('a/b','50%','ñandú')", "enum('it''s')", "varchar(255)", "decimal(10,2)",
+	} {
+		if !tipoAceptable(tipo) {
+			t.Errorf("%q se rechazó", tipo)
+		}
+	}
+	for _, tipo := range []string{
+		"int; DROP TABLE t", "enum('a') -- x", "enum('abierta", "varchar(10)" + string(rune(0)), "enum('a" + `\` + "'b')",
+	} {
+		if tipoAceptable(tipo) {
+			t.Errorf("%q se aceptó", tipo)
+		}
+	}
+}

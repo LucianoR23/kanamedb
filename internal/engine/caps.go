@@ -40,7 +40,9 @@ var capacidades = map[Kind]Caps{
 		PartialIndexes:        false,
 		DeferrableConstraints: false,
 		MaxIdentifier:         64,
-		ExplainPrefix:         "EXPLAIN",
+		// max_execution_time aplica solo a SELECT. Ver engine.Caps.
+		StatementTimeoutOnlyReads: true,
+		ExplainPrefix:             "EXPLAIN",
 	},
 	// MariaDB no es «MySQL con otro nombre», y probando las dos quedó a la
 	// vista: 12.3 tiene secuencias, UUID, INET6, RETURNING y períodos de

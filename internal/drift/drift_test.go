@@ -458,7 +458,9 @@ func TestUnaClavePrimariaQueFaltaSeReporta(t *testing.T) {
 		tabla("orders", col("id", "bigint", false)),
 	}})
 
-	d := buscar(t, Comparar(origen, destino, Opciones{MismoMotor: true}), "orders.id")
+	// La clave se compara a nivel TABLA, no por columna: la diferencia se
+	// llama como la tabla.
+	d := buscar(t, Comparar(origen, destino, Opciones{MismoMotor: true}), "orders")
 	if d.Lado != Distinto {
 		t.Fatalf("lado = %q", d.Lado)
 	}
@@ -467,9 +469,228 @@ func TestUnaClavePrimariaQueFaltaSeReporta(t *testing.T) {
 	}
 
 	// Al revés NO se genera: soltar una clave primaria es borrar.
-	alReves := buscar(t, Comparar(destino, origen, Opciones{MismoMotor: true}), "orders.id")
+	alReves := buscar(t, Comparar(destino, origen, Opciones{MismoMotor: true}), "orders")
 	if alReves.Cambio != nil {
 		t.Errorf("se generó el borrado de una clave primaria: %+v", alReves.Cambio)
+	}
+}
+
+// TestUnaClaveCompuestaSeCreaEnUnaSolaSentencia.
+//
+// Se comparaba columna por columna y salía un ADD PRIMARY KEY por cada una:
+// con `(order_id, line_no)` en el origen y sin clave en el destino, dos
+// sentencias, la primera con una clave equivocada que en MySQL quedaba
+// confirmada antes de que la segunda fallara (C-09). Y con `(a, b)` contra
+// `(a)` salía `ADD PRIMARY KEY (b)` sobre una tabla que ya tenía clave.
+func TestUnaClaveCompuestaSeCreaEnUnaSolaSentencia(t *testing.T) {
+	a, b := col("order_id", "bigint", false), col("line_no", "int", false)
+	a.PrimaryKey, b.PrimaryKey = true, true
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{tabla("lines", a, b)}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{
+		tabla("lines", col("order_id", "bigint", false), col("line_no", "int", false)),
+	}})
+
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	var pks []Diferencia
+	for _, d := range r.Diferencias {
+		if d.Cambio != nil && d.Cambio.Type == change.AddPrimaryKey {
+			pks = append(pks, d)
+		}
+	}
+	if len(pks) != 1 {
+		t.Fatalf("se generaron %d addPrimaryKey y tenía que ser uno: %+v", len(pks), pks)
+	}
+	if got := pks[0].Cambio.Names; len(got) != 2 || got[0] != "order_id" || got[1] != "line_no" {
+		t.Errorf("la clave se crearía con %v", got)
+	}
+
+	// (a, b) contra (a): la clave es DISTINTA; no se emite un ADD sobre una
+	// tabla que ya tiene clave.
+	soloA := col("order_id", "bigint", false)
+	soloA.PrimaryKey = true
+	parcial := snap(schema.Schema{Name: "public", Tables: []schema.Table{tabla("lines", soloA, col("line_no", "int", false))}})
+	d := buscar(t, Comparar(origen, parcial, Opciones{MismoMotor: true}), "lines")
+	if d.Cambio != nil || d.SinSentencia == "" {
+		t.Errorf("con claves distintas se generó una sentencia: %+v", d)
+	}
+	// Y la misma clave de los dos lados no es ninguna diferencia.
+	if r := Comparar(origen, origen, Opciones{MismoMotor: true}); len(r.Diferencias) != 0 {
+		t.Errorf("la misma tabla contra sí misma dio %d diferencias", len(r.Diferencias))
+	}
+}
+
+// TestLasForaneasSeEmparejanPorLoQueHacenYNoPorSuNombre.
+//
+// SQLite no devuelve el nombre de la clave y se sintetiza `fk_<tabla>_<id>` con
+// el `id` posicional del pragma; MySQL nombra las automáticas `<tabla>_ibfk_N`.
+// Emparejando por nombre, dos claves creadas en distinto orden a cada lado
+// salían como «apunta a otro lado» y «falta en el destino», y cada apply
+// agregaba una duplicada (C-06). Se emparejan por columnas y destino.
+func TestLasForaneasSeEmparejanPorLoQueHacenYNoPorSuNombre(t *testing.T) {
+	fk := func(nombre, col, ref string) schema.ForeignKey {
+		return schema.ForeignKey{Name: nombre, Schema: "main", Table: "pedidos",
+			Columns: []string{col}, RefSchema: "main", RefTable: ref, RefColumns: []string{"id"}}
+	}
+	conClaves := func(fks ...schema.ForeignKey) schema.Snapshot {
+		return snap(schema.Schema{Name: "main", Tables: []schema.Table{
+			{Name: "pedidos", RowEstimate: -1,
+				Columns:     []schema.Column{col("cliente_id", "integer", true), col("producto_id", "integer", true)},
+				ForeignKeys: fks},
+		}})
+	}
+	// Mismas dos claves, en distinto orden: los ids del pragma se cruzan.
+	origen := conClaves(fk("fk_pedidos_0", "cliente_id", "clientes"), fk("fk_pedidos_1", "producto_id", "productos"))
+	destino := conClaves(fk("fk_pedidos_0", "producto_id", "Productos"), fk("fk_pedidos_1", "cliente_id", "clientes"))
+	if r := Comparar(origen, destino, Opciones{MismoMotor: true}); len(r.Diferencias) != 0 {
+		t.Errorf("las mismas claves en distinto orden dieron %d diferencias: %+v", len(r.Diferencias), r.Diferencias)
+	}
+
+	// Falta una: se crea UNA, y sin el nombre inventado.
+	destino = conClaves(fk("fk_pedidos_0", "producto_id", "productos"))
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	var creadas []Diferencia
+	for _, d := range r.Diferencias {
+		if d.Cambio != nil && d.Cambio.Type == change.AddForeignKey {
+			creadas = append(creadas, d)
+		}
+	}
+	if len(creadas) != 1 {
+		t.Fatalf("se generaron %d claves y tenía que ser una: %+v", len(creadas), r.Diferencias)
+	}
+	if creadas[0].Cambio.Name != "" || creadas[0].Cambio.RefTable != "clientes" {
+		t.Errorf("la clave se crearía con nombre %q hacia %q", creadas[0].Cambio.Name, creadas[0].Cambio.RefTable)
+	}
+	for _, d := range r.Diferencias {
+		if d.Lado == SoloEnDestino && d.Clase == ClaseForanea {
+			t.Errorf("la clave que está de los dos lados salió como «solo en el destino»: %+v", d)
+		}
+	}
+	// Un nombre elegido a mano sí viaja.
+	origen = conClaves(fk("pedidos_cliente_fk", "cliente_id", "clientes"))
+	destino = conClaves()
+	d := Comparar(origen, destino, Opciones{MismoMotor: true}).Diferencias[0]
+	if d.Cambio == nil || d.Cambio.Name != "pedidos_cliente_fk" {
+		t.Errorf("el nombre elegido a mano no viajó: %+v", d.Cambio)
+	}
+}
+
+// TestDosBasesConDistintoNombreSeComparan: MySQL nombra su único esquema como
+// la base, así que `shop_dev` contra `shop_prod` no comparaba ni una tabla y
+// lo decía como «no hay nada que comparar» (C-07). Un solo esquema de cada
+// lado se empareja por posición y se dice.
+func TestDosBasesConDistintoNombreSeComparan(t *testing.T) {
+	origen := snap(schema.Schema{Name: "shop_dev", Tables: []schema.Table{
+		tabla("orders", col("id", "bigint", false), col("note", "text", true)),
+	}})
+	destino := snap(schema.Schema{Name: "shop_prod", Tables: []schema.Table{
+		tabla("orders", col("id", "bigint", false)),
+	}})
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	d := buscar(t, r, "orders.note")
+	if d.Cambio == nil || d.Cambio.Schema != "shop_prod" {
+		t.Errorf("la columna que falta no se crea en el esquema del destino: %+v", d.Cambio)
+	}
+	// Y una clave foránea que falta apunta al esquema del DESTINO: con
+	// `REFERENCES shop_dev.…` fallaría, o crearía una clave entre bases.
+	conFK := snap(schema.Schema{Name: "shop_dev", Tables: []schema.Table{
+		tabla("customers", col("id", "bigint", false)),
+		{Name: "orders", RowEstimate: -1, Columns: []schema.Column{col("customer_id", "bigint", true)},
+			ForeignKeys: []schema.ForeignKey{{Name: "orders_customer_fk", Schema: "shop_dev", Table: "orders",
+				Columns: []string{"customer_id"}, RefSchema: "shop_dev", RefTable: "customers", RefColumns: []string{"id"}}}},
+	}})
+	sinFK := snap(schema.Schema{Name: "shop_prod", Tables: []schema.Table{
+		tabla("customers", col("id", "bigint", false)),
+		tabla("orders", col("customer_id", "bigint", true)),
+	}})
+	for _, d := range Comparar(conFK, sinFK, Opciones{MismoMotor: true}).Diferencias {
+		if d.Cambio != nil && d.Cambio.Type == change.AddForeignKey && d.Cambio.RefSchema != "shop_prod" {
+			t.Errorf("la clave se crearía apuntando a %q", d.Cambio.RefSchema)
+		}
+	}
+	for _, d := range r.Diferencias {
+		if d.Clase == ClaseEsquema {
+			t.Errorf("salió una diferencia de esquema: %+v", d)
+		}
+	}
+	dicho := false
+	for _, n := range r.NoComparado {
+		if strings.Contains(n, "shop_dev") && strings.Contains(n, "shop_prod") {
+			dicho = true
+		}
+	}
+	if !dicho {
+		t.Errorf("no se dijo que se emparejaron dos esquemas de distinto nombre: %v", r.NoComparado)
+	}
+}
+
+// TestLosObjetosSeIdentificanPorTablaYArgumentos: un trigger `set_updated_at`
+// vive en cinco tablas y `calcular(int)` y `calcular(text)` son dos funciones.
+// Con solo clase y nombre, el último ganaba y una tabla nueva sin su trigger
+// salía «alineada» (C-18).
+func TestLosObjetosSeIdentificanPorTablaYArgumentos(t *testing.T) {
+	trg := func(tabla string) schema.Object {
+		return schema.Object{Kind: schema.ObjTrigger, Schema: "public", Name: "set_updated_at", Table: tabla}
+	}
+	fn := func(args string) schema.Object {
+		return schema.Object{Kind: schema.ObjFunction, Schema: "public", Name: "calcular", Args: args}
+	}
+	origen := snap(schema.Schema{Name: "public", Objects: []schema.Object{trg("a"), trg("b"), trg("c"), fn("integer"), fn("text")}})
+	destino := snap(schema.Schema{Name: "public", Objects: []schema.Object{trg("a"), fn("integer")}})
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	solo, _, _ := r.Cuenta()
+	if solo != 3 {
+		t.Errorf("faltan dos triggers y una función en el destino y se reportaron %d: %+v", solo, r.Diferencias)
+	}
+}
+
+// TestSinLaListaDeObjetosNoSeComparanObjetos: con la lista de un lado
+// incompleta, cada objeto del otro salía como «existe solo en el destino»
+// (C-22).
+func TestSinLaListaDeObjetosNoSeComparanObjetos(t *testing.T) {
+	origen := snap(schema.Schema{Name: "public"})
+	destino := snap(schema.Schema{Name: "public", Objects: []schema.Object{
+		{Kind: schema.ObjPolicy, Schema: "public", Name: "solo_mias", Table: "t"},
+	}})
+	if r := Comparar(origen, destino, Opciones{MismoMotor: true, SinObjetos: true}); len(r.Diferencias) != 0 {
+		t.Errorf("con SinObjetos se compararon objetos igual: %+v", r.Diferencias)
+	}
+}
+
+// TestUnaColumnaQueSeNumeraSolaSeAvisaAlCrearLaTabla: el CREATE TABLE no sabe
+// escribir identity ni AUTO_INCREMENT, y la tabla se creaba «igual» con riesgo
+// bajo; el primer INSERT fallaba (C-08).
+func TestUnaColumnaQueSeNumeraSolaSeAvisaAlCrearLaTabla(t *testing.T) {
+	id := col("id", "bigint", false)
+	id.PrimaryKey, id.AutoIncrement = true, true
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{tabla("orders", id)}})
+	destino := snap(schema.Schema{Name: "public"})
+	d := buscar(t, Comparar(origen, destino, Opciones{MismoMotor: true}), "orders")
+	if d.Riesgo != RiesgoMedio || !strings.Contains(d.Nota, "se numera sola") {
+		t.Errorf("riesgo=%q nota=%q", d.Riesgo, d.Nota)
+	}
+}
+
+// TestLaNulabilidadYElTipoViajanCompletos: MySQL reescribe la definición con
+// MODIFY, así que sin el tipo «no supo escribir» todo cambio de nulabilidad, y
+// un cambio de tipo sin la nulabilidad le quitaba el NOT NULL (C-20).
+func TestLaNulabilidadYElTipoViajanCompletos(t *testing.T) {
+	origen := snap(schema.Schema{Name: "public", Tables: []schema.Table{tabla("t", col("n", "bigint", false))}})
+	destino := snap(schema.Schema{Name: "public", Tables: []schema.Table{tabla("t", col("n", "int", true))}})
+	r := Comparar(origen, destino, Opciones{MismoMotor: true})
+	for _, d := range r.Diferencias {
+		if d.Cambio == nil {
+			continue
+		}
+		switch d.Cambio.Type {
+		case change.SetNotNull:
+			if d.Cambio.Column.DataType != "bigint" {
+				t.Errorf("SetNotNull sin el tipo: %+v", d.Cambio.Column)
+			}
+		case change.SetColumnType:
+			if d.Cambio.Column.Nullable {
+				t.Errorf("SetColumnType perdió el NOT NULL: %+v", d.Cambio.Column)
+			}
+		}
 	}
 }
 

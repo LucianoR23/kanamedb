@@ -3,6 +3,8 @@ package service
 import (
 	"fmt"
 	"time"
+
+	"github.com/LucianoR23/kanamedb/internal/change"
 )
 
 // Desconexión por inactividad.
@@ -90,9 +92,46 @@ func (s *Session) vencerInactividad(o *openSession) {
 	s.motivoDeCierre = fmt.Sprintf(
 		"La conexión se cerró tras %s sin actividad. Es la protección «Desconectar "+
 			"por inactividad» de la pestaña Safety.", duracionLegible(d))
+	// El changeset no se tira con la sesión: la persona preparó treinta
+	// ediciones, se fue quince minutos y al volver «Reconectar» tiene que
+	// devolvérselas. Se guarda atado a la conexión Y a la base, y se
+	// restituye solo si la próxima conexión es a esa misma base (review del
+	// 2026-09-12).
+	if n := o.cambios.Summarize().Total; n > 0 {
+		s.rescatado = &rescate{connID: o.conn.ID, base: nombreDeLaBase(o), cambios: o.cambios}
+		s.motivoDeCierre += fmt.Sprintf(" %s se conservan si volvés a conectar a la misma base.",
+			cuentaDeCambios(n))
+	}
 	s.mu.Unlock()
 
 	o.cerrar()
+}
+
+// rescate es un changeset que sobrevivió a la desconexión por inactividad.
+type rescate struct {
+	connID  string
+	base    string
+	cambios *change.Set
+}
+
+// devolverRescatado le da a la sesión recién abierta el changeset que la
+// inactividad dejó sin sesión, si es la misma conexión contra la misma base.
+// Cualquier otra conexión lo descarta: un changeset contra otra base es
+// peligroso, no útil. Se llama con s.mu tomado.
+func (s *Session) devolverRescatado(o *openSession) {
+	r := s.rescatado
+	s.rescatado = nil
+	if r == nil || r.connID != o.conn.ID || r.base != nombreDeLaBase(o) {
+		return
+	}
+	o.cambios = r.cambios
+}
+
+func cuentaDeCambios(n int) string {
+	if n == 1 {
+		return "El cambio pendiente"
+	}
+	return fmt.Sprintf("Los %d cambios pendientes", n)
 }
 
 // tocarActual anota actividad en la sesión en curso, si hay una. Lo llaman

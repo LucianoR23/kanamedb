@@ -122,6 +122,14 @@ type Column struct {
 
 	// Position es attnum: el orden en que las declara la tabla.
 	Position int `json:"position"`
+
+	// AutoIncrement dice que la columna se numera sola: identity o serial en
+	// Postgres, AUTO_INCREMENT en MySQL, INTEGER PRIMARY KEY en SQLite. Está
+	// en el snapshot y no solo en el detalle porque la comparación de esquemas
+	// crea tablas desde acá, y una tabla que se creaba «igual» sin el
+	// autoincremento escondía la deriva adentro de la corrección (C-08 de la
+	// auditoría del 2026-09-11).
+	AutoIncrement bool `json:"autoIncrement,omitempty"`
 }
 
 // HasRowEstimate dice si RowEstimate tiene un valor utilizable.

@@ -144,7 +144,12 @@ func Inspect(path string, o Options) (*Inspection, error) {
 	}
 
 	r := lector(src, coma)
-	linea := 0
+	// `linea` es la LÍNEA FÍSICA donde empieza el registro, no el número de
+	// registro: un campo citado con un salto de línea adentro ocupa dos líneas
+	// y desplazaba todos los números que vienen después —«el lote que falló
+	// empieza en la línea N» apuntaba mal— (C-28 de la auditoría del
+	// 2026-09-11). FieldPos la da después de cada Read.
+	registro, linea := 0, 0
 	campos := -1
 	for {
 		fila, err := r.Read()
@@ -152,9 +157,10 @@ func Inspect(path string, o Options) (*Inspection, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("no se pudo leer %s en la línea %d: %w", insp.File.Name, linea+1, err)
+			return nil, fmt.Errorf("no se pudo leer %s en la línea %d: %w", insp.File.Name, lineaDelError(err, linea), err)
 		}
-		linea++
+		registro++
+		linea, _ = r.FieldPos(0)
 		if campos < 0 {
 			campos = len(fila)
 		}
@@ -169,7 +175,7 @@ func Inspect(path string, o Options) (*Inspection, error) {
 		if len(fila) != campos && len(insp.Ragged) < maxRagged {
 			insp.Ragged = append(insp.Ragged, Ragged{Line: linea, Fields: len(fila)})
 		}
-		if linea == 1 && o.HasHeader {
+		if registro == 1 && o.HasHeader {
 			insp.Columns = limpiar(fila, o)
 			continue
 		}
@@ -336,23 +342,36 @@ func Rows(path string, o Options, fn func(linea int, fila []*string) error) erro
 	}
 
 	r := lector(src, coma)
-	linea := 0
+	registro, linea := 0, 0
 	for {
 		fila, err := r.Read()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("no se pudo leer la línea %d: %w", linea+1, err)
+			return fmt.Errorf("no se pudo leer la línea %d: %w", lineaDelError(err, linea), err)
 		}
-		linea++
-		if linea == 1 && o.HasHeader {
+		registro++
+		// La línea física, como en Inspect: es lo que se muestra.
+		linea, _ = r.FieldPos(0)
+		if registro == 1 && o.HasHeader {
 			continue
 		}
 		if err := fn(linea, valores(limpiar(fila, o), o)); err != nil {
 			return err
 		}
 	}
+}
+
+// lineaDelError es la línea física donde empieza el registro que no se pudo
+// leer: la trae el propio error del lector. Si no la trae, la siguiente a la
+// del último registro bueno, que es lo mejor que se sabe.
+func lineaDelError(err error, ultimaBuena int) int {
+	var pe *csv.ParseError
+	if errors.As(err, &pe) && pe.StartLine > 0 {
+		return pe.StartLine
+	}
+	return ultimaBuena + 1
 }
 
 // valores pasa los campos a la forma que espera la base: nil es NULL.

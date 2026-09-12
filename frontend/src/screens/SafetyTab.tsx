@@ -102,7 +102,7 @@ export function SafetyTab({
           porDefecto={30}
           valor={safety.statementTimeoutSeconds}
           onChange={(v) => set("statementTimeoutSeconds", v)}
-          ayuda="Lo corta el SERVIDOR, no Kaname. Cancelar desde el cliente depende de que el cliente siga vivo; esto no."
+          ayuda="Lo corta el SERVIDOR, no Kaname. Cancelar desde el cliente depende de que el cliente siga vivo; esto no. En MySQL vale solo para SELECT: max_execution_time no corta un UPDATE ni un ALTER. MariaDB, Postgres y SQLite cortan todo."
         />
 
         <Limite

@@ -24,6 +24,37 @@ const maxIdent = 64
 // Queda afuera el punto y coma y los marcadores de comentario.
 var tipoValido = regexp.MustCompile(`^[A-Za-z0-9_ ,()'\[\]]+$`)
 
+// tipoAceptable valida un tipo como lo escribió el motor. Lo que va entre
+// comillas simples —los valores de un ENUM o un SET— puede tener casi
+// cualquier cosa: `enum('in-progress','done')` es un tipo que el propio
+// servidor produjo y que la expresión de arriba rechazaba por el guion, con lo
+// que el CREATE TABLE entero pasaba a «no supo escribir» (C-23 de la
+// auditoría del 2026-09-11). Adentro de las comillas se rechazan solo las
+// comillas sin doblar y los caracteres de control; afuera, lo de siempre.
+func tipoAceptable(tipo string) bool {
+	var fuera strings.Builder
+	enComillas := false
+	for i := 0; i < len(tipo); i++ {
+		c := tipo[i]
+		switch {
+		case c == '\'':
+			if enComillas && i+1 < len(tipo) && tipo[i+1] == '\'' {
+				i++ // comilla doblada adentro del literal
+				continue
+			}
+			enComillas = !enComillas
+			fuera.WriteByte(c)
+		case enComillas:
+			if c < 0x20 || c == 0x7f || c == '\\' {
+				return false
+			}
+		default:
+			fuera.WriteByte(c)
+		}
+	}
+	return !enComillas && tipoValido.MatchString(fuera.String())
+}
+
 // RenderDDL arma la sentencia de un cambio de esquema para MySQL o MariaDB.
 //
 // Devuelve error para cualquier operación que no sepa escribir. Eso NO es un
@@ -117,15 +148,24 @@ func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statemen
 		st.Note = "Todo lo que nombre la columna deja de encontrarla."
 
 	case change.SetColumnType:
-		if !tipoValido.MatchString(c.DataType) {
+		if !tipoAceptable(c.DataType) {
 			return st, fmt.Errorf("el tipo %q tiene caracteres que no se aceptan", c.DataType)
 		}
-		st.SQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s",
-			tabla, QuoteIdent(c.Column.Name), c.DataType)
+		// La nulabilidad se vuelve a escribir: MODIFY reescribe la definición
+		// entera, y sin esto un `int` → `bigint` en la clave le quitaba el NOT
+		// NULL (C-20). Quien arma el cambio —hoy, solo la comparación de
+		// esquemas— manda la columna con su nulabilidad.
+		nulo := "NULL"
+		if !c.Column.Nullable {
+			nulo = "NOT NULL"
+		}
+		st.SQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s %s",
+			tabla, QuoteIdent(c.Column.Name), c.DataType, nulo)
 		st.Impact = change.ImpactRewrite
 		st.Lock = change.LockWrites
-		st.Note = "MODIFY COLUMN repite la definición entera de la columna: si tenía NOT NULL, " +
-			"un valor por defecto o un comentario y no se vuelven a escribir, se pierden."
+		st.Note = "MODIFY COLUMN repite la definición entera de la columna: el valor por " +
+			"defecto, el AUTO_INCREMENT y el comentario que tuviera no se vuelven a escribir " +
+			"y se pierden."
 
 	case change.SetNotNull, change.DropNotNull:
 		// Acá está la diferencia grande con Postgres. MySQL no tiene
@@ -137,7 +177,7 @@ func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statemen
 				"para cambiar la nulabilidad en %s hace falta el tipo de la columna: "+
 					"MODIFY reescribe la definición entera", c.Type)
 		}
-		if !tipoValido.MatchString(c.Column.DataType) {
+		if !tipoAceptable(c.Column.DataType) {
 			return st, fmt.Errorf("el tipo %q tiene caracteres que no se aceptan", c.Column.DataType)
 		}
 		nulo := "NULL"
@@ -177,7 +217,7 @@ func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statemen
 				"para comentar una columna en %s hace falta su tipo: el comentario es "+
 					"parte de la definición", c.Type)
 		}
-		if !tipoValido.MatchString(c.Column.DataType) {
+		if !tipoAceptable(c.Column.DataType) {
 			return st, fmt.Errorf("el tipo %q tiene caracteres que no se aceptan", c.Column.DataType)
 		}
 		nulo := "NULL"
@@ -308,7 +348,7 @@ func renderDDL(c change.Change, k engine.Kind, sinEscapes bool) (change.Statemen
 
 // columnaDDL escribe la definición de una columna.
 func columnaDDL(col change.Column, cita func(string) string) (string, error) {
-	if !tipoValido.MatchString(col.DataType) {
+	if !tipoAceptable(col.DataType) {
 		return "", fmt.Errorf("el tipo %q tiene caracteres que no se aceptan", col.DataType)
 	}
 	var b strings.Builder

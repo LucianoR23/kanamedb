@@ -121,6 +121,10 @@ func (s *Session) Compare(ctx context.Context, req CompareRequest) CompareResult
 	// afuera y lo dice. Ver drift.Opciones.
 	res := drift.Comparar(*origen, *destino, drift.Opciones{
 		MismoMotor: lado.Engine == ladoDestino.Engine,
+		// Con la lista de objetos de un lado incompleta no se comparan
+		// objetos: sobre una lista parcial, cada objeto del otro lado salía
+		// como «existe solo en el destino» (C-22).
+		SinObjetos: origen.ObjectsError != "" || destino.ObjectsError != "",
 	})
 	// Si la lista de objetos de un lado no se pudo leer, la comparación siguió
 	// con las tablas, y eso se dice: sin esto, un lado con la lista vacía por

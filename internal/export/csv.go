@@ -43,7 +43,32 @@ func (e *escritorCSV) Begin(cols []query.Column) error {
 	for i := range cols {
 		nombres[i] = &cols[i].Name
 	}
-	return e.Row(nombres)
+	// El encabezado se neutraliza solo cuando el nombre parece una fórmula de
+	// verdad —empieza como una y tiene una llamada o un DDE adentro—: una
+	// columna que se llama `-x` o `@id` es un nombre y salía como `"'-x"`
+	// (C-26), pero una llamada `=HYPERLINK("…")` es una fórmula viva al abrir
+	// el archivo, la cree quien la cree (review del 2026-09-12).
+	e.buf = e.buf[:0]
+	for i, v := range nombres {
+		if i > 0 {
+			e.buf = append(e.buf, e.o.Delimiter...)
+		}
+		if e.o.NeutralizeFormulas && esFormula(*v) && !strings.ContainsAny(*v, "(|!") {
+			// Un nombre que empieza con el carácter pero no llama a nada: tal
+			// cual, citado si hace falta.
+			neutralizar := e.o.NeutralizeFormulas
+			e.o.NeutralizeFormulas = false
+			e.buf = e.campo(e.buf, v)
+			e.o.NeutralizeFormulas = neutralizar
+			continue
+		}
+		e.buf = e.campo(e.buf, v)
+	}
+	e.buf = append(e.buf, '\n')
+	if _, err := e.w.Write(e.buf); err != nil {
+		return fmt.Errorf("escribir el CSV: %w", err)
+	}
+	return nil
 }
 
 func (e *escritorCSV) Row(vals []*string) error {

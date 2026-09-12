@@ -91,9 +91,29 @@ entrega los binarios como bytes crudos en un `string`), C-26 (formatos).
 medida que se cierran; lo que quede acá es lo que necesite un contrato nuevo
 (por ejemplo, un tipo de celda binaria en `RowStream` en vez de `[]*string`).
 
-## 4. `drift`: identidad, claves compuestas y esquemas de distinto nombre
+## 4. `drift`: escribir el autoincremento en el CREATE TABLE
 
-**Origen:** C-06 a C-09, C-18, C-20, C-24. **Estado:** ídem. Lo que necesite
-llevar `Identity`, `Generated` y el default al snapshot (C-08) toca las cuatro
-introspecciones y el renderizador de `CreateTable` de cada motor; se decide al
-llegar si entra como fix o se especifica acá.
+**Origen:** C-08. **Estado provisorio:** `schema.Column.AutoIncrement` viaja
+desde las tres introspecciones y la tabla nueva sale con riesgo Medio y una
+nota que nombra las columnas que se crean sin numerarse solas. C-06, C-07,
+C-09, C-18, C-20, C-22 y C-24 se cerraron como fixes.
+
+**Qué falta.** Que `change.Column` modele el autoincremento —`Identity`
+(`always`/`by default`) y `AutoIncrement bool`— y que los cuatro
+renderizadores de `CreateTable` lo escriban como ya lo hace el volcado
+(`engine.Conn.AutoIncrement`, `dump/ddl.go`). El editor de estructura podría
+ofrecerlo entonces también. Con eso, `tablaSoloEnOrigen` deja de avisar y
+escribe la columna como es. Test: comparar → aplicar → comparar con una tabla
+identity da cero diferencias y el primer INSERT sin id funciona.
+
+**Y dos más chicas del mismo lugar:**
+
+- **C-23**, tipos que se usan antes de existir: una tabla nueva que usa un
+  enum o dominio que el destino no tiene se etiqueta «crearla no puede romper
+  nada» y falla en el `CREATE`. Hace falta cruzar los objetos que faltan
+  (`compararObjetos`) con los tipos de las columnas de las tablas nuevas y
+  subir el riesgo nombrando el tipo.
+- **C-30**, `format_type` y el `search_path`: los tipos de usuario se
+  califican según el `search_path` de cada conexión, y el diff los compara
+  como texto. Forzar `set_config('search_path', '', true)` en la transacción
+  de la introspección, o normalizar quitando el prefijo del esquema propio.

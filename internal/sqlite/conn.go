@@ -74,6 +74,9 @@ func (c *Conn) Quoting() engine.Quoting {
 		Table:   dialectoDML.Table,
 		Ident:   dialectoDML.QuoteIdent,
 		Literal: dialectoDML.QuoteLiteral,
+		// El recorrido entrega los BLOB en hexadecimal (ver scan.go); el
+		// literal de SQLite para eso es X'…'.
+		Binary: func(hex string) string { return "X'" + hex + "'" },
 	}
 }
 

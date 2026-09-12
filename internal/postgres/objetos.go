@@ -222,9 +222,14 @@ func DumpHints(d schema.TableDetail) engine.DumpHints {
 		if _, numerada := AutoIncrement(col); !numerada {
 			continue
 		}
+		// GREATEST(…, 1): setval rechaza un valor por debajo del mínimo de la
+		// secuencia, y una tabla con ids en 0 o negativos abortaba el restore
+		// al final de la tabla. Con max <= 0 la secuencia queda en 1 sin
+		// consumir (is_called = false), que es el próximo id posible.
+		id := QuoteIdent(col.Name)
 		h.AfterData = append(h.AfterData, fmt.Sprintf(
-			"SELECT setval(pg_get_serial_sequence(%s, %s), COALESCE(max(%s), 1), max(%s) IS NOT NULL) FROM %s",
-			dialectoDML.QuoteLiteral(tabla), dialectoDML.QuoteLiteral(col.Name), QuoteIdent(col.Name), QuoteIdent(col.Name), tabla))
+			"SELECT setval(pg_get_serial_sequence(%s, %s), GREATEST(COALESCE(max(%s), 1), 1), COALESCE(max(%s), 0) >= 1) FROM %s",
+			dialectoDML.QuoteLiteral(tabla), dialectoDML.QuoteLiteral(col.Name), id, id, tabla))
 	}
 	return h
 }

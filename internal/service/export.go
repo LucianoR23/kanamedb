@@ -301,12 +301,23 @@ func volcarFlujo(flujo engine.RowStream, esc export.Writer, limit int) (int, err
 	if err := esc.Begin(flujo.Columns()); err != nil {
 		return 0, err
 	}
+	// Un recorrido que sabe de qué clase es cada celda se lo dice a un
+	// escritor que decide por celda (SQLite → SQL); los demás pares siguen
+	// por Row.
+	conClases, sabe := flujo.(engine.CellClasses)
+	porCelda, entiende := esc.(export.ClassAware)
 	n := 0
 	for flujo.Next() {
 		if limit > 0 && n >= limit {
 			break
 		}
-		if err := esc.Row(flujo.Row()); err != nil {
+		var err error
+		if sabe && entiende {
+			err = porCelda.RowClasses(flujo.Row(), conClases.CellClasses())
+		} else {
+			err = esc.Row(flujo.Row())
+		}
+		if err != nil {
 			return n, err
 		}
 		n++
@@ -329,6 +340,7 @@ func destinoDe(sesion *openSession, esquema, tabla string) *export.SQLTarget {
 		Table:        q.Table(esquema, tabla),
 		QuoteIdent:   q.Ident,
 		QuoteLiteral: q.Literal,
+		QuoteBinary:  q.Binary,
 	}
 }
 

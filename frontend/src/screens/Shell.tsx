@@ -775,6 +775,7 @@ export function Shell({
                       snapshot={snapshot}
                       readOnly={session?.readOnly ?? false}
                       statementTimeoutSeconds={session?.statementTimeoutSeconds ?? 0}
+                      timeoutSoloLecturas={session?.caps.StatementTimeoutOnlyReads ?? false}
                       rowLimit={session?.rowLimit ?? 0}
                       connectionLabel={session?.describe ?? ""}
                       engine={session?.server?.engine ?? ""}

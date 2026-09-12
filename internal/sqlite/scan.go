@@ -19,8 +19,13 @@ import (
 func scan(
 	ctx context.Context, db *sql.DB, tabla string, opts engine.ScanOptions,
 ) (engine.RowStream, error) {
+	declaradas, err := columnasDeclaradas(ctx, db, tabla)
+	if err != nil {
+		return nil, fmt.Errorf("leer la definición de %s: %w", tabla, err)
+	}
 	var b strings.Builder
-	b.WriteString("SELECT " + listaDeColumnas(opts.Columns) + " FROM ")
+	// Las columnas se leen tal como están guardadas: ver lecturaFiel.
+	b.WriteString("SELECT " + lecturaFiel(declaradas, opts.Columns) + " FROM ")
 	b.WriteString(QuoteIdent(tabla))
 	filtro, args, err := dml.Where(opts.Where, dialectoDML, 0)
 	if err != nil {
@@ -63,7 +68,19 @@ func scan(
 			Class:    claseDe(t.DatabaseTypeName()),
 		}
 	}
+	reponerDeclarados(columnas, declaradas)
 	return &flujo{rows: rows, columnas: columnas}, nil
+}
+
+// claseDelValor es la clase de lo que el driver entregó para UNA celda.
+func claseDelValor(v any) query.Class {
+	switch v.(type) {
+	case []byte:
+		return query.ClassBinary
+	case int64, float64:
+		return query.ClassNumber
+	}
+	return query.ClassText
 }
 
 // flujo adapta *sql.Rows a engine.RowStream.
@@ -71,11 +88,16 @@ type flujo struct {
 	rows     *sql.Rows
 	columnas []query.Column
 	fila     []*string
-	cerrado  bool
-	err      error
+	// clases es la clase de cada VALOR de `fila`: el tipo en SQLite es del
+	// valor, y el escritor SQL tiene que saber qué va como X'…', qué sin
+	// comillas y qué como texto.
+	clases  []query.Class
+	cerrado bool
+	err     error
 }
 
-func (f *flujo) Columns() []query.Column { return f.columnas }
+func (f *flujo) Columns() []query.Column    { return f.columnas }
+func (f *flujo) CellClasses() []query.Class { return f.clases }
 
 func (f *flujo) Next() bool {
 	if f.cerrado || !f.rows.Next() {
@@ -96,14 +118,17 @@ func (f *flujo) Next() bool {
 		return false
 	}
 	fila := make([]*string, n)
+	clases := make([]query.Class, n)
 	for i, v := range crudo {
-		s, ok := aTexto(v)
+		// Los BLOB salen en hexadecimal: la exportación tiene que ser fiel.
+		s, ok := valorATexto(v, true, false)
 		if !ok {
 			continue
 		}
+		clases[i] = claseDelValor(v)
 		fila[i] = &s
 	}
-	f.fila = fila
+	f.fila, f.clases = fila, clases
 	return true
 }
 
@@ -123,20 +148,4 @@ func (f *flujo) Close() {
 	}
 	f.cerrado = true
 	f.rows.Close()
-}
-
-// listaDeColumnas escribe qué leer: `*`, o los nombres citados.
-//
-// Los nombres son IDENTIFICADORES y no valores: no se pueden parametrizar, así
-// que van citados por el motor. Y salen de la introspección, no de nada que
-// alguien escriba. Ver CLAUDE.md.
-func listaDeColumnas(cols []string) string {
-	if len(cols) == 0 {
-		return "*"
-	}
-	out := make([]string, 0, len(cols))
-	for _, c := range cols {
-		out = append(out, QuoteIdent(c))
-	}
-	return strings.Join(out, ", ")
 }
