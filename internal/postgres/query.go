@@ -127,8 +127,14 @@ func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (
 	// Los tipos que pgx no conoce —enums, dominios, tipos del usuario— se
 	// resuelven contra el catálogo, y recién cuando aparecen. La consulta normal
 	// devuelve tipos incorporados y no paga ningún viaje extra.
+	//
+	// Con `conn`, la que ya se tiene, y NO con `pool`: acá la conexión sigue
+	// tomada (el Release es diferido), así que pedir otra al pool con
+	// PoolSize 1 se colgaba hasta cancelar, y con dos pestañas sobre un pool
+	// de 2 las dos esperaban a la otra (C-15 de la auditoría del 2026-09-11).
+	// `columnasDe` en scan.go ya lo hacía bien por el mismo motivo.
 	for i := range lote.Results {
-		if err := resolverTiposDesconocidos(ctx, pool, &lote.Results[i], oidsPorResultado[i]); err != nil {
+		if err := resolverTiposDesconocidos(ctx, conn, &lote.Results[i], oidsPorResultado[i]); err != nil {
 			return nil, Classify(err, "los tipos del resultado")
 		}
 	}
