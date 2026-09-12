@@ -946,6 +946,16 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Android, paso 2a: `secrets` con almacén por plataforma.** `Keyring` delega
+en una interfaz interna `almacen` (guardar/leer/borrar); escritorio la cumple
+con `go-keyring`, Android con `application.Mobile.SecureSet/Get/Delete`
+(`EncryptedSharedPreferences` + clave AES del Keystore, sin biometría todavía:
+eso es 2b). El adaptador de Android no lleva build tag y se prueba en Windows
+con un bridge falso. Wails tiene un solo espacio de claves: el servicio va en
+la clave con prefijo de longitud, porque con un separador a secas `("a",
+"b:c")` y `("a:b", "c")` colisionan; el test lo demuestra. La suite existente
+de `secrets` corre igual sobre el keychain real.
+
 **Spike de Android: pasó la puerta.** El APK corre en un teléfono real:
 arranca, carga el frontend, los bindings responden y la libreta se escribe en
 el directorio privado. CI arma el `.so` con el NDK y el APK con Gradle 9.2.1 +

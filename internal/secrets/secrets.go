@@ -1,6 +1,7 @@
 // Package secrets guarda las contraseñas de las conexiones en el keychain del
-// sistema operativo: Credential Manager en Windows, Keychain en macOS y el
-// Secret Service en Linux.
+// sistema operativo: Credential Manager en Windows, Keychain en macOS, el
+// Secret Service en Linux y, en Android, el almacenamiento cifrado con clave
+// del Keystore que expone Wails.
 //
 // Es el único lugar de la aplicación donde vive una credencial. No se escriben
 // en el archivo de conexiones, no se guardan en el estado local, no salen en
@@ -14,8 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/zalando/go-keyring"
 )
 
 // ErrNotFound lo devuelve Get cuando esa conexión no tiene contraseña guardada.
@@ -40,14 +39,18 @@ const maxPasswordLen = 1024
 // así que renombrar una conexión no deja una credencial huérfana.
 type Keyring struct {
 	service string
+	almacen almacen
 }
 
-// New construye un Keyring sobre el servicio por defecto.
-func New() *Keyring { return &Keyring{service: DefaultService} }
+// New construye un Keyring sobre el servicio por defecto y el almacén del
+// sistema en que corre.
+func New() *Keyring { return NewWithService(DefaultService) }
 
 // NewWithService construye un Keyring sobre otro nombre de servicio. Existe
 // para que los tests no ensucien las credenciales reales del usuario.
-func NewWithService(service string) *Keyring { return &Keyring{service: service} }
+func NewWithService(service string) *Keyring {
+	return &Keyring{service: service, almacen: almacenDelSistema()}
+}
 
 // Service devuelve el nombre de servicio bajo el que guarda.
 func (k *Keyring) Service() string { return k.service }
@@ -66,7 +69,7 @@ func (k *Keyring) Set(connectionID, password string) error {
 	if len(password) > maxPasswordLen {
 		return fmt.Errorf("la contraseña supera los %d bytes", maxPasswordLen)
 	}
-	if err := keyring.Set(k.service, connectionID, password); err != nil {
+	if err := k.almacen.guardar(k.service, connectionID, password); err != nil {
 		// El error del sistema no lleva la contraseña, pero se envuelve con el
 		// ID y no con el valor, por las dudas.
 		return fmt.Errorf("guardar la contraseña de %s en el keychain: %w", connectionID, err)
@@ -82,12 +85,12 @@ func (k *Keyring) Get(connectionID string) (string, error) {
 	if err := validID(connectionID); err != nil {
 		return "", err
 	}
-	pw, err := keyring.Get(k.service, connectionID)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return "", fmt.Errorf("%w: %s", ErrNotFound, connectionID)
-	}
+	pw, hay, err := k.almacen.leer(k.service, connectionID)
 	if err != nil {
 		return "", fmt.Errorf("leer la contraseña de %s del keychain: %w", connectionID, err)
+	}
+	if !hay {
+		return "", fmt.Errorf("%w: %s", ErrNotFound, connectionID)
 	}
 	return pw, nil
 }
@@ -115,11 +118,10 @@ func (k *Keyring) Delete(connectionID string) error {
 	if err := validID(connectionID); err != nil {
 		return err
 	}
-	err := keyring.Delete(k.service, connectionID)
-	if err == nil || errors.Is(err, keyring.ErrNotFound) {
-		return nil
+	if err := k.almacen.borrar(k.service, connectionID); err != nil {
+		return fmt.Errorf("borrar la contraseña de %s del keychain: %w", connectionID, err)
 	}
-	return fmt.Errorf("borrar la contraseña de %s del keychain: %w", connectionID, err)
+	return nil
 }
 
 // validID rechaza identificadores que no sirven como clave.

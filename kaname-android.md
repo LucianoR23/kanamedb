@@ -183,9 +183,28 @@ plantilla antes de saber si sirve:
   `WailsBridge.java` quedaron aunque el manifest ya no los declara: Kaname no
   los llama, y sacarlos es editar el bridge, que es lo que se decide en 2b.
 
-El keychain sigue siendo `go-keyring`, que en Android devuelve
-`ErrUnsupportedPlatform`: guardar una conexión **con** contraseña falla hasta
-el paso 2a, a propósito. Es lo que sigue.
+## Estado del paso 2a (2026-09-12): hecho, falta probarlo en el teléfono
+
+`secrets` ya no habla con `go-keyring` directamente: `Keyring` valida y
+envuelve errores, y delega en un `almacen` de tres métodos. En escritorio el
+almacén es `go-keyring` (`almacen_desktop.go`); en Android es
+`application.Mobile.SecureSet/Get/Delete` (`almacen_android.go`), que Wails
+implementa con `EncryptedSharedPreferences` y una clave AES del Keystore. El
+adaptador (`almacen_movil.go`) no lleva build tag: se prueba en Windows con un
+bridge falso —contrato completo, contraseñas hostiles, aislamiento entre
+servicios y fallas del bridge sin filtrar la contraseña—. Wails tiene un solo
+espacio de claves, así que el servicio va dentro de la clave con prefijo de
+longitud: con un separador a secas, `("a", "b:c")` y `("a:b", "c")` serían la
+misma entrada, y hay un test que lo demuestra.
+
+Lo que 2a **no** da todavía es la biometría: la clave del Keystore que usa
+Wails no exige `BiometricPrompt` para descifrar. Quien tiene el archivo y el
+UID de la app lee la contraseña. Es el paso 2b.
+
+Prueba a mano pendiente: guardar una conexión **con** contraseña en el
+teléfono, cerrar la app, volver a abrir y conectar. Y con un build de debug,
+`adb shell run-as dev.kaname.app cat shared_prefs/wails_secure.xml` tiene que
+mostrar texto cifrado, no la contraseña.
 
 ## Cuándo
 
