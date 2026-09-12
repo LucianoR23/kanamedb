@@ -962,13 +962,6 @@ func nulabilidad(nullable bool) string {
 	return "NOT NULL"
 }
 
-func esClave(pk bool) string {
-	if pk {
-		return "clave primaria"
-	}
-	return "no es clave primaria"
-}
-
 func conDefault(tiene bool) string {
 	if tiene {
 		return "con valor por defecto"
