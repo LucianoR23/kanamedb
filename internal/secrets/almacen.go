@@ -18,4 +18,6 @@ type almacen interface {
 	// hay dice si existe una entrada sin traer el secreto: en Android leer
 	// pide la biometría, y la lista de conexiones no tiene por qué pedirla.
 	hay(service, id string) (bool, error)
+	// maximo es el tamaño más grande de secreto que este almacén acepta.
+	maximo() int
 }

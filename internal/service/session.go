@@ -248,12 +248,9 @@ func (s *Session) abrirConexion(ctx context.Context, id, acceptOnce string) (*op
 				Message: "No se pudo leer el secreto del bastión del keychain.",
 			}
 		}
-		sec := tunnel.Secrets{}
-		switch c.SSH.Auth {
-		case connection.SSHAuthPassword:
-			sec.Password = secreto
-		case connection.SSHAuthKeyFile:
-			sec.Passphrase = secreto
+		sec, f := secretosDelTunel(s.keyring, c, secreto)
+		if f != nil {
+			return nil, f
 		}
 
 		cli, err := tunnel.Dial(ctx, c.SSH, s.known, sec, tunnel.DialOptions{AcceptOnce: acceptOnce})

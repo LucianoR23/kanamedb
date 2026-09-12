@@ -29,9 +29,11 @@ var ErrNotFound = errors.New("no hay contraseña guardada para esta conexión")
 // gestor del sistema. Es lo que el usuario ve al auditar qué guardó la app.
 const DefaultService = "Kaname"
 
-// maxPasswordLen es un tope defensivo. El Credential Manager de Windows corta
-// el blob en 2560 bytes; cortar en 1024 deja margen y descarta temprano lo que
-// evidentemente no es una contraseña.
+// maxPasswordLen es el tope del keychain de escritorio. El Credential Manager
+// de Windows corta el blob en 2560 bytes; cortar en 1024 deja margen y
+// descarta temprano lo que evidentemente no es una contraseña. El vault de
+// Android tiene el suyo, más alto: ahí también vive la clave privada SSH como
+// contenido, y un PEM de RSA 4096 mide más de 3 KB.
 const maxPasswordLen = 1024
 
 // Keyring guarda y recupera contraseñas por ID de conexión.
@@ -67,8 +69,8 @@ func (k *Keyring) Set(connectionID, password string) error {
 	if password == "" {
 		return errors.New("la contraseña está vacía: usá Delete para quitarla")
 	}
-	if len(password) > maxPasswordLen {
-		return fmt.Errorf("la contraseña supera los %d bytes", maxPasswordLen)
+	if tope := k.almacen.maximo(); len(password) > tope {
+		return fmt.Errorf("el secreto supera los %d bytes que admite el keychain de este sistema", tope)
 	}
 	if err := k.almacen.guardar(k.service, connectionID, password); err != nil {
 		// El error del sistema no lleva la contraseña, pero se envuelve con el

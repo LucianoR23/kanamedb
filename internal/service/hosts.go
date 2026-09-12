@@ -20,6 +20,15 @@ const sufijoSSH = "#ssh"
 // contraseña de SSH, o la frase de paso de la clave privada.
 func SSHSecretID(connectionID string) string { return connectionID + sufijoSSH }
 
+// sufijoClaveSSH distingue la clave privada como contenido del secreto del
+// bastión: son dos cosas —la clave y su frase de paso— y se guardan aparte.
+const sufijoClaveSSH = "#ssh-key"
+
+// SSHKeySecretID es la clave del keychain donde vive la clave privada SSH como
+// contenido (PEM). Existe para el teléfono, donde no hay ~/.ssh: si está, se usa
+// en lugar de leer KeyPath. En escritorio la clave sigue siendo una ruta.
+func SSHKeySecretID(connectionID string) string { return connectionID + sufijoClaveSSH }
+
 // Hosts resuelve la confianza en las claves de los servidores SSH.
 //
 // Es un servicio aparte de Connections porque responde a otra cosa: no

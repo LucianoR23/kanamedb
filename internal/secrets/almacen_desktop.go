@@ -38,6 +38,8 @@ func (a almacenKeyring) hay(service, id string) (bool, error) {
 	return hay, err
 }
 
+func (almacenKeyring) maximo() int { return maxPasswordLen }
+
 func (almacenKeyring) borrar(service, id string) error {
 	err := keyring.Delete(service, id)
 	if errors.Is(err, keyring.ErrNotFound) {

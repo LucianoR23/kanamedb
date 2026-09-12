@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 import android.os.Bundle;
+import android.view.WindowManager;
 
 import androidx.fragment.app.FragmentActivity;
 
@@ -56,7 +57,13 @@ public final class KanameApp extends Application {
                     current = new WeakReference<>(null);
                 }
             }
-            @Override public void onActivityCreated(Activity a, Bundle b) {}
+            @Override public void onActivityCreated(Activity a, Bundle b) {
+                // FLAG_SECURE: la ventana no sale en capturas, grabaciones ni
+                // en la miniatura del selector de apps. Lo que hay en pantalla
+                // son filas de una base; en el tren, la pantalla es pública.
+                a.getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
+                        WindowManager.LayoutParams.FLAG_SECURE);
+            }
             @Override public void onActivityStarted(Activity a) {}
             @Override public void onActivityPaused(Activity a) {}
             @Override public void onActivityStopped(Activity a) {}

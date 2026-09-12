@@ -126,7 +126,9 @@ func TestElAlmacenMovilNoAlteraLaContrasena(t *testing.T) {
 		"comillas \" ' ` y barras \\ /",
 		"saltos\nde\r\nlínea\ty tabs",
 		"=igual&amper%por;punto:coma",
-		strings.Repeat("x", maxPasswordLen),
+		// Más que el tope de escritorio: acá entra una clave privada SSH.
+		strings.Repeat("-----BEGIN OPENSSH PRIVATE KEY-----\n", 100),
+		strings.Repeat("x", maxSecretoMovil),
 	} {
 		if err := k.Set("conn", pw); err != nil {
 			t.Fatalf("Set(%q) error: %v", pw, err)
@@ -138,6 +140,18 @@ func TestElAlmacenMovilNoAlteraLaContrasena(t *testing.T) {
 		if got != pw {
 			t.Errorf("la contraseña volvió distinta: %q → %q", pw, got)
 		}
+	}
+}
+
+// El tope del vault es el suyo, no el de escritorio: lo que no entra en el
+// Credential Manager de Windows sí entra acá, y lo que pasa el tope propio no.
+func TestElAlmacenMovilTieneSuPropioTope(t *testing.T) {
+	k := nuevoMovil("Kaname-test", nuevoBridgeFalso())
+	if err := k.Set("conn", strings.Repeat("x", maxPasswordLen+1)); err != nil {
+		t.Errorf("Set() de %d bytes falló en el vault: %v", maxPasswordLen+1, err)
+	}
+	if err := k.Set("conn", strings.Repeat("x", maxSecretoMovil+1)); err == nil {
+		t.Errorf("Set() de %d bytes no falló", maxSecretoMovil+1)
 	}
 }
 

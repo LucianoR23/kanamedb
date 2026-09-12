@@ -50,6 +50,12 @@ func (a almacenMovil) hay(service, id string) (bool, error) {
 	return a.s.SecureHas(a.clave(service, id))
 }
 
+// maxSecretoMovil es el tope del vault. AES-GCM en el Keystore no tiene uno
+// propio; este es defensivo y entra cualquier clave privada SSH razonable.
+const maxSecretoMovil = 16 * 1024
+
+func (almacenMovil) maximo() int { return maxSecretoMovil }
+
 // nuevoMovil construye un Keyring sobre un almacenSeguro concreto. Es lo que
 // usa Android con el vault real y lo que usan los tests con el doble.
 func nuevoMovil(service string, s almacenSeguro) *Keyring {

@@ -29,6 +29,11 @@ type Secrets struct {
 	Password string
 	// Passphrase descifra la clave privada de AuthKeyFile. Vacío si no tiene.
 	Passphrase string
+	// PrivateKey es la clave privada de AuthKeyFile como contenido, en PEM.
+	// Si no es nil se usa en lugar de leer KeyPath: en un teléfono no hay
+	// ~/.ssh, la clave vive cifrada en el keychain como una contraseña más.
+	// ES UN SECRETO: se pasa, se parsea y se descarta.
+	PrivateKey []byte
 }
 
 // errSoloInspeccion aborta el handshake justo después de recibir la clave del
@@ -333,17 +338,21 @@ func metodosDeAuth(cfg Config, sec Secrets) ([]ssh.AuthMethod, error) {
 		return []ssh.AuthMethod{ssh.Password(sec.Password)}, nil
 
 	case AuthKeyFile:
-		ruta, err := ExpandHome(cfg.KeyPath)
-		if err != nil {
-			return nil, err
-		}
-		datos, err := os.ReadFile(ruta)
-		if err != nil {
-			// El error de os lleva la ruta, que no es secreta. El contenido de
-			// la clave no aparece por ningún lado.
-			return nil, fmt.Errorf("leer la clave privada: %w", err)
+		datos := sec.PrivateKey
+		if datos == nil {
+			ruta, err := ExpandHome(cfg.KeyPath)
+			if err != nil {
+				return nil, err
+			}
+			datos, err = os.ReadFile(ruta)
+			if err != nil {
+				// El error de os lleva la ruta, que no es secreta. El contenido
+				// de la clave no aparece por ningún lado.
+				return nil, fmt.Errorf("leer la clave privada: %w", err)
+			}
 		}
 		var signer ssh.Signer
+		var err error
 		if sec.Passphrase == "" {
 			signer, err = ssh.ParsePrivateKey(datos)
 		} else {

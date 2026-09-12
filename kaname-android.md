@@ -248,15 +248,64 @@ Si molesta, el knob es `setUserAuthenticationParameters(segundos, …)`: una
 ventana de validez tras la autenticación, en vez de por uso. Se decide con el
 teléfono en la mano, no antes.
 
-Prueba a mano pendiente, con el APK de este paso:
+Probado en el teléfono el 2026-09-12: guardar con contraseña pide el dedo
+una vez, reabrir y conectar pide el dedo y conecta, cancelar da «Cancelado.».
+**2b pasó.** Queda como comprobación opcional, con un build de debug: `adb
+shell run-as dev.kaname.app cat shared_prefs/kaname_vault.xml` tiene que
+mostrar base64 de IV y texto cifrado, nunca la contraseña.
 
-1. Guardar una conexión **con** contraseña → pide el dedo una vez; sin huella
-   registrada, lo dice y no guarda.
-2. Cerrar la app del todo, abrir, conectar → pide el dedo y conecta.
-3. Cancelar el prompt → «Cancelado.», sin conectar.
-4. Con un build de debug, `adb shell run-as dev.kaname.app cat
-   shared_prefs/kaname_vault.xml`: base64 de IV y texto cifrado, la contraseña
-   no aparece. Es el equivalente en el teléfono del test «byte a byte».
+## Estado del paso 3 (2026-09-12): escrito, falta el teléfono
+
+Las rutas ya estaban desde el spike (`paths_android.go`). Lo que sumó este
+paso:
+
+- **Importar conexiones** no necesitó código: `ImportConnections` existe y el
+  `Dialogs.OpenFile` de Wails en Android abre el selector del sistema y copia
+  el archivo a la caché con una ruta real. Se verifica en el teléfono.
+- **La clave privada SSH como contenido.** `tunnel.Secrets.PrivateKey`: si
+  viene, se usa en lugar de leer `KeyPath`; hay un test de punta a punta que
+  conecta con contenido contra una ruta inexistente y comprueba que sin
+  contenido esa misma ruta falla. En el servicio, `SSHKeySecretID(id)` es el
+  tercer secreto de una conexión —al lado de la contraseña y la frase de
+  paso—: `Connections.SetSSHKey(id, pem)` valida con `ssh.ParseRawPrivateKey`
+  (cifrada o no; lo que no parsea no llega al keychain), `ClearSSHKey` lo
+  quita, la vista tiene `hasSSHKey`, `Delete` lo borra con los otros dos, y
+  `Connect` y `Test` lo usan por el mismo `secretosDelTunel`. No es exclusivo
+  de Android: el backend es uno; en escritorio el keychain tiene un tope de
+  1024 bytes (Credential Manager) y el vault 16 KiB, cada almacén declara el
+  suyo. Una ed25519 entra en los dos; una RSA de 4096 solo en el teléfono.
+- **`FLAG_SECURE`** en `KanameApp.onActivityCreated`: la ventana no sale en
+  capturas, grabaciones ni en la miniatura del selector de apps.
+- **Bloqueo en segundo plano** (`movil_android.go`): con la activity parada
+  más de dos minutos, la sesión se cierra. Volver y reconectar pide la
+  contraseña al vault, y el vault pide el dedo: ese es el bloqueo, sin una
+  pantalla que lo simule. `ActivityStopped` y no `Paused`, porque el propio
+  `BiometricPrompt` pausa la activity. Dos minutos es una constante; se
+  vuelve ajuste si hace falta.
+
+El review `high` de este paso trajo tres cosas, las tres de fondo y las tres
+arregladas: el timer del bloqueo usaba el reloj monotónico, que en Android se
+congela mientras el equipo duerme —con la pantalla apagada, dos minutos podían
+ser horas y al despertar Resumed cancelaba el timer con la sesión abierta—;
+ahora la parada se anota en reloj de pared (`Round(0)`) y Resumed compara
+cuánto pasó de verdad. El cierre usaba `Disconnect`, que es «desconectar a
+mano»: tiraba el changeset y podía cortar un apply o una exportación a la
+mitad; ahora comparte el camino de la inactividad (`cerrarPorKaname`: motivo,
+changeset conservado, transacciones avisadas) y con una operación en curso no
+corta y reintenta a los quince segundos. Y la clave guardada quedaba huérfana
+si el túnel pasaba a contraseña o se apagaba; ahora `SaveWithSSH` la borra al
+cambiar, y la vista la reporta con cualquier auth mientras el túnel esté
+activo.
+
+Lo que falta para dar el paso por cerrado, en el teléfono:
+
+1. Exportar dos conexiones desde la PC (una con túnel por clave), pasar el
+   archivo al teléfono, importar desde la app.
+2. Intentar una captura de pantalla: el sistema la bloquea. En el selector de
+   apps, la miniatura sale negra.
+3. Conectar, ir a otra app, volver antes de dos minutos: sigue conectada.
+   Volver después: desconectada, reconectar pide el dedo.
+4. `SetSSHKey` todavía no tiene UI: es de la fase 4. Se prueba ahí.
 
 ## Cuándo
 

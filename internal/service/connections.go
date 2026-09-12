@@ -79,6 +79,11 @@ type ConnectionView struct {
 	// independiente del de la base: se puede tener una y no el otro.
 	HasSSHSecret bool `json:"hasSSHSecret"`
 
+	// HasSSHKey dice si la clave privada SSH está guardada como contenido en
+	// el keychain, en lugar de leerse de KeyPath. Es cómo viaja en el
+	// teléfono; en escritorio normalmente es false.
+	HasSSHKey bool `json:"hasSSHKey"`
+
 	// KeychainRef es dónde buscarla en el gestor del sistema. Se muestra tal
 	// cual y no como un slug bonito: la etiqueta no puede mentir sobre lo que
 	// hay guardado.
@@ -283,6 +288,18 @@ func (s *Connections) SaveWithSSH(
 		deshacer()
 		return ConnectionView{}, err
 	}
+
+	// La clave privada guardada como contenido solo tiene sentido con túnel
+	// por clave. Si la conexión dejó de usarlo, se borra: si no, quedaría
+	// cifrada en el keychain sin que la vista la muestre ni haya botón para
+	// quitarla, y al volver a elegir «clave» se usaría sola. Después de
+	// guardar la libreta, porque no es una razón para no guardar: si falla,
+	// la conexión quedó bien y se avisa.
+	if !c.SSH.Enabled || c.SSH.Auth != connection.SSHAuthKeyFile {
+		if err := s.keyring.Delete(SSHKeySecretID(c.ID)); err != nil {
+			return s.view(c), fmt.Errorf("la conexión se guardó, pero la clave privada SSH que ya no usa sigue en el keychain: %w", err)
+		}
+	}
 	return s.view(c), nil
 }
 
@@ -342,13 +359,20 @@ func (s *Connections) Delete(id string) error {
 	}
 	errBase := s.keyring.Delete(id)
 	errSSH := s.keyring.Delete(SSHSecretID(id))
-	switch {
-	case errBase != nil && errSSH != nil:
-		return fmt.Errorf("la conexión se borró de la libreta, pero sus dos secretos siguen en el keychain: %w", errors.Join(errBase, errSSH))
-	case errBase != nil:
-		return fmt.Errorf("la conexión se borró de la libreta, pero su contraseña sigue en el keychain: %w", errBase)
-	case errSSH != nil:
-		return fmt.Errorf("la conexión se borró de la libreta, pero el secreto del bastión sigue en el keychain: %w", errSSH)
+	errClave := s.keyring.Delete(SSHKeySecretID(id))
+	var quedan []string
+	var errs []error
+	for _, q := range []struct {
+		err error
+		que string
+	}{{errBase, "su contraseña"}, {errSSH, "el secreto del bastión"}, {errClave, "la clave privada SSH"}} {
+		if q.err != nil {
+			quedan = append(quedan, q.que)
+			errs = append(errs, q.err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("la conexión se borró de la libreta, pero %s sigue en el keychain: %w", strings.Join(quedan, " y "), errors.Join(errs...))
 	}
 	return nil
 }
@@ -517,6 +541,10 @@ func (s *Connections) view(c connection.Connection) ConnectionView {
 		if c.SSH.Enabled {
 			hasSSH, err := s.keyring.Has(SSHSecretID(c.ID))
 			v.HasSSHSecret = err == nil && hasSSH
+			// Con túnel activo se pregunta siempre, no solo con auth por
+			// clave: si quedó una clave guardada, la vista tiene que decirlo.
+			hasKey, err := s.keyring.Has(SSHKeySecretID(c.ID))
+			v.HasSSHKey = err == nil && hasKey
 		}
 	}
 
@@ -542,12 +570,9 @@ func (s *Connections) abrirTunelParaProbar(
 			Message: "No se pudo leer el secreto del bastión del keychain.",
 		}
 	}
-	sec := tunnel.Secrets{}
-	switch c.SSH.Auth {
-	case connection.SSHAuthPassword:
-		sec.Password = secreto
-	case connection.SSHAuthKeyFile:
-		sec.Passphrase = secreto
+	sec, f := secretosDelTunel(s.keyring, c, secreto)
+	if f != nil {
+		return nil, f
 	}
 
 	insp, err := tunnel.Inspect(ctx, c.SSH, s.known)

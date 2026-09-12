@@ -19,6 +19,9 @@ type fakeKeyring struct {
 	// failSet fuerza un error, para probar que la conexión no se guarda si la
 	// contraseña no se pudo guardar.
 	failSet error
+	// failGet fuerza un error en Get: un keychain bloqueado o roto, que no es
+	// lo mismo que «no está».
+	failGet error
 }
 
 func newFakeKeyring() *fakeKeyring {
@@ -61,6 +64,9 @@ func (f *fakeKeyring) Set(id, password string) error {
 func (f *fakeKeyring) Get(id string) (string, error) {
 	if err := f.validID(id); err != nil {
 		return "", err
+	}
+	if f.failGet != nil {
+		return "", f.failGet
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()

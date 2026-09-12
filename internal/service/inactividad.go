@@ -88,10 +88,18 @@ func (s *Session) vencerInactividad(o *openSession) {
 		s.mu.Unlock()
 		return
 	}
-	s.current = nil
-	s.motivoDeCierre = fmt.Sprintf(
+	s.cerrarPorKaname(o, fmt.Sprintf(
 		"La conexión se cerró tras %s sin actividad. Es la protección «Desconectar "+
-			"por inactividad» de la pestaña Safety.", duracionLegible(d))
+			"por inactividad» de la pestaña Safety.", duracionLegible(d)))
+}
+
+// cerrarPorKaname cierra la sesión o cuando la decisión es de Kaname y no de
+// la persona: inactividad, segundo plano en el teléfono. A diferencia de
+// Disconnect, deja el motivo para que la UI lo muestre y conserva lo que se
+// pueda. Se llama con s.mu tomado y con o == s.current; lo suelta.
+func (s *Session) cerrarPorKaname(o *openSession, motivo string) {
+	s.current = nil
+	s.motivoDeCierre = motivo
 	// El changeset no se tira con la sesión: la persona preparó treinta
 	// ediciones, se fue quince minutos y al volver «Reconectar» tiene que
 	// devolvérselas. Se guarda atado a la conexión Y a la base, y se
@@ -112,6 +120,29 @@ func (s *Session) vencerInactividad(o *openSession) {
 	s.mu.Unlock()
 
 	o.cerrar()
+}
+
+// CerrarPorSegundoPlano cierra la sesión porque la app estuvo `ausente` en
+// segundo plano: el bloqueo de Android (movil_android.go). Con una operación
+// en curso —un apply, una consulta, una exportación— no corta nada y devuelve
+// false: quien llama reintenta. Es una función y no un método a propósito: un
+// método exportado de Session sería un binding que el frontend podría llamar
+// (K-14), y esto lo decide el ciclo de vida de la app, no la UI.
+func CerrarPorSegundoPlano(s *Session, ausente time.Duration) (cerrada bool) {
+	s.mu.Lock()
+	o := s.current
+	if o == nil {
+		s.mu.Unlock()
+		return true
+	}
+	if s.progreso.State == ApplyRunning || (s.ocupado != nil && s.ocupado()) {
+		s.mu.Unlock()
+		return false
+	}
+	s.cerrarPorKaname(o, fmt.Sprintf(
+		"La conexión se cerró porque Kaname estuvo %s en segundo plano. "+
+			"Volver a conectar pide la biometría.", duracionLegible(ausente)))
+	return true
 }
 
 // rescate es un changeset que sobrevivió a la desconexión por inactividad.

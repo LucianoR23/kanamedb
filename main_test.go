@@ -35,7 +35,8 @@ var importaDeBindings = regexp.MustCompile(
 // primer síntoma es un botón que no hace nada, en una build de release.
 func TestTodoServicioQueLaInterfazLlamaEstaRegistrado(t *testing.T) {
 	registrados := map[string]bool{}
-	for _, s := range servicios(appinfo.Paths{}) {
+	lista, _ := servicios(appinfo.Paths{})
+	for _, s := range lista {
 		registrados[claveDelServicio(s.Instance())] = true
 	}
 	if len(registrados) == 0 {

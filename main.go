@@ -41,16 +41,21 @@ func main() {
 		panic(fmt.Sprintf("no se pudo ubicar el directorio de la aplicación: %v", err))
 	}
 
+	lista, sesion := servicios(info.Paths)
 	app := application.New(application.Options{
 		Name:        "Kaname",
 		Description: "Gestor de bases de datos con diagrama ERD editable",
 
-		Services: servicios(info.Paths),
+		Services: lista,
 
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 	})
+
+	// En Android, la sesión se cierra sola si la app queda en segundo plano;
+	// en escritorio no hace nada. Ver movil_android.go.
+	bloquearEnSegundoPlano(app, sesion)
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Kaname",
@@ -79,7 +84,10 @@ func main() {
 // pantalla hecha mientras el servicio no estaba registrado y el store nunca se
 // construía: no se anotaba una sola consulta. Ver `main_test.go`, que compara
 // esta lista contra lo que el frontend importa de verdad.
-func servicios(rutas appinfo.Paths) []application.Service {
+//
+// Devuelve también la sesión, porque main la necesita para el bloqueo en
+// segundo plano de Android.
+func servicios(rutas appinfo.Paths) ([]application.Service, *service.Session) {
 	connections := store.New(rutas.Connections)
 	keyring := secrets.New()
 	known := tunnel.NewKnownHosts(rutas.KnownHosts)
@@ -113,5 +121,5 @@ func servicios(rutas appinfo.Paths) []application.Service {
 		application.NewService(service.NewHistory(historial, sesion)),
 		application.NewService(service.NewSettings(
 			preferencias, update.New(), historial, appinfo.Version, appinfo.BuildDate)),
-	}
+	}, sesion
 }

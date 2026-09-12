@@ -946,6 +946,21 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Android, paso 3: la clave SSH como contenido, `FLAG_SECURE` y bloqueo en
+segundo plano.** `tunnel.Secrets.PrivateKey` reemplaza la lectura de `KeyPath`
+cuando viene (test de punta a punta con ruta inexistente). En el servicio es el
+tercer secreto por conexión (`SSHKeySecretID`), con `SetSSHKey` validando por
+`ssh.ParseRawPrivateKey`, `ClearSSHKey`, `hasSSHKey` en la vista, borrado junto
+a los otros dos y un solo `secretosDelTunel` para `Connect` y `Test`. Cada
+almacén de `secrets` declara su tope: 1024 en escritorio (Credential Manager),
+16 KiB en el vault; el mensaje lo dice. `FLAG_SECURE` va en la `Application`
+de Android, no en Go: no depende del timing del bridge. El bloqueo en segundo
+plano es cerrar la sesión tras dos minutos con la activity parada
+(`ActivityStopped`, no `Paused`: el `BiometricPrompt` pausa); reconectar pide el
+dedo por el vault, y eso es el bloqueo. Importar conexiones ya funcionaba: el
+`OpenFile` de Wails en Android copia el archivo elegido a la caché. 2b pasó en
+el teléfono el mismo día.
+
 **Android, paso 2b: el vault con biometría, sin forkear el bridge de Wails.**
 Opción (b) de las dos que se plantearon: una clase Java propia
 (`dev.kaname.vault.KanameVault`) más una `Application` que le da el `Context`

@@ -40,6 +40,39 @@ func TestDialConClavePrivadaEnDisco(t *testing.T) {
 	defer c.Close()
 }
 
+// La misma clave, pero como contenido en vez de ruta: es cómo llega en el
+// teléfono, donde no hay ~/.ssh y la clave vive en el keychain. KeyPath apunta
+// a algo que no existe a propósito, para probar que con contenido no se lee
+// nada del disco.
+func TestDialConClavePrivadaComoContenido(t *testing.T) {
+	cfg, kh := configDePrueba(t)
+	aceptar(t, cfg, kh)
+
+	priv, pub := parDeClaves(t)
+	instalarClaveAutorizada(t, cfg, kh, pub)
+	ruta := escribirClave(t, priv, "")
+	contenido, err := os.ReadFile(ruta)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conClave := cfg
+	conClave.Auth = AuthKeyFile
+	conClave.KeyPath = filepath.Join(t.TempDir(), "no-existe")
+
+	c, err := Dial(context.Background(), conClave, kh, Secrets{PrivateKey: contenido}, DialOptions{})
+	if err != nil {
+		t.Fatalf("Dial() con la clave como contenido falló: %v", err)
+	}
+	defer c.Close()
+
+	// Y sin contenido, esa ruta inexistente tiene que fallar: si no fallara,
+	// el test de arriba no probaría que el contenido se usó.
+	if _, err := Dial(context.Background(), conClave, kh, Secrets{}, DialOptions{}); err == nil {
+		t.Fatal("Dial() con una ruta inexistente y sin contenido no falló")
+	}
+}
+
 // Una clave cifrada sin la frase de paso tiene que decir eso, y no un error
 // críptico de parseo: es la diferencia entre "te falta la frase" y "tu clave
 // está rota".
