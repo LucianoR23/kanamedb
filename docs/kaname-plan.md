@@ -946,6 +946,17 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Spike de Android: pasó la puerta.** El APK corre en un teléfono real:
+arranca, carga el frontend, los bindings responden y la libreta se escribe en
+el directorio privado. CI arma el `.so` con el NDK y el APK con Gradle 9.2.1 +
+AGP 8.7.3 en 5m21s. Dos peleas con el framework, las dos en CI: `wails3` en
+Linux linkea GTK4/WebKitGTK aunque el objetivo sea Android (se instalan los
+`-dev`), y la plantilla genera los bindings con `-tags android` en el host,
+donde el cgo de Android no compila (se generan con los flags de escritorio: los
+bindings salen del AST de los servicios, que no cambian por plataforma). Debug:
+`.so` 31 MB, APK 45 MB; el workflow pasa a producción para medir lo que se
+distribuiría. Sigue el paso 2a: `secrets` sobre `SecureSet/Get/Delete`.
+
 **Spike de Android, paso 1: lo que se pudo hacer desde Windows.** En la rama
 `spike/android`, sin mergear hasta que el APK corra en un teléfono. El núcleo
 compila a `android/arm64` sin cgo sin tocar nada. `build/android/` se copió de

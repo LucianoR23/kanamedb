@@ -77,14 +77,18 @@ jobs:
 
       # Dos pasos y no `android:package`, para que si uno falla se vea cuál:
       # primero el .so (overlay + bindings + frontend + go build c-shared con
-      # el NDK), después Gradle.
+      # el NDK), después Gradle. Build de producción (-trimpath, -w -s, tag
+      # production): es lo que se distribuiría, y el tamaño que se mide es
+      # ese. El APK de release va firmado con el keystore de debug mientras
+      # no haya ANDROID_KEYSTORE_FILE, y así se instala a mano igual.
       - name: libwails.so (bindings + frontend + go build c-shared)
-        run: wails3 task android:build ARCH=arm64
+        run: wails3 task android:build ARCH=arm64 PRODUCTION=true
 
-      - name: APK (Gradle assembleDebug)
-        run: wails3 task android:assemble:apk
+      - name: APK (Gradle assembleRelease)
+        run: wails3 task android:assemble:apk:release
 
-      # Lo que el spike tiene que medir: tamaño del .so y del APK.
+      # Lo que el spike tiene que medir: tamaño del .so y del APK. En debug
+      # dieron 31 MB y 45 MB.
       - name: Tamaños
         run: |
           ls -l build/android/app/src/main/jniLibs/arm64-v8a/libwails.so bin/kaname.apk

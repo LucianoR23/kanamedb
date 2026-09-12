@@ -1,10 +1,12 @@
 # Kaname en Android
 
-Anotado el 2026-09-11 para no pensarlo de nuevo desde cero. **Decisión: no
-ahora.** Es un segundo producto sobre el mismo núcleo, no una adaptación, y
-suma un frontend que cada cambio del núcleo tiene que seguir soportando. Lo que
-sigue es qué viaja, qué no, cómo tendría que ser para que valga la pena, y en
-qué orden se haría el día que haya un motivo concreto.
+Anotado el 2026-09-11 para no pensarlo de nuevo desde cero, cuando la
+decisión era «no ahora». El 2026-09-12 se decidió arrancar —el motivo
+concreto: corregir un valor desde el teléfono— y el paso 1, el spike, pasó su
+puerta el mismo día (ver «Estado»). Sigue siendo un segundo producto sobre el
+mismo núcleo, no una adaptación, y suma un frontend que cada cambio del núcleo
+tiene que seguir soportando. Lo que sigue es qué viaja, qué no, cómo tiene
+que ser para que valga la pena, y en qué orden se hace.
 
 No sería una app de Play: un APK firmado con clave propia, instalado a mano.
 
@@ -131,10 +133,23 @@ tiene cualquier gestor de contraseñas en el mismo aparato.
   5. El candado de esquema en `Stage` con su test, y las pruebas a mano
      —leer y corregir una fila— contra los cuatro motores.
 
-## Estado del paso 1 (2026-09-12)
+## Estado del paso 1 (2026-09-12): pasó
 
-Empezado en la rama `spike/android`. Lo que quedó hecho sin escribir una línea
-de UI:
+**El APK corre en un teléfono real.** Arranca, carga el frontend de escritorio
+—apretado, como se esperaba—, la lista de conexiones aparece vacía y guardar
+una conexión sin contraseña funciona: los bindings responden y la libreta se
+escribió en el directorio privado de la app. La única pelea con el framework
+fue de CI: el CLI `wails3` en Linux se compila con cgo contra GTK4/WebKitGTK
+aunque el objetivo sea Android, y la plantilla genera los bindings con `-tags
+android` en el host, donde el cgo de Android no compila; las dos cosas se
+arreglaron en el workflow y en el Taskfile. El `.so` compiló con el NDK y
+Gradle 9.2.1 + AGP 8.7.3 armaron el APK a la primera, en 5m21s de CI.
+
+Tamaños del build de **debug** (`gcflags=-l`, sin `-w -s`): `libwails.so` 31 MB,
+APK 45 MB. El workflow pasó a producción (`-trimpath -ldflags="-w -s"`), que
+es lo que se distribuiría; el escritorio en producción pesa ~14 MB.
+
+Lo que quedó hecho sin escribir una línea de UI:
 
 - **Compila a `android/arm64` sin cgo** (`GOOS=android GOARCH=arm64
   CGO_ENABLED=0 go build ./...`) sin tocar nada: el núcleo era portable de
@@ -168,15 +183,13 @@ plantilla antes de saber si sirve:
   `WailsBridge.java` quedaron aunque el manifest ya no los declara: Kaname no
   los llama, y sacarlos es editar el bridge, que es lo que se decide en 2b.
 
-Lo que **no** se sabe todavía —es lo que el spike mide—: si el `.so` compila
-con el NDK, si Gradle 9.2 + AGP 8.7.3 (la combinación de la plantilla) arma el
-APK, y si en el teléfono la app arranca y responde un binding. El keychain
-sigue siendo `go-keyring`, que en Android devuelve `ErrUnsupportedPlatform`:
-guardar una conexión va a fallar hasta el paso 2, a propósito.
+El keychain sigue siendo `go-keyring`, que en Android devuelve
+`ErrUnsupportedPlatform`: guardar una conexión **con** contraseña falla hasta
+el paso 2a, a propósito. Es lo que sigue.
 
 ## Cuándo
 
-Cuando haya un uso concreto que hoy no se puede hacer —«mirar una tabla desde
-el teléfono» dicho por alguien que lo necesita— y después del 1.0.0 del
-escritorio. Hasta entonces, lo único que este documento pide es lo que el
-proyecto ya hace: que nada de escritorio se meta en el núcleo.
+Se arrancó el 2026-09-12 con el uso concreto que este apartado pedía:
+corregir un valor desde el teléfono. Lo que este documento sigue pidiendo es
+lo que el proyecto ya hace: que nada de escritorio se meta en el núcleo — el
+spike lo confirmó, compiló a Android sin tocar una línea.
