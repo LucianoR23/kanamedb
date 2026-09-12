@@ -334,12 +334,23 @@ func (s *Store) DeleteSaved(id string) error {
 // también `IDENTIFIED WITH … BY '…'`, y las dos familias tienen variantes con
 // `ENCRYPTED`. `CREATE SUBSCRIPTION` de Postgres lleva un connection string
 // entero, contraseña incluida.
+//
+// Las formas se ampliaron después de la auditoría del 2026-09-11 (K-12), que
+// encontró las que pasaban: `PASSWORD E'…'` y `PASSWORD $$…$$` de Postgres,
+// `SET PASSWORD FOR …` de MySQL, `PASSWORD "…"` con ANSI_QUOTES, y `password=`
+// sin comillas adentro de una cadena de conexión —`dblink('host=… password=…')`,
+// `CREATE SERVER … OPTIONS (password '…')`, `CREATE USER MAPPING`—. Como el
+// error tolerado es «no guardar de más», ampliar es barato.
 var formasConSecreto = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\bpassword\s+'`),
-	regexp.MustCompile(`(?i)\bpassword\s*=\s*'`),
+	// PASSWORD seguido de un literal: '…', E'…', U&'…', $$…$$, "…".
+	regexp.MustCompile(`(?i)\bpassword\s+(e|u&)?['"$]`),
+	// password = '…' y password=… (adentro de una cadena de conexión).
+	regexp.MustCompile(`(?i)\bpassword\s*=`),
+	regexp.MustCompile(`(?i)\bset\s+password\b`),
 	regexp.MustCompile(`(?i)\bidentified\s+(by|with)\b`),
 	regexp.MustCompile(`(?i)\bencrypted\s+password\b`),
 	regexp.MustCompile(`(?i)\bcreate\s+subscription\b`),
+	regexp.MustCompile(`(?i)\bcreate\s+(server|user\s+mapping)\b`),
 	regexp.MustCompile(`(?i)\bconnection\s+'`),
 }
 

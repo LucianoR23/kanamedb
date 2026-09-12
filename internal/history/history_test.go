@@ -37,6 +37,17 @@ func TestUnaContrasenaEscritaNoLlegaAlArchivo(t *testing.T) {
 		"ALTER ROLE z ENCRYPTED PASSWORD 'topsecret'",
 		"CREATE SUBSCRIPTION s CONNECTION 'host=x password=topsecret' PUBLICATION p",
 		"SET password = 'topsecret'",
+		// Las formas que la primera lista dejaba pasar (K-12 de la auditoría
+		// del 2026-09-11): literal con escape, dollar quoting, SET PASSWORD de
+		// MySQL, comillas dobles con ANSI_QUOTES, y `password=` sin comillas
+		// adentro de una cadena de conexión.
+		"ALTER ROLE x PASSWORD E'topsecret'",
+		"ALTER ROLE x PASSWORD $$topsecret$$",
+		"SET PASSWORD FOR 'u'@'h' = 'topsecret'",
+		`CREATE USER x PASSWORD "topsecret"`,
+		"SELECT * FROM dblink('host=h password=topsecret dbname=d', 'select 1') AS t(a int)",
+		"CREATE SERVER s FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'h', password 'topsecret')",
+		"CREATE USER MAPPING FOR ana SERVER s OPTIONS (user 'ana', password 'topsecret')",
 	}
 	for _, sql := range peligrosas {
 		guardada, err := s.Add(Entry{ConnectionID: "c1", SQL: sql})
@@ -72,6 +83,7 @@ func TestLoQueNoLlevaSecretoSiSeGuarda(t *testing.T) {
 		// Una columna que se LLAMA password no es una contraseña escrita.
 		"SELECT password_hash FROM usuarios",
 		"ALTER TABLE t ADD COLUMN password_changed_at timestamptz",
+		"SELECT id FROM usuarios WHERE password_hash = 'abc'",
 	} {
 		if LlevaSecreto(sql) {
 			t.Errorf("se rechazó una consulta normal: %q", sql)
