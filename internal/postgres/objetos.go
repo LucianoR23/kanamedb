@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
@@ -197,6 +198,37 @@ var consultasDeCobertura = []consultaDeCobertura{
 //     secuencia que el archivo nunca crea: el volcado no se puede correr.
 //   - `identity`: `GENERATED ALWAYS AS IDENTITY` va pegado al tipo y es válido
 //     adentro de la definición de la columna.
+//
+// DumpHints es lo que los INSERT de un volcado necesitan en Postgres.
+//
+//   - `OVERRIDING SYSTEM VALUE` si alguna columna es identity ALWAYS: sin eso
+//     el servidor rechaza el valor explícito (SQLSTATE 428C9).
+//   - Un `setval` por columna que se numera sola —identity o serial—, con el
+//     máximo que quedó: sin eso el primer INSERT sin id sobre la base
+//     restaurada choca con una clave que ya existe, una vez por fila vieja.
+//     `pg_get_serial_sequence` resuelve el nombre de la secuencia en la base
+//     destino, que es donde el archivo se corre; el nombre de la tabla va
+//     citado adentro del literal porque esa función lo parsea como
+//     identificador, y el de la columna tal cual porque lo toma literal.
+//
+// Hallazgo C-05 de la auditoría del 2026-09-11.
+func DumpHints(d schema.TableDetail) engine.DumpHints {
+	var h engine.DumpHints
+	tabla := QualifiedName(d.Schema, d.Name)
+	for _, col := range d.Columns {
+		if col.Identity == "always" {
+			h.InsertModifier = "OVERRIDING SYSTEM VALUE"
+		}
+		if _, numerada := AutoIncrement(col); !numerada {
+			continue
+		}
+		h.AfterData = append(h.AfterData, fmt.Sprintf(
+			"SELECT setval(pg_get_serial_sequence(%s, %s), COALESCE(max(%s), 1), max(%s) IS NOT NULL) FROM %s",
+			dialectoDML.QuoteLiteral(tabla), dialectoDML.QuoteLiteral(col.Name), QuoteIdent(col.Name), QuoteIdent(col.Name), tabla))
+	}
+	return h
+}
+
 func AutoIncrement(col schema.DetailColumn) (string, bool) {
 	switch col.Identity {
 	case "always":

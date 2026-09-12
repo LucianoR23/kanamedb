@@ -93,6 +93,10 @@ func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
 	return AutoIncrement(col)
 }
 
+func (c *Conn) DumpHints(d schema.TableDetail) engine.DumpHints {
+	return DumpHints(d)
+}
+
 func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
 	return Run(ctx, c.pool, sql, RunOptions{RowLimit: opts.RowLimit})
 }

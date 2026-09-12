@@ -20,6 +20,9 @@ type SQLTarget struct {
 	QuoteIdent func(string) string
 	// QuoteLiteral cita un texto como literal.
 	QuoteLiteral func(string) string
+	// InsertModifier va entre la lista de columnas y VALUES, si el motor lo
+	// necesita: `OVERRIDING SYSTEM VALUE` en Postgres con identity ALWAYS.
+	InsertModifier string
 }
 
 // filasPorSentencia es cuántas filas entran en cada INSERT.
@@ -56,7 +59,11 @@ func (e *escritorSQL) Begin(cols []query.Column) error {
 		}
 		nombres = append(nombres, e.t.QuoteIdent(c.Name)...)
 	}
-	e.cabecera = fmt.Sprintf("INSERT INTO %s (%s) VALUES\n", e.t.Table, nombres)
+	modificador := ""
+	if e.t.InsertModifier != "" {
+		modificador = " " + e.t.InsertModifier
+	}
+	e.cabecera = fmt.Sprintf("INSERT INTO %s (%s)%s VALUES\n", e.t.Table, nombres, modificador)
 	return nil
 }
 

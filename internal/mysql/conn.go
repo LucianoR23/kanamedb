@@ -231,6 +231,10 @@ func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
 	return AutoIncrement(col)
 }
 
+// DumpHints no necesita nada: InnoDB ajusta el contador de AUTO_INCREMENT con
+// los INSERT explícitos.
+func (c *Conn) DumpHints(schema.TableDetail) engine.DumpHints { return engine.DumpHints{} }
+
 func (c *Conn) ObjectDefinition(ctx context.Context, o schema.Object) (schema.ObjectDefinition, error) {
 	return Definition(ctx, c.db, c.conEsquema(o))
 }

@@ -82,6 +82,11 @@ func Scan(
 		conn.Release()
 		return nil, fmt.Errorf("leer las columnas de %s.%s: %w", esquema, tabla, err)
 	}
+	// El límite va DESPUÉS de resolver las columnas, que le pegan su propio
+	// `limit 0` al texto. Es un entero nuestro, no texto de nadie.
+	if opts.Limit > 0 {
+		fmt.Fprintf(&b, " limit %d", opts.Limit)
+	}
 
 	// ExecParams y no Exec: lleva los parámetros del filtro Y pide el resultado
 	// en TEXTO —resultFormats nil—, que es la garantía que no se puede perder.

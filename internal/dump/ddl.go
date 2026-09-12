@@ -163,9 +163,28 @@ func columnaFuera(d schema.TableDetail, c schema.DetailColumn) schema.Object {
 // archivo falla al correrse. Al final, todas las tablas ya están — y encima
 // deja de importar el ciclo, que es lo único que el orden de inserción no
 // puede resolver.
-func ClavesForaneas(ctx context.Context, r Renderizador, d schema.TableDetail) ([]string, error) {
+//
+// Las que apuntan a un esquema que no está en el volcado se dejan afuera y se
+// devuelven aparte para la cobertura: sobre una base vacía, `ADD FOREIGN KEY …
+// REFERENCES otro_esquema.t` falla, y el archivo se presentaba como completo
+// (C-25). `Orden` ya ignoraba esas aristas para el orden de inserción; esta
+// era la otra mitad.
+func ClavesForaneas(
+	ctx context.Context, r Renderizador, d schema.TableDetail, esquemas []string,
+) (sentencias []string, fuera []schema.Object, err error) {
+	adentro := make(map[string]bool, len(esquemas))
+	for _, e := range esquemas {
+		adentro[e] = true
+	}
 	var out []string
 	for _, fk := range d.ForeignKeys {
+		if len(adentro) > 0 && fk.RefSchema != "" && !adentro[fk.RefSchema] {
+			fuera = append(fuera, schema.Object{
+				Kind: schema.ObjForeignKey, Schema: d.Schema,
+				Name: d.Name + "." + fk.Name + " → " + fk.RefSchema + "." + fk.RefTable,
+			})
+			continue
+		}
 		st, err := r.RenderDDL(ctx, change.Change{
 			Type: change.AddForeignKey, Schema: d.Schema, Table: d.Name,
 			Name: fk.Name, Names: fk.Columns,
@@ -174,13 +193,13 @@ func ClavesForaneas(ctx context.Context, r Renderizador, d schema.TableDetail) (
 			Source: "dump",
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if st.SQL != "" {
 			out = append(out, st.SQL)
 		}
 	}
-	return out, nil
+	return out, fuera, nil
 }
 
 // clavePrimaria saca las columnas de la PK del índice que la implementa.

@@ -44,6 +44,10 @@ func scan(
 		}
 	}
 
+	if opts.Limit > 0 {
+		fmt.Fprintf(&b, " LIMIT %d", opts.Limit)
+	}
+
 	rows, err := db.QueryContext(ctx, b.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("leer %s.%s: %w", base, tabla, err)

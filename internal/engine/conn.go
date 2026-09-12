@@ -92,6 +92,13 @@ type ScanOptions struct {
 	// «lo que se está mirando» es exportar la tabla con el mismo filtro puesto.
 	Where []query.Condition
 
+	// Limit corta la lectura en esas filas, con el LIMIT del motor. Cero es
+	// sin límite. Lo usa la vista previa de la exportación: cortar del lado
+	// del cliente no alcanza, porque cerrar el recorrido consume el resto del
+	// resultado por el cable —una vista previa de 100 filas sobre 2 M
+	// transfería las 2 M (C-16 de la auditoría del 2026-09-11)—.
+	Limit int
+
 	// Columns acota la lectura a estas columnas, en este orden. Vacío lee la
 	// tabla entera, que es lo que quiere la exportación.
 	//
@@ -128,6 +135,24 @@ type RowStream interface {
 	// Close libera la consulta. Idempotente, y se puede llamar sin haber
 	// terminado de leer.
 	Close()
+}
+
+// DumpHints acompaña a los INSERT de una tabla en un volcado.
+//
+// Existe por Postgres (C-05 de la auditoría del 2026-09-11): una columna
+// `GENERATED ALWAYS AS IDENTITY` rechaza un INSERT con valor explícito salvo
+// `OVERRIDING SYSTEM VALUE`, y después de meter las filas ninguna secuencia
+// queda posicionada, así que el primer INSERT sin id sobre la base restaurada
+// choca con una clave que ya existe —una vez por cada fila vieja—. MySQL
+// ajusta el contador con los inserts explícitos y SQLite usa max(rowid)+1, así
+// que ahí no hace falta nada.
+type DumpHints struct {
+	// InsertModifier va entre la lista de columnas y VALUES: en Postgres,
+	// `OVERRIDING SYSTEM VALUE` cuando alguna columna es identity ALWAYS.
+	InsertModifier string
+	// AfterData son sentencias que van después de los INSERT de la tabla, ya
+	// terminadas sin el `;`: en Postgres, un setval por secuencia.
+	AfterData []string
 }
 
 // Quoting es cómo este motor escribe un nombre y un valor en SQL para LEER.
@@ -196,6 +221,10 @@ type Conn interface {
 	// restricción de tabla. Ahí el volcado la nombra en la cobertura en vez de
 	// perderla en silencio.
 	AutoIncrement(col schema.DetailColumn) (tipo string, puede bool)
+
+	// DumpHints es lo que el volcado de DATOS de una tabla necesita saber de
+	// este motor para que el archivo se pueda volver a correr. Ver DumpHints.
+	DumpHints(d schema.TableDetail) DumpHints
 
 	// Objects lista los objetos de estos esquemas que NO son tablas: vistas,
 	// vistas materializadas, funciones, procedimientos, triggers, políticas,

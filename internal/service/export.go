@@ -13,6 +13,7 @@ import (
 	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/export"
 	"github.com/LucianoR23/kanamedb/internal/query"
+	"github.com/LucianoR23/kanamedb/internal/schema"
 )
 
 // Exports formatea y guarda lo que sale de la aplicación.
@@ -185,9 +186,16 @@ type TableExport struct {
 	Where []query.Condition `json:"where"`
 
 	// Columns acota la lectura. Vacío lee la tabla entera, que es lo que quiere
-	// la exportación; el volcado lo usa para dejar afuera las columnas
-	// generadas, que no se pueden insertar.
+	// la exportación. Con formato SQL, vacío significa «las insertables»: las
+	// generadas se dejan afuera acá adentro, para que cualquier camino que
+	// exporte a SQL —la grilla incluida— dé un archivo que se pueda volver a
+	// correr (C-17 de la auditoría del 2026-09-11).
 	Columns []string `json:"columns,omitempty"`
+
+	// detalle es la estructura de la tabla, si quien llama ya la tiene: el
+	// volcado la leyó una vez por tabla y no hay por qué leerla dos. Sin él,
+	// y solo con formato SQL, volcar la pide.
+	detalle *schema.TableDetail
 }
 
 // PreviewTable devuelve el texto de las primeras filas de una tabla.
@@ -227,24 +235,55 @@ func (e *Exports) volcar(
 	ctx, listo := e.queries.registrar(ctx, r.RunID)
 	defer listo()
 
+	// Un archivo SQL tiene que poder volver a correrse, y eso depende de la
+	// estructura: qué columnas se pueden insertar, y qué necesita el motor
+	// alrededor de los INSERT (identity, secuencias). Se resuelve ACÁ, en el
+	// único lugar por el que pasa toda exportación a SQL, y no en cada
+	// llamador: el volcado lo hacía y la grilla no, y una tabla con una columna
+	// generada daba desde la grilla un archivo que fallaba al correr.
+	columnas := r.Columns
+	var pistas engine.DumpHints
+	if r.Format == export.SQL {
+		det := r.detalle
+		if det == nil {
+			if det, err = sesion.db.Detail(ctx, r.Schema, r.Table); err != nil {
+				return 0, fmt.Errorf("leer la estructura de %s: %w", nombreDeTabla(r.Schema, r.Table), err)
+			}
+		}
+		if len(columnas) == 0 {
+			columnas = insertables(det)
+		}
+		pistas = sesion.db.DumpHints(*det)
+	}
+
 	flujo, err := sesion.db.Scan(ctx, r.Schema, r.Table, engine.ScanOptions{
 		OrderBy:    r.OrderBy,
 		Descending: r.Descending,
 		Where:      r.Where,
-		Columns:    r.Columns,
+		Columns:    columnas,
+		Limit:      limit,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("leer %s: %w", nombreDeTabla(r.Schema, r.Table), err)
 	}
 	defer flujo.Close()
 
-	esc, err := export.NewInto(r.Format, w, opts, destinoDe(sesion, r.Schema, r.Table))
+	destino := destinoDe(sesion, r.Schema, r.Table)
+	if destino != nil {
+		destino.InsertModifier = pistas.InsertModifier
+	}
+	esc, err := export.NewInto(r.Format, w, opts, destino)
 	if err != nil {
 		return 0, err
 	}
 	n, err := volcarFlujo(flujo, esc, limit)
 	if err != nil {
 		return n, fmt.Errorf("exportar %s: %w", nombreDeTabla(r.Schema, r.Table), err)
+	}
+	for _, sentencia := range pistas.AfterData {
+		if _, err := io.WriteString(w, sentencia+";\n"); err != nil {
+			return n, fmt.Errorf("exportar %s: %w", nombreDeTabla(r.Schema, r.Table), err)
+		}
 	}
 	return n, nil
 }
@@ -338,12 +377,20 @@ func OneFile(f export.Format) bool { return f == export.SQL }
 // `destino` es un archivo cuando el formato junta todo —SQL— y un directorio
 // que ya existe cuando va una por tabla.
 func (e *Exports) SaveTables(ctx context.Context, r TablesExport, destino string) (TablesInfo, error) {
+	// Se registra UNA vez acá, y no solo adentro de cada `volcar`: cada tabla
+	// registraba y borraba su propia entrada, así que un «Cancelar» que llegaba
+	// entre la tabla N y la N+1 no encontraba nada que cortar y se perdía. Es
+	// el mismo arreglo que ya tenía el volcado (C-21 de la auditoría del
+	// 2026-09-11); los `volcar` de adentro ven la entrada y no se pisan.
 	if len(r.Tables) == 0 {
 		return TablesInfo{}, errors.New("no se eligió ninguna tabla")
 	}
 	if destino == "" {
 		return TablesInfo{}, errors.New("falta dónde guardar")
 	}
+	ctx, listo := e.queries.registrar(ctx, r.RunID)
+	defer listo()
+
 	if OneFile(r.Format) {
 		return e.aUnArchivo(ctx, r, destino)
 	}

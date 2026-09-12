@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LucianoR23/kanamedb/internal/engine"
 	"github.com/LucianoR23/kanamedb/internal/export"
 	"github.com/LucianoR23/kanamedb/internal/query"
 )
@@ -389,5 +390,88 @@ func TestElNombreDelArchivoSaleDelNombreDeLaTabla(t *testing.T) {
 		if got := archivoDeTabla(entra); got != sale {
 			t.Errorf("archivoDeTabla(%q) = %q, quería %q", entra, got, sale)
 		}
+	}
+}
+
+// TestLaVistaPreviaNoLeeLaTablaEntera.
+//
+// La vista previa cortaba del lado del cliente: `break` a las N filas y
+// cerrar el recorrido, y cerrar consume lo que falta del resultado por el
+// cable. Una vista previa de 100 filas sobre 2 M transfería las 2 M, y el
+// diálogo la pide de nuevo con cada cambio de opción (C-16). Ahora el límite
+// va en la consulta, con el LIMIT del motor; en los tres motores de servidor y
+// en SQLite.
+func TestLaVistaPreviaNoLeeLaTablaEntera(t *testing.T) {
+	for _, caso := range motoresDeDatos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			sesion, c := sesionDe(t, caso.nombre, caso.uri)
+			ctx := context.Background()
+			esq, tabla := tablaDeDatos(t, sesion, c, "kn_limite", true)
+			abierta, _ := sesion.abierta()
+
+			flujo, err := abierta.db.Scan(ctx, esq, tabla, engine.ScanOptions{Limit: 1})
+			if err != nil {
+				t.Fatalf("Scan(): %v", err)
+			}
+			n := 0
+			for flujo.Next() {
+				n++
+			}
+			flujo.Close()
+			if err := flujo.Err(); err != nil {
+				t.Fatal(err)
+			}
+			if n != 1 {
+				t.Errorf("el recorrido con Limit 1 entregó %d filas: el límite no llegó al motor", n)
+			}
+		})
+	}
+}
+
+// TestExportarASQLDesdeLaGrillaDejaAfueraLasGeneradas.
+//
+// El volcado ya excluía las columnas generadas del INSERT; la exportación de
+// una tabla desde la grilla —el camino de al lado— no, y con una columna
+// STORED el archivo fallaba al correr (C-17). Ahora lo resuelve `volcar`, por
+// el que pasa toda exportación a SQL.
+func TestExportarASQLDesdeLaGrillaDejaAfueraLasGeneradas(t *testing.T) {
+	sesion, c := sesionDe(t, "postgres", motoresDeDatos[0].uri)
+	ctx := context.Background()
+	esq := esquemaDeApply(t, sesion, c)
+	abierta, _ := sesion.abierta()
+	nom := califica(c, esq, "kn_gen")
+	_ = abierta.db.Exec(ctx, "DROP TABLE IF EXISTS "+nom)
+	t.Cleanup(func() { _ = abierta.db.Exec(context.Background(), "DROP TABLE IF EXISTS "+nom) })
+	for _, sql := range []string{
+		`CREATE TABLE ` + nom + ` (id int PRIMARY KEY, precio numeric(10,2), cantidad int,
+			total numeric(10,2) GENERATED ALWAYS AS (precio * cantidad) STORED)`,
+		`INSERT INTO ` + nom + ` (id, precio, cantidad) VALUES (1, 10.00, 3), (2, 2.50, 4)`,
+	} {
+		if err := abierta.db.Exec(ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	e := NewExports(NewQueries(sesion))
+	ruta := filepath.Join(t.TempDir(), "grilla.sql")
+	// Como lo pide la grilla: sin Columns.
+	if _, err := e.SaveTable(ctx, TableExport{
+		RunID: "g1", Schema: esq, Table: "kn_gen", Format: export.SQL,
+	}, ruta); err != nil {
+		t.Fatalf("SaveTable(): %v", err)
+	}
+	guion := leer(t, ruta)
+	if strings.Contains(guion, `"total"`) {
+		t.Errorf("la columna generada entró en el INSERT:\n%s", guion)
+	}
+	// Y corre en una tabla vacía con la misma estructura.
+	if err := abierta.db.Exec(ctx, "DELETE FROM "+nom); err != nil {
+		t.Fatal(err)
+	}
+	if err := abierta.db.Exec(ctx, guion); err != nil {
+		t.Fatalf("la exportación desde la grilla no se puede volver a correr: %v\n%s", err, guion)
+	}
+	if n, _ := abierta.db.Count(ctx, esq, "kn_gen", nil); n != 2 {
+		t.Errorf("quedaron %d filas de 2", n)
 	}
 }

@@ -91,9 +91,11 @@ var ordenDeTipos = []schema.ObjectKind{
 	schema.ObjPolicy,
 	schema.ObjEvent,
 	schema.ObjExtension,
-	// Las columnas van últimas y aparte: no son un objeto del catálogo sino lo
-	// que el volcado dejó afuera de una tabla que sí escribió.
+	// Las columnas y las claves foráneas van últimas y aparte: no son un
+	// objeto del catálogo sino lo que el volcado dejó afuera de una tabla que
+	// sí escribió.
 	schema.ObjColumn,
+	schema.ObjForeignKey,
 }
 
 // Resumen es la frase de una línea: «3 funciones, 2 vistas y 1 política».
@@ -154,6 +156,8 @@ func etiqueta(k schema.ObjectKind, n int) string {
 		singular, plural = "evento", "eventos"
 	case schema.ObjColumn:
 		singular, plural = "columna", "columnas"
+	case schema.ObjForeignKey:
+		singular, plural = "clave foránea hacia otro esquema", "claves foráneas hacia otros esquemas"
 	}
 	if n == 1 {
 		return singular

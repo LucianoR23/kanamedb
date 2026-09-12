@@ -122,13 +122,16 @@ func (d *Dumps) Save(ctx context.Context, r DumpRequest, path string) (DumpInfo,
 	if err != nil {
 		return DumpInfo{}, err
 	}
+	// Registrar ANTES de planear: con doscientas tablas, leer el detalle de
+	// cada una es la parte larga, y «Cancelar» no encontraba nada que cortar
+	// mientras tanto (C-31 de la auditoría del 2026-09-11).
+	ctx, listo := d.queries.registrar(ctx, r.RunID)
+	defer listo()
+
 	plan, err := d.planear(ctx, sesion, r)
 	if err != nil {
 		return DumpInfo{}, err
 	}
-
-	ctx, listo := d.queries.registrar(ctx, r.RunID)
-	defer listo()
 
 	info := DumpInfo{Tables: len(plan.tablas)}
 	guardado, err := d.exports.guardar(path, func(w io.Writer) (int, error) {
@@ -281,6 +284,12 @@ func (d *Dumps) planear(ctx context.Context, sesion *openSession, r DumpRequest)
 				return plan{}, fmt.Errorf("escribir la estructura de %s.%s: %w", d.Schema, d.Name, err)
 			}
 			fuera = append(fuera, saltadas...)
+			// Y las claves foráneas hacia esquemas que no están en el archivo.
+			_, sinDestino, err := dump.ClavesForaneas(ctx, sesion.db, *d, esquemas)
+			if err != nil {
+				return plan{}, fmt.Errorf("escribir las claves de %s.%s: %w", d.Schema, d.Name, err)
+			}
+			fuera = append(fuera, sinDestino...)
 		}
 	}
 
@@ -316,13 +325,26 @@ func (d *Dumps) estructura(
 		return err
 	}
 	q := sesion.db.Quoting()
-	for i, ref := range p.tablas {
-		detalle := p.detalles[i]
-		if dropFirst {
+	if dropFirst {
+		// Todos los DROP juntos, ANTES de cualquier CREATE, y en el orden
+		// inverso al de las tablas: hijas primero. `p.tablas` está en orden
+		// madre → hija para que los INSERT funcionen, que es justo el único
+		// orden en que un DROP falla —`DROP TABLE clientes` con `pedidos`
+		// todavía apuntándole—. Intercalados como estaban, la opción servía
+		// solo sobre una base vacía, donde no hace falta (C-10 de la
+		// auditoría del 2026-09-11).
+		for i := len(p.tablas) - 1; i >= 0; i-- {
+			ref := p.tablas[i]
 			if _, err := fmt.Fprintf(w, "DROP TABLE IF EXISTS %s;\n", q.Table(ref.Schema, ref.Table)); err != nil {
 				return err
 			}
 		}
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
+	}
+	for i, ref := range p.tablas {
+		detalle := p.detalles[i]
 		sentencias, _, err := dump.DDLDeTabla(ctx, sesion.db, *detalle)
 		if err != nil {
 			return fmt.Errorf("escribir la estructura de %s: %w", ref.Completo(), err)
@@ -345,7 +367,7 @@ func (d *Dumps) estructura(
 	// inserción no puede resolver.
 	var claves []string
 	for i, ref := range p.tablas {
-		fks, err := dump.ClavesForaneas(ctx, sesion.db, *p.detalles[i])
+		fks, _, err := dump.ClavesForaneas(ctx, sesion.db, *p.detalles[i], p.info.Esquemas)
 		if err != nil {
 			return fmt.Errorf("escribir las claves de %s: %w", ref.Completo(), err)
 		}
@@ -383,10 +405,9 @@ func (d *Dumps) datos(
 			Schema: ref.Schema,
 			Table:  ref.Table,
 			Format: export.SQL,
-			// Sin las columnas generadas: su valor lo calcula el motor, así que
-			// un INSERT que las incluya hace fallar el archivo al volver a
-			// correrlo con «column "total" does not exist».
-			Columns: insertables(detalle),
+			// El detalle ya leído: volcar deja afuera las generadas y pide al
+			// motor lo que los INSERT necesiten alrededor (identity, setval).
+			detalle: detalle,
 			// Por la clave primaria cuando la hay. Un volcado se guarda para
 			// compararlo con el de mañana, y sin ORDER BY el servidor puede
 			// devolver las mismas filas en otro orden: el diff saldría lleno de

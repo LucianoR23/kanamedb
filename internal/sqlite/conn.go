@@ -107,6 +107,10 @@ func (c *Conn) AutoIncrement(col schema.DetailColumn) (string, bool) {
 	return AutoIncrement(col)
 }
 
+// DumpHints no necesita nada: el próximo rowid es max(rowid)+1 y AUTOINCREMENT
+// guarda su contador en sqlite_sequence, que el INSERT explícito actualiza.
+func (c *Conn) DumpHints(schema.TableDetail) engine.DumpHints { return engine.DumpHints{} }
+
 func (c *Conn) PrimaryKeyColumns(ctx context.Context, _, tabla string) ([]string, error) {
 	return primaryKeyColumns(ctx, c.db, tabla)
 }

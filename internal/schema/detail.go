@@ -311,6 +311,13 @@ const (
 	// que ÉL dejó afuera. Sin ella, un archivo que pierde el autoincremento de
 	// la clave primaria se veía idéntico a uno completo.
 	ObjColumn ObjectKind = "column"
+
+	// ObjForeignKey es una CLAVE FORÁNEA que el volcado dejó afuera porque
+	// apunta a una tabla de un esquema que no está en el archivo: escribirla
+	// haría fallar el archivo sobre una base vacía, y callarla lo presentaba
+	// como completo (C-25 de la auditoría del 2026-09-11). Como ObjColumn, sale
+	// del propio volcado y no del catálogo.
+	ObjForeignKey ObjectKind = "foreignKey"
 )
 
 // Object es un objeto del catálogo, nombrado.
