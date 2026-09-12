@@ -34,10 +34,16 @@ tasks:
     deps:
       - task: common:go:mod:tidy
       - task: generate:android:overlay
+      # Los bindings se generan desde el AST de los servicios, que no cambian
+      # por plataforma. La plantilla de Wails le pasa acá los BUILD_FLAGS de
+      # Android (-tags android), y el generador, que corre en el host con
+      # GOOS=linux y sin el NDK, no puede compilar el cgo de Android:
+      # «android/log.h: No such file» y «could not import C» en cada corrida.
+      # Los bindings salen igual, pero es ruido. Con los flags de escritorio
+      # el generador ve lo mismo y no avisa nada.
       - task: common:build:frontend
         vars:
-          BUILD_FLAGS:
-            ref: .BUILD_FLAGS
+          BUILD_FLAGS: '{{if eq .PRODUCTION "true"}}-tags production{{end}}'
           PRODUCTION:
             ref: .PRODUCTION
     cmds:
