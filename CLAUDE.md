@@ -3,7 +3,7 @@
 Gestor de bases de datos de escritorio con diagrama ERD editable.
 Motores: PostgreSQL (principal), MySQL, MariaDB, SQLite.
 
-El plan de desarrollo completo está en `kaname-plan.md`. Leerlo antes de proponer
+El plan de desarrollo completo está en `docs/kaname-plan.md`. Leerlo antes de proponer
 arquitectura o cambiar el orden de las iteraciones.
 
 ## Reglas de trabajo
@@ -32,7 +32,7 @@ hacía» y «cómo se hace», se busca; no se supone. Tres consecuencias concret
 Dos archivos se mantienen actualizados **en el mismo commit** que el cambio que
 los afecta, no después:
 
-- **`kaname-plan.md`** — toda decisión técnica que no se deduzca del código va al
+- **`docs/kaname-plan.md`** — toda decisión técnica que no se deduzca del código va al
   registro de la sección 6, con fecha y motivo. El estado de cada pantalla se
   marca en la sección 1 (✅ hecho / ⏳ pendiente). Un plan desactualizado miente
   peor que no tener plan.

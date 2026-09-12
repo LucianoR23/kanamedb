@@ -51,20 +51,26 @@ qué lo dibuja.
 ## Alcance: acotado por la pantalla, no todas las funciones
 
 Un teléfono no es un lugar para editar un esquema. El Android que tiene
-sentido es **leer y consultar**:
+sentido es **leer, consultar y corregir filas**: lo que se hace con el pulgar
+es cambiar un valor, no mover una tabla.
 
 | Pantalla | Entra | Cómo |
 |---|---|---|
 | S01/S02 Conexiones | Sí | Lista, conectar, importar desde el archivo exportado en la PC. Sin editor completo: los campos del túnel y TLS se importan, no se escriben con el pulgar. |
 | S04 Clave del host SSH | Sí | El mismo diálogo TOFU; es donde más importa no simplificar. |
 | S05 Árbol del esquema | Sí | Tablas, columnas, índices, claves. Solo lectura. |
-| S06 Editor SQL | Sí, reducido | Un área de texto con el historial a mano; los resultados como lista de tarjetas (una fila = una tarjeta), no una grilla. Paginado del núcleo tal cual. |
+| S06 Editor SQL | Sí, reducido | Un área de texto con el historial a mano; los resultados como lista de tarjetas (una fila = una tarjeta), no una grilla. Paginado del núcleo tal cual. Acepta escrituras escritas a mano con la misma confirmación de producción que en escritorio. |
+| Edición por fila | Sí | Tocar una tarjeta, editar un campo, confirmar: `UPDATE`, `INSERT` y `DELETE` de una fila por vez, por `Stage`/`Apply` del núcleo con el preview y la confirmación de escritorio. Sin edición masiva. |
 | S21 Historial | Sí | Igual: filtra, repite. |
 | S23 Ajustes | Mínimo | Tema, bloqueo, borrar historial. |
-| ERD (lectura y edición), grilla editable, aplicar DDL, importar CSV, volcados, comparar esquemas, dumps | **No** | Son interacciones de escritorio, y las escrituras no van en un dispositivo que se pierde. |
+| ERD (lectura y edición), aplicar DDL, importar CSV, volcados, comparar esquemas, dumps | **No** | Son interacciones de escritorio, y un cambio de esquema no va en un dispositivo que se pierde. |
 
-Regla de partida: **modo solo lectura forzado**. Ni `UPDATE` desde la grilla ni
-DDL. Si algún día se levanta, se levanta a conciencia y por conexión.
+Regla de partida: **datos sí, esquema no, y lo decide el backend.** Un
+`change.Change` de `KindSchema` se rechaza en `Stage` cuando la app corre en
+Android, no se esconde en la UI: no hay forma de que la interfaz ofrezca lo que
+el núcleo no acepta. El solo lectura por conexión y la confirmación de
+producción siguen valiendo tal cual. Decidido el 2026-09-12; antes era «solo
+lectura forzado».
 
 ## Seguridad: biometría, bien hecha
 
@@ -104,7 +110,8 @@ tiene cualquier gestor de contraseñas en el mismo aparato.
   móviles: `sslmode=verify-full` recomendado por defecto, túnel SSH cuando
   se pueda, y la confirmación de producción con el mismo peso que en escritorio.
 - **La pantalla es pública.** En el tren, cualquiera lee una fila. Es un
-  argumento más para «solo lectura» y para no mostrar valores hasta tocar.
+  argumento para no mostrar valores hasta tocar, y para que cada escritura
+  pase por su confirmación aunque sea de una sola fila.
 
 ## Infraestructura y esfuerzo
 
@@ -119,8 +126,10 @@ tiene cualquier gestor de contraseñas en el mismo aparato.
      para saber si el framework aguanta antes de escribir una línea propia.
   2. El backend `secrets` con Keystore + biometría, con su test.
   3. `appinfo.PathsIn` con las raíces de Android e importar conexiones.
-  4. El frontend móvil: conexiones, árbol, consulta con tarjetas, historial.
-  5. Solo lectura forzado y las pruebas a mano contra los cuatro motores.
+  4. El frontend móvil: conexiones, árbol, consulta con tarjetas, historial,
+     edición por fila desde la tarjeta.
+  5. El candado de esquema en `Stage` con su test, y las pruebas a mano
+     —leer y corregir una fila— contra los cuatro motores.
 
 ## Cuándo
 

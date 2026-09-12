@@ -877,8 +877,9 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
   de Chromium compilados en el binario no lo cambian, y el host no está
   identificado (`pktmon` con admin lo mostraría por el SNI). Ver § 6
   (2026-09-11)
-- Android: un APK propio, acotado a leer y consultar, con las contraseñas
-  cifradas por una clave del Keystore atada a biometría. Qué viaja del núcleo
+- Android: un APK propio, acotado a leer, consultar y corregir filas —sin
+  DDL, ERD ni import—, con las contraseñas cifradas por una clave del
+  Keystore atada a biometría. Qué viaja del núcleo
   (casi todo), qué no (el keychain, la interfaz, cgo), el alcance por pantalla
   y el orden si se hace, en `kaname-android.md`. No ahora: es un segundo
   producto, semanas, y después del 1.0.0 de escritorio. (2026-09-11)
@@ -942,6 +943,22 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
+
+### Iteración 9 — 2026-09-12
+
+**Android editará filas, no esquemas.** `kaname-android.md` decía «solo
+lectura forzado». Se cambia a **datos sí, esquema no**: edición por fila desde
+la tarjeta (`UPDATE`/`INSERT`/`DELETE` de a una, por `Stage`/`Apply` con el
+preview y la confirmación de escritorio) y el editor SQL sin candado, con la
+misma confirmación de producción. ERD, DDL, import CSV, volcados y comparar
+esquemas siguen afuera. La distinción la hace el backend con `change.Kind`:
+`KindSchema` se rechaza en `Stage` cuando corre en Android, no se esconde en
+la UI. Motivo: «tengo que corregir un valor desde el celu» es el uso concreto
+que el doc pedía para justificar el APK; un cambio de esquema desde un
+aparato que se pierde sigue sin tener uno. También se anotó ahí, tras mirar
+beta.17: el Taskfile de Android de Wails no corre en Windows (el build va por
+CI), Wails ya trae `SecureSet/Get/Delete` sobre `EncryptedSharedPreferences`
+—sin biometría—, y `minSdk` tiene que subir de 21 a 30.
 
 ### Iteración 9 — 2026-09-12
 
