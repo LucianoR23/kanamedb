@@ -172,15 +172,29 @@ wails3 task darwin:package:universal   # bin/kaname.app, arm64 + x86_64
 Un build hecho en la propia máquina no pasa por SmartScreen ni por Gatekeeper:
 esos avisos son para lo que se **descarga**. Ver [Releases](#releases).
 
+**Android** es un spike (ver `kaname-android.md`) y se construye solo en CI:
+el workflow `android` —a mano desde Actions, o en cada push a `spike/android`—
+deja `kaname-android-arm64.apk` como artifact, firmado con el keystore de
+debug, para instalar con `adb install`. El Taskfile de Android de Wails solo
+resuelve el NDK en Linux/macOS x86_64, y es la única plataforma que necesita
+cgo. Para correrlo en una máquina Linux hacen falta JDK 17, el SDK con
+`platforms;android-35`, `build-tools;35.0.0` y `ndk;26.3.11579264`:
+
+```sh
+wails3 task android:build ARCH=arm64    # overlay + bindings + frontend + libwails.so
+wails3 task android:assemble:apk        # Gradle; deja bin/kaname.apk
+```
+
 Los íconos no se generan en el build: el `.ico` de Windows, los nueve PNG de
 hicolor de Linux y el `.icns` de macOS vienen del brand kit y están
 commiteados. La excepción es macOS 26, cuyo ícono es por capas: en un Mac con
 Xcode 26, `common:generate:icons` compila `build/appicon.icon` con `actool` a
 `Assets.car` durante el build. Sin él, queda el `.icns` plano.
 
-La **versión** se escribe a mano en seis lugares —`internal/appinfo`,
-`build/config.yml`, `build/windows/info.json`, los dos `Info.plist` y
-`build/linux/nfpm/nfpm.yaml`— y `go test ./` avisa si alguno quedó atrás. No
+La **versión** se escribe a mano en siete lugares —`internal/appinfo`,
+`build/config.yml`, `build/windows/info.json`, los dos `Info.plist`,
+`build/linux/nfpm/nfpm.yaml` y `build/android/app/build.gradle`— y `go test ./`
+avisa si alguno quedó atrás. No
 uses `wails3 task common:update:build-assets` para sincronizarlos: regenera esos
 archivos desde el template y pisa lo que se editó a propósito.
 
@@ -464,7 +478,8 @@ versión del módulo Go.
 Windows x64 y arm64, Linux x64 y macOS universal (arm64 + x86_64). Linux y
 macOS necesitan cgo, así que no se cross-compilan desde Windows: los construye
 CI. Linux pide GTK4 + WebKitGTK 6.0 (Ubuntu 24.04 / Debian 13 o más nuevos);
-macOS, 12 o más nuevo.
+macOS, 12 o más nuevo. Android (arm64, API 30+) es un spike: se construye en
+CI y se instala a mano; ver `kaname-android.md`.
 
 ## Releases
 

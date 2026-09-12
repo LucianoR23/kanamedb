@@ -3,6 +3,9 @@
 
 # Scripts que corren en Linux/macOS (CI, empaquetado): siempre LF.
 *.sh   text eol=lf
+build/android/gradlew text eol=lf
+# El wrapper de Gradle para Windows es de Gradle, no nuestro: se deja como viene.
+build/android/gradlew.bat text eol=crlf
 
 # Binarios
 *.png  binary
@@ -11,3 +14,4 @@
 *.ttf  binary
 *.car  binary
 *.exe  binary
+*.jar  binary

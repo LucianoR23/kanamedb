@@ -946,6 +946,20 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Spike de Android, paso 1: lo que se pudo hacer desde Windows.** En la rama
+`spike/android`, sin mergear hasta que el APK corra en un teléfono. El núcleo
+compila a `android/arm64` sin cgo sin tocar nada. `build/android/` se copió de
+los assets embebidos en `wails3` —no hay comando que los emita— y se recortó:
+`applicationId dev.kaname.app` (el paquete Java queda `com.wails.app`: los
+símbolos JNI del `.so` llevan ese nombre), `minSdk 30`, solo `arm64-v8a`, sin
+cámara/ubicación/notificaciones/servicio en primer plano, `allowBackup=false`.
+`appinfo` resuelve las rutas en Android con `application.Mobile.StoragePath()`
+en `paths_android.go`; lo de escritorio pasó a `paths_desktop.go` sin cambios.
+El workflow `android` (a mano o en push a la rama) deja el APK de debug como
+artifact. La versión del APK entra en el test de versiones. Lo que falta saber
+es justamente lo que el spike mide: si el `.so` compila con el NDK, si Gradle
+9.2 + AGP 8.7.3 arma el APK, y si arranca en el teléfono.
+
 **Android editará filas, no esquemas.** `kaname-android.md` decía «solo
 lectura forzado». Se cambia a **datos sí, esquema no**: edición por fila desde
 la tarjeta (`UPDATE`/`INSERT`/`DELETE` de a una, por `Stage`/`Apply` con el

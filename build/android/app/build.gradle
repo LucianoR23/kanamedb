@@ -1,0 +1,89 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wails.app'
+    compileSdk 35
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    // El paquete Java sigue siendo com.wails.app: los símbolos JNI que exporta
+    // el .so (Java_com_wails_app_WailsBridge_nativeInit) llevan ese nombre y
+    // cambiarlo rompe la carga. El applicationId es lo que identifica al APK.
+    defaultConfig {
+        applicationId "dev.kaname.app"
+        // 30: el almacenamiento cifrado pide 23 y las claves del Keystore
+        // atadas a biometría se comportan bien recién desde 28–30. Ver
+        // kaname-android.md.
+        minSdk 30
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+
+        // Solo dispositivos reales. El emulador no tiene Keystore con hardware,
+        // así que no sirve para probar lo que importa.
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    def keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+    def hasKeystore = keystoreFile != null && !keystoreFile.trim().isEmpty()
+
+    signingConfigs {
+        // A real keystore can be provided via environment variables; without
+        // one, release builds are signed with the debug keystore so they can
+        // be installed for testing (not suitable for Play Store uploads).
+        release {
+            if (hasKeystore) {
+                storeFile file(keystoreFile)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig hasKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+        debug {
+            debuggable true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    // Source sets configuration
+    sourceSets {
+        main {
+            // JNI libraries are in jniLibs folder
+            jniLibs.srcDirs = ['src/main/jniLibs']
+            // Assets for the WebView
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+
+    // Packaging options
+    packagingOptions {
+        // Don't strip Go symbols in debug builds
+        doNotStrip '*/arm64-v8a/libwails.so'
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.webkit:webkit:1.9.0'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.biometric:biometric:1.1.0'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+}

@@ -131,6 +131,49 @@ tiene cualquier gestor de contraseñas en el mismo aparato.
   5. El candado de esquema en `Stage` con su test, y las pruebas a mano
      —leer y corregir una fila— contra los cuatro motores.
 
+## Estado del paso 1 (2026-09-12)
+
+Empezado en la rama `spike/android`. Lo que quedó hecho sin escribir una línea
+de UI:
+
+- **Compila a `android/arm64` sin cgo** (`GOOS=android GOARCH=arm64
+  CGO_ENABLED=0 go build ./...`) sin tocar nada: el núcleo era portable de
+  verdad. Con cgo hace falta el NDK, y eso solo pasa en CI.
+- **`build/android/`** viene de los assets embebidos en `wails3` (no hay
+  comando que los emita; se copiaron del module cache) con estos cambios: el
+  `applicationId` es `dev.kaname.app` —el paquete Java sigue siendo
+  `com.wails.app` porque los símbolos JNI del `.so` llevan ese nombre—,
+  `minSdk 30`, solo `arm64-v8a`, sin los permisos de cámara, ubicación,
+  notificaciones y servicio en primer plano que la plantilla pide, y
+  `allowBackup=false`. El `main_android.go` de la plantilla no se commitea:
+  lo genera `wails3 android overlay:gen` fuera del árbol.
+- **`appinfo` en Android** resuelve las rutas con
+  `application.Mobile.StoragePath()` (`getFilesDir()`), en un archivo con
+  build tag; en escritorio `appinfo` sigue sin saber de Wails. Sin eso la app
+  moría en `main()`: `os.UserConfigDir` da `/sdcard/.config`, que desde API
+  30 no se puede escribir.
+- **Workflow `android`** en `ubuntu-latest`: JDK 17, NDK `26.3.11579264`
+  pineado, `android:build` + `android:assemble:apk`, el APK como artifact.
+- La versión del APK entra en `TestLaVersionEsLaMismaEnTodosLados`.
+- Los dos abortos de `main()` pasan de `log.Fatalf` a `panic`: en la `.so`,
+  `log` escribe al fd 2 —que no va a logcat— y `os.Exit` mata el proceso sin
+  rastro; un panic lo manda el runtime a logcat con la pila.
+
+Pendientes que el spike arrastra a propósito, para no pelearse con la
+plantilla antes de saber si sirve:
+
+- Los `mipmap-*` son el ícono de Wails. Los del brand kit se generan en el
+  paso 4, cuando haya frontend móvil.
+- `WailsForegroundService.java` y el código de cámara y ubicación de
+  `WailsBridge.java` quedaron aunque el manifest ya no los declara: Kaname no
+  los llama, y sacarlos es editar el bridge, que es lo que se decide en 2b.
+
+Lo que **no** se sabe todavía —es lo que el spike mide—: si el `.so` compila
+con el NDK, si Gradle 9.2 + AGP 8.7.3 (la combinación de la plantilla) arma el
+APK, y si en el teléfono la app arranca y responde un binding. El keychain
+sigue siendo `go-keyring`, que en Android devuelve `ErrUnsupportedPlatform`:
+guardar una conexión va a fallar hasta el paso 2, a propósito.
+
 ## Cuándo
 
 Cuando haya un uso concreto que hoy no se puede hacer —«mirar una tabla desde

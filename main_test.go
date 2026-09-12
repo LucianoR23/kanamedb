@@ -130,7 +130,7 @@ func TestTodaVariableCSSQueSeUsaEstaDefinida(t *testing.T) {
 
 // versionEnArchivo es dónde dice la versión cada pieza del build. Hay una por
 // sistema porque cada empaquetador lee la suya: el syso de Windows, el
-// Info.plist del .app, el nfpm de los .deb/.rpm.
+// Info.plist del .app, el nfpm de los .deb/.rpm, el build.gradle del APK.
 var versionEnArchivo = []struct {
 	ruta   string
 	patron *regexp.Regexp
@@ -143,12 +143,13 @@ var versionEnArchivo = []struct {
 	{"build/darwin/Info.dev.plist", regexp.MustCompile(`<key>CFBundleVersion</key>\s*<string>([^<]+)</string>`)},
 	{"build/darwin/Info.dev.plist", regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)},
 	{"build/linux/nfpm/nfpm.yaml", regexp.MustCompile(`(?m)^version:\s*"([^"]+)"`)},
+	{"build/android/app/build.gradle", regexp.MustCompile(`(?m)^\s*versionName\s+"([^"]+)"`)},
 }
 
 // TestLaVersionEsLaMismaEnTodosLados compara `appinfo.Version` —lo que muestra
 // About— con lo que declara cada empaquetador.
 //
-// Son seis lugares escritos a mano porque `wails3 task common:update:build-assets`,
+// Son siete lugares escritos a mano porque `wails3 task common:update:build-assets`,
 // que los regeneraría desde build/config.yml, pisa también lo que se editó a
 // propósito: el Info.plist, el nfpm.yaml, el .desktop. Así que la versión se
 // sube a mano, y esto es lo que avisa cuando quedó una atrás: un .deb que dice

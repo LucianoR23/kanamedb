@@ -6,7 +6,7 @@ package main
 
 import (
 	"embed"
-	"log"
+	"fmt"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -32,7 +32,13 @@ func main() {
 	if err != nil {
 		// Sin saber dónde guardar la configuración no hay nada que hacer, y
 		// arrancar igual dejaría la libreta de conexiones en cualquier lado.
-		log.Fatalf("no se pudo ubicar el directorio de la aplicación: %v", err)
+		//
+		// Es panic y no log.Fatalf a propósito: en Android el binario es una
+		// .so y main corre en una goroutine; log escribe al fd 2, que no va a
+		// logcat, y os.Exit mata el proceso sin dejar rastro. Un panic lo
+		// manda el runtime de Go a logcat con el mensaje y la pila. En
+		// escritorio los dos terminan igual: en stderr, que nadie mira.
+		panic(fmt.Sprintf("no se pudo ubicar el directorio de la aplicación: %v", err))
 	}
 
 	app := application.New(application.Options{
@@ -59,7 +65,7 @@ func main() {
 	})
 
 	if err := app.Run(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 }
 

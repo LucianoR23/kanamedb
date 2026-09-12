@@ -14,6 +14,8 @@ includes:
   windows: ./build/windows/Taskfile.yml
   darwin: ./build/darwin/Taskfile.yml
   linux: ./build/linux/Taskfile.yml
+  # Solo desde Linux/macOS con el SDK y el NDK; en CI (.github/workflows).
+  android: ./build/android/Taskfile.yml
 
 tasks:
   build:
