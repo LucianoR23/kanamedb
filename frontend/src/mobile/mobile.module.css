@@ -1,0 +1,456 @@
+/* La interfaz del teléfono. Mismos tokens que el escritorio, otra forma:
+   una columna, tarjetas en vez de grilla, dedo en vez de puntero. Ver
+   kaname-android.md. Nada de colores literales: todo sale de tokens.css. */
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.4;
+  /* El teclado, la barra de estado y el gesto de volver. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* ---------------------------------------------------------------- barra */
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex: none;
+}
+
+.titulo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.titulo strong {
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titulo small {
+  font-size: 12px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prod {
+  background: var(--prod-wash);
+}
+
+/* Botón de icono de la barra: 44 px de área táctil, sin fondo. */
+.icono {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 20px;
+  flex: none;
+}
+
+.icono:active {
+  background: var(--bg-active);
+}
+
+/* ------------------------------------------------------------- contenido */
+
+.cuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cuerpoSinPadding {
+  padding: 0;
+  gap: 0;
+}
+
+.vacio {
+  margin: 40px 16px;
+  text-align: center;
+  color: var(--text-3);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.error {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--danger-quiet);
+  border: 1px solid var(--danger-border);
+  color: var(--text-1);
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.aviso {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--warning-quiet);
+  border: 1px solid var(--warning-border);
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+.nota {
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- listas */
+
+.lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Una tarjeta tocable: conexión, tabla, fila. */
+.tarjeta {
+  appearance: none;
+  text-align: left;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--text-1);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font: inherit;
+}
+
+button.tarjeta:active {
+  background: var(--bg-active);
+}
+
+.tarjetaProd {
+  border-color: var(--env-prod-border);
+}
+
+.fila1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fila1 strong {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.chipOk {
+  background: var(--success-quiet);
+  color: var(--success);
+}
+
+.chipMal {
+  background: var(--warning-quiet);
+  color: var(--warning);
+}
+
+/* Cabecera de sección dentro de una lista. */
+.seccion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 2px 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ------------------------------------------------- filas como tarjetas */
+
+.campos {
+  display: grid;
+  grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
+  gap: 3px 10px;
+  font-size: 13.5px;
+}
+
+.campos dt {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-top: 1px;
+}
+
+.campos dd {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  /* Tres líneas y puntos: una celda con un JSON entero no puede comerse la
+     pantalla; el detalle la muestra entera. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.nulo {
+  color: var(--cell-null);
+  font-style: italic;
+}
+
+.pk {
+  color: var(--erd-pk);
+}
+
+/* Detalle de una fila: un campo por bloque, editable. */
+.detalle {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.campo label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.campo label span {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.valor {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 36px;
+}
+
+.valorEditado {
+  border-color: var(--accent);
+  background: var(--cell-modified);
+}
+
+.campo textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  min-height: 40px;
+  resize: vertical;
+}
+
+.acciones {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.acciones > * {
+  flex: 1;
+}
+
+/* Botonera fija abajo del contenido, para acciones de la pantalla. */
+.pie {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.pie > * {
+  flex: 1;
+}
+
+/* Botones de 44 px: el mínimo tocable. */
+.pie button,
+.acciones button,
+.grande {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------------- pestañas */
+
+.nav {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.navItem {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  padding: 8px 4px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-height: 56px;
+}
+
+.navItem span:first-child {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.navActivo {
+  color: var(--accent);
+}
+
+/* -------------------------------------------------------------- consulta */
+
+.sql {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 120px;
+  resize: vertical;
+  background: var(--bg-inset);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px;
+}
+
+.sql:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.resumen {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.script {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px;
+  max-height: 40vh;
+  overflow: auto;
+  color: var(--text-1);
+}
+
+/* -------------------------------------------------------------- ajustes */
+
+.opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+}
+
+.opcion > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.opcion small {
+  color: var(--text-3);
+  font-size: 12.5px;
+}

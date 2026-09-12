@@ -46,7 +46,8 @@ export function ConnectionError({
   failure: ConnectionFailure;
   onClose: () => void;
   onRetry: () => void;
-  onEdit: () => void;
+  /** Sin editor —el teléfono no tiene uno completo— el botón no aparece. */
+  onEdit?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const culprit = CULPRIT[failure.kind];
@@ -78,7 +79,7 @@ export function ConnectionError({
             {copied ? "Copiado" : "Copiar detalles"}
           </Button>
           <span style={{ flex: 1 }} />
-          <Button onClick={onEdit}>Editar la conexión</Button>
+          {onEdit ? <Button onClick={onEdit}>Editar la conexión</Button> : null}
           <Button variant="primary" onClick={onRetry}>
             Reintentar
           </Button>

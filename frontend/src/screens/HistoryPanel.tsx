@@ -201,7 +201,7 @@ function horaExacta(iso: string): string {
  * recién» o «lo de esta mañana», y una lista de timestamps completos obliga a
  * restar mentalmente en cada renglón. La hora exacta está en el `title`.
  */
-function cuando(iso: string): string {
+export function cuando(iso: string): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return "";
   const seg = Math.max(0, Math.round((Date.now() - t) / 1000));

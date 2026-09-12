@@ -946,6 +946,21 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Android, paso 4: el frontend del teléfono, en `feat/android-frontend`.** Un
+solo frontend: `frontend/src/mobile/` comparte bindings, `lib/` y los átomos
+de `components/ui` con el escritorio; `main.tsx` elige por user agent o
+`?movil`. El flujo de conectar (inspección → TOFU → conexión) salió de
+`App.tsx` a `lib/useConectar.tsx`, sin cambio de comportamiento, y lo usan las
+dos interfaces. Pantallas: conexiones con «qué credencial falta»,
+credenciales (contraseña, secreto del bastión, clave privada pegada), sesión
+con cuatro pestañas (tablas, SQL, historial, ajustes), tabla en tarjetas de a
+40, fila con editar/agregar/borrar por `StageGrid` → palabra → vista previa
+del SQL → `Apply` con huella. Sin ERD, DDL, import CSV ni CodeMirror. Review
+`medium`: ocho hallazgos chicos, todos arreglados (entre ellos: `TableData` y
+`Run` devuelven el fallo de sesión cerrada en vez de lanzarlo, y la frase de
+paso no cuenta como credencial faltante porque una clave sin cifrar no tiene).
+Es una rama porque va a llevar varias vueltas con el teléfono.
+
 **Android, paso 3: la clave SSH como contenido, `FLAG_SECURE` y bloqueo en
 segundo plano.** `tunnel.Secrets.PrivateKey` reemplaza la lectura de `KeyPath`
 cuando viene (test de punta a punta con ruta inexistente). En el servicio es el

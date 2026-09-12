@@ -186,6 +186,10 @@ wails3 task android:build ARCH=arm64    # overlay + bindings + frontend + libwai
 wails3 task android:assemble:apk        # Gradle; deja bin/kaname.apk
 ```
 
+La interfaz del teléfono es otra (`frontend/src/mobile/`, mismo backend); se
+elige sola por el user agent de Android. Para verla en la PC, `?movil` en la
+URL del webview con las herramientas de desarrollo en modo dispositivo.
+
 Los íconos no se generan en el build: el `.ico` de Windows, los nueve PNG de
 hicolor de Linux y el `.icns` de macOS vienen del brand kit y están
 commiteados. La excepción es macOS 26, cuyo ícono es por capas: en un Mac con

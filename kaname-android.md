@@ -297,15 +297,52 @@ si el túnel pasaba a contraseña o se apagaba; ahora `SaveWithSSH` la borra al
 cambiar, y la vista la reporta con cualquier auth mientras el túnel esté
 activo.
 
-Lo que falta para dar el paso por cerrado, en el teléfono:
+La prueba a mano de este paso se hace junto con la de la fase 4: con la
+interfaz de escritorio apretada en el teléfono no se podía manejar.
+
+## Estado del paso 4 (2026-09-12): escrito, en `feat/android-frontend`
+
+Un solo frontend. `frontend/src/mobile/` vive al lado de las pantallas de
+escritorio y comparte con ellas los bindings, `lib/` y los átomos de
+`components/ui`; `main.tsx` elige por el user agent (Android) o por `?movil`
+en la URL, para verla en la PC con las herramientas de desarrollo en modo
+dispositivo. El flujo de conectar —inspección del bastión, TOFU, conexión—
+salió de `App.tsx` a `lib/useConectar.tsx` y lo usan las dos interfaces: es la
+parte de seguridad y no se duplica.
+
+| Pantalla | Archivo | Qué hace |
+|---|---|---|
+| Conexiones | `Conexiones.tsx` | Tarjetas con entorno, URI y **qué credencial falta**; Credenciales y Conectar; importar desde el archivo de la PC. |
+| Credenciales | `Credenciales.tsx` | Contraseña de la base, secreto del bastión y —con túnel por clave— la clave privada pegada como texto (`SetSSHKey`). Lo vacío queda como está. |
+| Sesión | `Sesion.tsx` | Cuatro pestañas abajo: Tablas, SQL, Historial, Ajustes. Barra con nombre, `describe` y lavado rojo en producción. |
+| Tablas | `Tablas.tsx` | El esquema como lista con buscador; ~filas, «sin clave primaria». Sin objetos de texto. |
+| Tabla | `Tabla.tsx` | Filas como tarjetas de a 40, «cargar más», recargar; aviso sin clave primaria; «Nueva fila» si se puede escribir. |
+| Fila | `Fila.tsx` | Ver entera; Editar (NULL, por defecto, deshacer por campo; la clave no se toca), Borrar…, Agregar…. Los tres: `StageGrid` → palabra de producción si Go la pide → **vista previa del SQL** → `Apply` con la huella. El changeset del teléfono es siempre esa fila. |
+| SQL | `Consulta.tsx` | Área de texto, ejecutar/cancelar, el resultado en tarjetas, varias sentencias. Sin CodeMirror ni transacciones manuales. |
+| Historial | `Historial.tsx` | El de esta conexión, filtrable; tocar repite en SQL. |
+| Ajustes | `Ajustes.tsx` | Tema, borrar el historial de esta conexión, desconectar, versión, y el texto de qué cubre y qué no. |
+
+Al volver del segundo plano la app pregunta si la sesión sigue
+(`visibilitychange` → `Current`) y muestra el motivo que dejó Go si se cerró;
+los bindings que devuelven un fallo en vez de lanzar (`TableData`, `Run`)
+también lo preguntan.
+
+Lo que no se pudo ver en la PC —los bindings solo existen dentro del
+WebView— y se prueba en el teléfono, en este orden:
 
 1. Exportar dos conexiones desde la PC (una con túnel por clave), pasar el
-   archivo al teléfono, importar desde la app.
-2. Intentar una captura de pantalla: el sistema la bloquea. En el selector de
-   apps, la miniatura sale negra.
-3. Conectar, ir a otra app, volver antes de dos minutos: sigue conectada.
-   Volver después: desconectada, reconectar pide el dedo.
-4. `SetSSHKey` todavía no tiene UI: es de la fase 4. Se prueba ahí.
+   archivo, importar. La tarjeta dice qué falta.
+2. Credenciales: contraseña (pide el dedo), y en la de túnel la clave pegada y
+   la frase si tiene. La tarjeta pasa a «credenciales cargadas».
+3. Conectar (pide el dedo). Con túnel, el diálogo TOFU la primera vez.
+4. Tablas → una tabla → una fila → Editar un campo → Guardar… → vista previa →
+   Aplicar. En producción, la palabra. La tarjeta se actualiza.
+5. Nueva fila y Borrar…, lo mismo.
+6. SQL: un `select` y un `update` a mano. Historial: tocar una y que vuelva a
+   SQL.
+7. Captura de pantalla bloqueada; miniatura negra en el selector.
+8. Otra app y volver antes de dos minutos: sigue. Después: «Sesión cerrada»
+   con el motivo, y reconectar pide el dedo.
 
 ## Cuándo
 
