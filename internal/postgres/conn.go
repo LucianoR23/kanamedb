@@ -101,6 +101,50 @@ func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*qu
 	return Run(ctx, c.pool, sql, RunOptions{RowLimit: opts.RowLimit})
 }
 
+// Dedicated toma una conexión del pool para una pestaña del editor.
+func (c *Conn) Dedicated(ctx context.Context) (engine.Session, error) {
+	conn, err := c.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &sesionPG{conn: conn}, nil
+}
+
+// sesionPG es una conexión retenida. El estado de la transacción lo dice el
+// protocolo —TxStatus: 'I' inactiva, 'T' en transacción, 'E' abortada—, así
+// que no hay que seguirlo a mano.
+type sesionPG struct {
+	conn *pgxpool.Conn
+}
+
+func (s *sesionPG) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
+	return runEn(ctx, s.conn, sql, RunOptions{RowLimit: opts.RowLimit})
+}
+
+// InTransaction lo dice el protocolo: 'I' inactiva, 'T' abierta, 'E'
+// abortada. Una conexión cerrada —pgx la cierra al cancelar— ya no tiene
+// transacción, aunque TxStatus conserve el último valor.
+func (s *sesionPG) InTransaction() bool {
+	return s.Alive() && s.conn.Conn().PgConn().TxStatus() != 'I'
+}
+
+func (s *sesionPG) Alive() bool { return !s.conn.Conn().IsClosed() }
+
+// Close revierte si hace falta y suelta la conexión. pgxpool destruiría una
+// conexión que vuelve en transacción; el ROLLBACK explícito es para no
+// depender de eso y para que el servidor no vea un corte. Con plazo: con el
+// túnel caído, una escritura sin plazo colgaría Disconnect.
+func (s *sesionPG) Close(ctx context.Context) error {
+	var err error
+	if s.InTransaction() {
+		plazo, cancelar := context.WithTimeout(context.WithoutCancel(ctx), engine.CierreDeSesion)
+		_, err = s.conn.Exec(plazo, "ROLLBACK")
+		cancelar()
+	}
+	s.conn.Release()
+	return err
+}
+
 func (c *Conn) Page(
 	ctx context.Context, esquema, tabla string, opts engine.PageOptions,
 ) (*query.Result, *engine.Failure) {

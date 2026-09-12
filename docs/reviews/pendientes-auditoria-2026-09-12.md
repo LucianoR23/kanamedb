@@ -8,13 +8,17 @@ para que se sepa qué promesa se está haciendo mientras tanto.
 
 Se actualiza en el mismo commit que la cierre o la cambie.
 
-## 1. Control manual de transacciones en el editor SQL
+## 1. Control manual de transacciones en el editor SQL — HECHO (2026-09-12)
 
-**Origen:** K-03 y C-01. **Estado provisorio:** `Queries.Run` rechaza el lote
-entero si alguna sentencia es `BEGIN`, `START TRANSACTION`, `COMMIT`,
-`ROLLBACK`, `SAVEPOINT`, `RELEASE`, `END` o `SET autocommit`, con un mensaje
-que dice que el editor corre en autocommit. Falla antes de tocar nada; antes
-fallaba al revés de lo pedido.
+**Origen:** K-03 y C-01. **Estado:** implementado tal como se especifica
+abajo (`engine.Session`, `service/transacciones.go`, toggle Auto-commit e
+indicador en el editor); ver la sección 6 del plan. Con auto-commit puesto
+sigue el rechazo de BEGIN/COMMIT/ROLLBACK; con auto-commit sacado la pestaña
+es dueña de una conexión. Dos decisiones que la especificación dejaba
+abiertas: una transacción abierta **no** frena el cierre por inactividad (se
+revierte y el motivo lo dice), y `SET autocommit` sigue rechazado también en
+modo manual (la conexión dedicada ya hace lo que eso haría). Lo que sigue es
+la especificación original, como registro.
 
 **Por qué no es un fix.** Cada sentencia del editor toma su propia conexión
 del pool. Contra Postgres, `pgxpool` destruye la que vuelve en transacción, así

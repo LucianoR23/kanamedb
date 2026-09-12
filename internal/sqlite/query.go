@@ -21,11 +21,6 @@ import (
 func run(
 	ctx context.Context, db *sql.DB, sql_ string, d query.Dialect, opts engine.RunOptions,
 ) (*query.Batch, *engine.Failure) {
-	limite := opts.RowLimit
-	if limite == 0 {
-		limite = DefaultRowLimit
-	}
-
 	// Una conexión dedicada, no la del pool. changes() cuenta lo que hizo la
 	// última sentencia DE ESA CONEXIÓN, así que pedido al pool podría contestar
 	// lo de otra — o cero.
@@ -34,6 +29,18 @@ func run(
 		return nil, ClassifyStatement(err, "")
 	}
 	defer cn.Close()
+	return runEn(ctx, cn, sql_, d, opts)
+}
+
+// runEn corre la sentencia en una conexión ya tomada: la de run, que la
+// devuelve enseguida, o la de una sesión del editor, que la retiene.
+func runEn(
+	ctx context.Context, cn *sql.Conn, sql_ string, d query.Dialect, opts engine.RunOptions,
+) (*query.Batch, *engine.Failure) {
+	limite := opts.RowLimit
+	if limite == 0 {
+		limite = DefaultRowLimit
+	}
 
 	inicio := time.Now()
 	rows, err := cn.QueryContext(ctx, sql_)

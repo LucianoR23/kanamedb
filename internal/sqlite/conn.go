@@ -122,6 +122,66 @@ func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*qu
 	return run(ctx, c.db, sql, c.Dialect(), opts)
 }
 
+// Dedicated toma una conexión del pool para una pestaña del editor.
+func (c *Conn) Dedicated(ctx context.Context) (engine.Session, error) {
+	cn, err := c.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &sesionLite{cn: cn, d: c.Dialect()}, nil
+}
+
+// sesionLite es una conexión retenida. El estado se sigue por las sentencias
+// que pasaron: SQLite no lo expone por database/sql.
+type sesionLite struct {
+	cn   *sql.Conn
+	d    query.Dialect
+	enTx bool
+}
+
+func (s *sesionLite) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
+	lote, f := runEn(ctx, s.cn, sql, s.d, opts)
+	if f == nil {
+		s.enTx = engine.TransactionAfter(query.Command(sql, s.d), query.Trim(sql, s.d), s.enTx, false)
+	} else {
+		// Una sentencia que falló pudo llevarse la transacción: SQLite
+		// revierte la explícita entera si un INSERT/UPDATE/DELETE se
+		// interrumpe adentro, y un ROLLBACK «sin transacción activa» falla.
+		// El estado se vuelve a preguntar en vez de suponerlo.
+		s.resincronizar(ctx)
+	}
+	return lote, f
+}
+
+// resincronizar pregunta si hay una transacción abierta de la única forma
+// que database/sql permite: un BEGIN falla adentro de una y, afuera, abre una
+// que se revierte enseguida. Sin efectos sobre lo que hubiera.
+func (s *sesionLite) resincronizar(ctx context.Context) {
+	ctx = context.WithoutCancel(ctx)
+	if _, err := s.cn.ExecContext(ctx, "BEGIN"); err != nil {
+		s.enTx = true
+		return
+	}
+	_, _ = s.cn.ExecContext(ctx, "ROLLBACK")
+	s.enTx = false
+}
+
+func (s *sesionLite) InTransaction() bool { return s.enTx }
+func (s *sesionLite) Alive() bool         { return true }
+
+func (s *sesionLite) Close(ctx context.Context) error {
+	var err error
+	if s.enTx {
+		plazo, cancelar := context.WithTimeout(context.WithoutCancel(ctx), engine.CierreDeSesion)
+		_, err = s.cn.ExecContext(plazo, "ROLLBACK")
+		cancelar()
+	}
+	if e := s.cn.Close(); err == nil {
+		err = e
+	}
+	return err
+}
+
 func (c *Conn) Page(
 	ctx context.Context, _, tabla string, opts engine.PageOptions,
 ) (*query.Result, *engine.Failure) {

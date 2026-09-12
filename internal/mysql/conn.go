@@ -3,7 +3,9 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
@@ -272,6 +274,60 @@ func (c *Conn) PrimaryKeyColumns(ctx context.Context, esquema, tabla string) ([]
 
 func (c *Conn) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
 	return run(ctx, c.db, sql, c.Dialect(), opts)
+}
+
+// Dedicated toma una conexión del pool para una pestaña del editor.
+func (c *Conn) Dedicated(ctx context.Context) (engine.Session, error) {
+	cn, err := c.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &sesionMy{db: c.db, cn: cn, d: c.Dialect()}, nil
+}
+
+// sesionMy es una conexión retenida. MySQL no dice si hay una transacción
+// abierta sin una consulta más, así que se sigue por las sentencias que
+// pasaron; un DDL la cierra con commit implícito.
+type sesionMy struct {
+	db     *sql.DB
+	cn     *sql.Conn
+	d      query.Dialect
+	enTx   bool
+	muerta bool
+}
+
+func (s *sesionMy) Run(ctx context.Context, sql string, opts engine.RunOptions) (*query.Batch, *engine.Failure) {
+	lote, f := runEn(ctx, s.db, s.cn, sql, s.d, opts)
+	cmd := query.Command(sql, s.d)
+	switch {
+	case f == nil:
+		s.enTx = engine.TransactionAfter(cmd, query.Trim(sql, s.d), s.enTx, true)
+	case f.Kind == engine.FailureCanceled || strings.Contains(f.Detail, driver.ErrBadConn.Error()):
+		// El driver cierra la conexión al cancelar: lo que hubiera abierto
+		// ya no existe, y la conexión tampoco.
+		s.enTx, s.muerta = false, true
+	case cmd == "CREATE" || cmd == "ALTER" || cmd == "DROP" || cmd == "TRUNCATE" || cmd == "RENAME":
+		// El commit implícito de un DDL pasa ANTES de ejecutarlo: un CREATE
+		// que falla ya confirmó lo anterior.
+		s.enTx = false
+	}
+	return lote, f
+}
+
+func (s *sesionMy) InTransaction() bool { return s.enTx }
+func (s *sesionMy) Alive() bool         { return !s.muerta }
+
+func (s *sesionMy) Close(ctx context.Context) error {
+	var err error
+	if s.enTx && !s.muerta {
+		plazo, cancelar := context.WithTimeout(context.WithoutCancel(ctx), engine.CierreDeSesion)
+		_, err = s.cn.ExecContext(plazo, "ROLLBACK")
+		cancelar()
+	}
+	if e := s.cn.Close(); err == nil && !s.muerta {
+		err = e
+	}
+	return err
 }
 
 func (c *Conn) Page(

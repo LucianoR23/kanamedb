@@ -25,11 +25,6 @@ import (
 func run(
 	ctx context.Context, db *sql.DB, sql_ string, d query.Dialect, opts engine.RunOptions,
 ) (*query.Batch, *engine.Failure) {
-	limite := opts.RowLimit
-	if limite == 0 {
-		limite = DefaultRowLimit
-	}
-
 	// Una conexión DEDICADA, como en SQLite: ROW_COUNT() habla de la última
 	// sentencia de ESTA conexión, y CONNECTION_ID() es lo que hace falta para
 	// poder matar la consulta si la cancelan.
@@ -38,6 +33,18 @@ func run(
 		return nil, ClassifyStatement(err, "")
 	}
 	defer cn.Close()
+	return runEn(ctx, db, cn, sql_, d, opts)
+}
+
+// runEn corre la sentencia en una conexión ya tomada: la de run, que la
+// devuelve enseguida, o la de una sesión del editor, que la retiene.
+func runEn(
+	ctx context.Context, db *sql.DB, cn *sql.Conn, sql_ string, d query.Dialect, opts engine.RunOptions,
+) (*query.Batch, *engine.Failure) {
+	limite := opts.RowLimit
+	if limite == 0 {
+		limite = DefaultRowLimit
+	}
 
 	// «Cancelar» en el driver cierra el socket y nada más: el servidor solo se
 	// entera cuando intenta escribir, así que un UPDATE grande cancelado desde

@@ -4,7 +4,18 @@ import * as QueriesSvc from "../../bindings/github.com/LucianoR23/kanamedb/inter
 import type { Snapshot } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Batch, Column, Result } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Failure } from "../../bindings/github.com/LucianoR23/kanamedb/internal/engine";
-import { Button, ContextMenu, Dialog, Input, PillTabs, Spinner, DialogClose } from "../components/ui";
+import type { TransactionState } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
+import {
+  Button,
+  ConfirmDialog,
+  ContextMenu,
+  Dialog,
+  Input,
+  PillTabs,
+  Spinner,
+  DialogClose,
+  Toggle,
+} from "../components/ui";
 import type { MenuAnchor } from "../components/ui";
 import { DataGrid } from "../components/DataGrid";
 import type { CellRef } from "../components/DataGrid";
@@ -44,9 +55,11 @@ const PANEL = { min: 220, max: 520, initial: 300 };
 /**
  * S06 SQL editor.
  *
- * Escribir, ejecutar, cancelar y ver el resultado; guardar con nombre; y pedir
+ * Escribir, ejecutar, cancelar y ver el resultado; guardar con nombre; pedir
  * el plan de ejecución de la sentencia bajo el cursor, que el motor da sin
- * correrla. Envolver en transacción sigue sin estar.
+ * correrla; y el control manual de transacciones: con «Auto-commit» sacado,
+ * la pestaña retiene una conexión y BEGIN, COMMIT y ROLLBACK significan lo
+ * que dicen. El estado vive en Go y muere con la conexión.
  */
 export function SqlEditorScreen({
   tabId,
@@ -99,6 +112,62 @@ export function SqlEditorScreen({
   const [guardando, setGuardando] = useState(false);
   const [nombre, setNombre] = useState("");
   const [errorGuardar, setErrorGuardar] = useState("");
+
+  // Control manual de transacciones. Go es el dueño del estado: cada
+  // ejecución lo devuelve, y al montar la pestaña se pregunta por si la
+  // conexión cambió por debajo. Al desmontar se cierra la pestaña en Go, que
+  // revierte lo que tuviera abierto y suelta la conexión.
+  const [tx, setTx] = useState<TransactionState | null>(null);
+  const [errorTx, setErrorTx] = useState("");
+  const [confirmando, setConfirmando] = useState(false);
+  const [cerrandoTx, setCerrandoTx] = useState(false);
+  // Se pregunta al montar Y cada vez que la conexión cambia por debajo —una
+  // reconexión, otra base—: el estado vive en Go y muere con la conexión, y
+  // sin esto la casilla seguía mostrando lo de antes. Cada ejecución también
+  // lo trae, así que a lo sumo la casilla miente hasta la próxima.
+  useEffect(() => {
+    QueriesSvc.TransactionOf(tabId)
+      .then(setTx)
+      .catch(() => {});
+  }, [tabId, connectionLabel]);
+  useEffect(() => {
+    return () => {
+      void QueriesSvc.CloseTab(tabId).catch(() => {});
+    };
+  }, [tabId]);
+
+  async function cambiarAutocommit(on: boolean) {
+    setErrorTx("");
+    try {
+      setTx(await QueriesSvc.SetAutocommit(tabId, on));
+    } catch (err) {
+      setErrorTx(textoDe(err));
+    }
+  }
+
+  async function cerrarTransaccion(como: "commit" | "rollback", palabra = "") {
+    setErrorTx("");
+    setCerrandoTx(true);
+    try {
+      const res =
+        como === "commit"
+          ? await QueriesSvc.Commit(tabId, palabra)
+          : await QueriesSvc.Rollback(tabId);
+      if (res.transaction) setTx(res.transaction);
+      if (!res.ok) {
+        setErrorTx(res.failure?.message ?? "No se pudo cerrar la transacción.");
+        return;
+      }
+      setConfirmando(false);
+      onHistorial?.();
+    } catch (err) {
+      setErrorTx(textoDe(err));
+    } finally {
+      setCerrandoTx(false);
+    }
+  }
+
+  const manual = tx !== null && !tx.autocommit;
   const [estado, setEstado] = useState<Estado>({ fase: "vacio" });
   const [plan, setPlan] = useState<Plan>({ fase: "vacio" });
   const [seleccionPlan, setSeleccionPlan] = useState<CellRef | null>(null);
@@ -162,7 +231,8 @@ export function SqlEditorScreen({
     if (corriendo || pidiendoPlan || sql.trim() === "") return;
     setEstado({ fase: "corriendo", desde: Date.now() });
     setSeleccion(null);
-    const res = await QueriesSvc.Run(runID, sql);
+    const res = await QueriesSvc.RunIn(tabId, runID, sql);
+    if (res.transaction) setTx(res.transaction);
     // Corrió —bien o mal— así que el historial cambió. Se avisa siempre y no
     // solo cuando salió bien: la consulta que uno vuelve a buscar en el
     // historial es a menudo justamente la que falló.
@@ -351,6 +421,49 @@ export function SqlEditorScreen({
           </span>
         ) : null}
         <span className={styles.divider} />
+        {/* Con auto-commit sacado, la pestaña es dueña de una conexión y
+            BEGIN/COMMIT/ROLLBACK significan lo que dicen. Se muestra el estado
+            SIEMPRE que esté sacado —«sin transacción» también— para que nunca
+            quede una abierta sin verse. */}
+        <label className={styles.autocommit} title="Con auto-commit, cada sentencia se confirma sola. Sin él, la pestaña retiene una conexión y BEGIN, COMMIT y ROLLBACK valen de verdad.">
+          <Toggle
+            checked={!manual}
+            onChange={(on) => void cambiarAutocommit(on)}
+            label="Auto-commit"
+            disabled={readOnly || corriendo}
+          />
+          <span>Auto-commit</span>
+        </label>
+        {manual ? (
+          <span className={cx(styles.txEstado, tx?.inTransaction && styles.txAbierta)}>
+            {tx?.inTransaction
+              ? `Transacción abierta · ${tx.statements} ${plural(tx.statements, "sentencia", "sentencias")}`
+              : "sin transacción"}
+          </span>
+        ) : null}
+        {manual && tx?.inTransaction ? (
+          <>
+            <Button
+              size="sm"
+              variant={tx.needsConfirmation ? "danger" : "primary"}
+              disabled={corriendo || cerrandoTx}
+              onClick={() => {
+                if (tx.needsConfirmation) setConfirmando(true);
+                else void cerrarTransaccion("commit");
+              }}
+            >
+              Confirmar
+            </Button>
+            <Button size="sm" disabled={corriendo || cerrandoTx} onClick={() => void cerrarTransaccion("rollback")}>
+              Revertir
+            </Button>
+          </>
+        ) : null}
+        {errorTx ? (
+          <span className={cx(styles.meta, styles.metaError)} role="alert">
+            {errorTx}
+          </span>
+        ) : null}
         <span className={styles.grow} />
         {readOnly ? <span className={styles.roNote}>conexión de solo lectura</span> : null}
         <span className={styles.autoNote}>
@@ -593,6 +706,24 @@ export function SqlEditorScreen({
           runID={runID}
           onClose={() => setExportando(false)}
         />
+      ) : null}
+      {confirmando && tx ? (
+        <ConfirmDialog
+          open
+          severidad="produccion"
+          title="Confirmar la transacción"
+          confirmar
+          palabra={tx.confirmWord ?? ""}
+          etiqueta="Confirmar"
+          onClose={() => setConfirmando(false)}
+          onConfirm={(escrito) => void cerrarTransaccion("commit", escrito)}
+        >
+          Esta conexión pide confirmar las escrituras. Se van a confirmar{" "}
+          <strong>
+            {tx.statements} {plural(tx.statements, "sentencia", "sentencias")}
+          </strong>{" "}
+          que corrieron en esta pestaña desde el BEGIN. Lo que cambien no se deshace desde Kaname.
+        </ConfirmDialog>
       ) : null}
       <Dialog
         open={guardando}

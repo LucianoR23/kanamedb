@@ -857,7 +857,8 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
 - Múltiples schemas / `search_path` en Postgres; múltiples databases por conexión
   en MySQL
 - Tablas sin PK → grilla no editable
-- Control de transacción manual en el editor (autocommit on/off)
+- ✅ Control de transacción manual en el editor (auto-commit por pestaña,
+  2026-09-12; ver § 6)
 - NULL vs string vacío, timezones, bytea/JSON grandes en la grilla
 - Filtrado del ERD: un esquema de 200 tablas no se dibuja entero; vistas guardadas
   del diagrama
@@ -1202,6 +1203,82 @@ promete lo que no cumple.**
   `listo` antes de matar; y con `max_error_count = 0` `SHOW WARNINGS` no
   mostraba nada y el lote pasaba: ahora se compara `@@warning_count` (que
   sobrevive al SHOW, leído después) con lo visto.
+
+**Control manual de transacciones en el editor, hecho.** Lo que la
+auditoría dejó como «rechazar hoy, implementar después» (K-03/C-01), y el
+pendiente más viejo del editor. Lo que fijó la implementación:
+
+- **Una conexión dedicada por pestaña, y solo cuando hace falta.**
+  `engine.Session` es una conexión tomada del pool que sobrevive entre
+  ejecuciones: `Run`, `InTransaction` y `Close` (que revierte antes de
+  soltar). Cada motor la implementa sobre el MISMO `runEn` que usa su `Run`
+  normal —la refactorización de esta iteración—: no hay dos caminos de
+  ejecución. Se toma en la primera ejecución con auto-commit sacado, no al
+  sacar la casilla, para no gastar una conexión del pool en una pestaña que
+  no corre nada. Con `PoolSize` 2 y una pestaña en transacción, el árbol
+  sigue teniendo la otra; el mensaje de «no se pudo tomar una conexión
+  dedicada» apunta a Advanced.
+- **El estado de la transacción lo dice el protocolo donde se puede.** En
+  Postgres, `TxStatus()` —'I', 'T' o 'E'—, así que una transacción abortada
+  y sin cerrar se ve como abierta, que es lo correcto: hay que revertirla.
+  En MySQL y SQLite no hay forma barata de preguntarlo por `database/sql`, y
+  se sigue por las sentencias (`engine.TransactionAfter`): BEGIN/START/
+  SAVEPOINT abren, COMMIT/END/ROLLBACK cierran (`ROLLBACK TO` no), y en
+  MySQL un DDL cierra con commit implícito. Cancelar en MySQL cierra la
+  conexión del driver y con ella la transacción: se dice en el aviso y la
+  pestaña queda sin conexión hasta la próxima ejecución.
+- **El estado vive en `openSession` y muere con la conexión.** Un cierre por
+  inactividad, un Disconnect o un Connect a otra base pasan por
+  `openSession.cerrar`, que revierte y suelta las conexiones de todas las
+  pestañas ANTES de cerrar el pool. Nunca vuelve al pool una conexión en
+  transacción. Una transacción abierta **no frena** el cierre por
+  inactividad —mantener una conexión de producción en transacción durante
+  horas es lo que la protección evita— y el motivo del cierre dice que se
+  revirtió.
+- **Confirmar contra producción pregunta el nombre de la base**, con la
+  misma regla que Apply (`confirmarEscritura`), y **un `COMMIT` tipeado en el
+  editor se rechaza** en esas conexiones: el botón es el que pregunta y la
+  pregunta no se puede saltear escribiendo la palabra. `ROLLBACK` tipeado
+  vale siempre. «Bloquear DROP y TRUNCATE» y el rechazo de lo que apaga el
+  solo lectura siguen valiendo sentencia por sentencia; lo único que el modo
+  manual levanta es el rechazo de BEGIN/COMMIT/ROLLBACK.
+- **Volver a auto-commit con una transacción abierta se niega**; cerrar la
+  pestaña la revierte (la pestaña llama `CloseTab` al desmontarse). La
+  interfaz muestra el estado SIEMPRE que auto-commit esté sacado —«sin
+  transacción» también—, con «Transacción abierta · N sentencias» en
+  ámbar y los botones Confirmar / Revertir: una transacción huérfana sin
+  verse era el riesgo de C-01.
+- **Bindings:** `RunIn(tabID, runID, sql)` —`Run` es `RunIn` sin pestaña—,
+  `SetAutocommit`, `Commit(tabID, confirm)`, `Rollback`, `CloseTab` y
+  `TransactionOf`, que la pestaña consulta al montarse por si la conexión
+  cambió por debajo. `RunResult.Transaction` trae el estado después de cada
+  ejecución. Tests contra los cuatro motores: `BEGIN`, `INSERT` y `ROLLBACK`
+  en tres ejecuciones separadas dejan cero filas; cerrar la pestaña con una
+  transacción abierta revierte y un Apply después funciona (el pool no queda
+  envenenado); producción exige la palabra por el botón y rechaza el COMMIT
+  tipeado.
+
+- **Review del control manual (`high`)**, diez hallazgos, dos altos:
+  `SetAutocommit(true)` tomaba el candado de la pestaña y después el del
+  mapa, y `cerrar`/`enTransaccion` —este último bajo `s.mu`, desde el
+  vencimiento por inactividad— al revés: un deadlock que colgaba todos los
+  bindings; ahora la pestaña se suelta antes de tocar el mapa, y un test lo
+  martilla en paralelo (comprobado que con el orden viejo se traba). Y
+  cancelar dentro de una transacción dejaba la pestaña atascada: pgx y el
+  driver de MySQL cierran la conexión pero `TxStatus`/el seguimiento
+  conservaban «abierta»; `engine.Session.Alive` y `descartarSiMurio` la
+  sueltan, avisan que la transacción se perdió, y la próxima ejecución toma
+  otra. Los medios: SQLite **resincroniza** tras cualquier fallo con la
+  única sonda que database/sql permite (`BEGIN` falla adentro de una
+  transacción; afuera abre una que se revierte enseguida); `SET autocommit`
+  se rechaza también en manual; `TransactionAfter` mira la sentencia sin
+  comentarios y entiende `ROLLBACK [WORK|TRANSACTION] TO` y `AND CHAIN`; la
+  pestaña vuelve a preguntar su estado cuando la conexión cambia y toda
+  ejecución lo devuelve; un BEGIN encadenado y un DDL que falla en MySQL
+  (commit implícito antes de ejecutar) se siguen bien; `Commit` sobre una
+  transacción abortada de Postgres —que el servidor responde con ROLLBACK—
+  es un fallo y lo dice; y el ROLLBACK del cierre tiene plazo
+  (`engine.CierreDeSesion`) para que un túnel caído no cuelgue Disconnect.
 
 **Auditoría, séptima tanda: el divisor y la segunda capa del webview.**
 

@@ -43,17 +43,22 @@ type RunOptions struct {
 // preparadas —que ensucian el servidor con SQL que se escribe una vez— y, sobre
 // todo, garantiza que el servidor devuelva todo en formato texto. Ver leerFilas.
 func Run(ctx context.Context, pool *pgxpool.Pool, sql string, opts RunOptions) (*query.Batch, *Failure) {
-	limite := opts.RowLimit
-	if limite == 0 {
-		limite = DefaultRowLimit
-	}
-
-	arranque := time.Now()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, Classify(err, "la consulta")
 	}
 	defer conn.Release()
+	return runEn(ctx, conn, sql, opts)
+}
+
+// runEn corre la sentencia en una conexión ya tomada: la de Run, que la
+// devuelve enseguida, o la de una Session, que la retiene.
+func runEn(ctx context.Context, conn *pgxpool.Conn, sql string, opts RunOptions) (*query.Batch, *Failure) {
+	limite := opts.RowLimit
+	if limite == 0 {
+		limite = DefaultRowLimit
+	}
+	arranque := time.Now()
 
 	// De acá en adelante el error es de la SENTENCIA, no de la conexión, y se
 	// clasifica con ClassifyStatement: con Classify, un error de sintaxis, una

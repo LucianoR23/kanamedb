@@ -168,7 +168,7 @@ otro —exactamente lo que una revisión por diff no ve—.
 
 ### [K-03] [ALTO] [VERIFICADO] Las transacciones manuales del editor SQL contra Postgres se pierden en silencio: cada sentencia va por su propia conexión y `pgxpool` destruye la que quedó en transacción
 
-> **Estado 2026-09-12:** CORREGIDO (mínimo). Comprobado contra Postgres: `BEGIN; DELETE; ROLLBACK;` devolvía OK y la tabla quedaba vacía. `Queries.Run` rechaza el lote entero ante BEGIN/START TRANSACTION/COMMIT/ROLLBACK/SAVEPOINT/RELEASE/END y `SET autocommit`, con el motivo. El control manual por pestaña queda en `docs/reviews/pendientes-auditoria-2026-09-12.md`. Test: `TestElEditorRechazaElControlManualDeTransacciones` (cuatro motores).
+> **Estado 2026-09-12:** CORREGIDO, en dos partes. Comprobado contra Postgres: `BEGIN; DELETE; ROLLBACK;` devolvía OK y la tabla quedaba vacía. Con auto-commit (el default) `Queries.Run` rechaza el lote entero ante BEGIN/START TRANSACTION/COMMIT/ROLLBACK/SAVEPOINT/RELEASE/END y `SET autocommit`, con el motivo (`TestElEditorRechazaElControlManualDeTransacciones`). Y el **control manual por pestaña está implementado**: con auto-commit sacado la pestaña retiene una conexión (`engine.Session`) y BEGIN/COMMIT/ROLLBACK valen de verdad (`TestConAutocommitSacadoLaTransaccionEsDeVerdad`, cuatro motores). Detalles en la sección 6 del plan.
 
 > Actualización 2026-09-12: la parte de MySQL y SQLite, que acá quedó como sospechada,
 > está verificada y desarrollada en C-01.

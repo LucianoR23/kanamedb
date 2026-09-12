@@ -58,6 +58,25 @@
 .grow {
   flex: 1;
 }
+.autocommit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font: 400 11px var(--font-ui);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.txEstado {
+  white-space: nowrap;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-dim);
+}
+/* Una transacción abierta se ve: es lo único que evita dejarla huérfana. */
+.txAbierta {
+  color: var(--warning);
+  font-weight: 600;
+}
 .autoNote,
 .roNote {
   white-space: nowrap;

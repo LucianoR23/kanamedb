@@ -66,6 +66,11 @@ type RunResult struct {
 	// quedarse con uno obligaría a volver a ejecutar para ver el otro.
 	Batch   *query.Batch    `json:"batch,omitempty"`
 	Failure *engine.Failure `json:"failure,omitempty"`
+
+	// Transaction es el estado de la pestaña después de correr, cuando la
+	// pestaña tiene auto-commit sacado. Nil en el modo normal. Ver
+	// transacciones.go.
+	Transaction *TransactionState `json:"transaction,omitempty"`
 }
 
 // TableDataResult agrega a RunResult qué orden se usó.
@@ -103,8 +108,15 @@ type TableDataRequest struct {
 	Offset int `json:"offset"`
 }
 
-// Run ejecuta la SQL que escribió el usuario.
+// Run ejecuta la SQL que escribió el usuario, en el modo normal: cada
+// sentencia por su cuenta y en autocommit.
 func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
+	return q.RunIn(ctx, "", runID, sql)
+}
+
+// RunIn ejecuta la SQL de una pestaña. Con tabID, y si la pestaña tiene
+// auto-commit sacado, corre en su conexión dedicada; si no, es Run.
+func (q *Queries) RunIn(ctx context.Context, tabID, runID, sql string) RunResult {
 	sesion, err := q.session.abierta()
 	if err != nil {
 		return RunResult{Failure: &engine.Failure{
@@ -134,8 +146,20 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 	// primera: si la sentencia prohibida es la tercera, las dos anteriores
 	// tampoco corren. Igual que preparar no ejecuta nada si una sentencia no
 	// se sabe escribir.
+	manual := sesion.pestanaManual(tabID)
 	for i, st := range sentencias {
-		f := controlDeTransaccion(st.SQL, sesion.db.Dialect())
+		var f *engine.Failure
+		// Con auto-commit sacado, BEGIN/COMMIT/ROLLBACK son justamente lo que
+		// la pestaña puede cumplir; las demás protecciones valen igual. `SET
+		// autocommit` se rechaza en los dos modos: en el manual haría por
+		// debajo lo que la conexión dedicada ya hace, sin que el seguimiento
+		// del estado lo vea, y la conexión podría volver al pool con una
+		// transacción implícita abierta (C-01 otra vez).
+		if manual {
+			f = rechazarSetAutocommit(st.SQL, sesion.db.Dialect())
+		} else {
+			f = controlDeTransaccion(st.SQL, sesion.db.Dialect())
+		}
 		if f == nil && sesion.conn.Safety.BlockDropTruncate {
 			f = bloqueadaPorPolitica(st.SQL, sesion.db.Dialect())
 		}
@@ -148,6 +172,17 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 			f.TotalStatements = len(sentencias)
 			return RunResult{Failure: f}
 		}
+	}
+	if res := q.correrEnPestana(ctx, sesion, tabID, sql, sentencias); res != nil {
+		return *res
+	}
+	// En modo normal el estado también viaja cuando hay pestaña: si la
+	// conexión cambió por debajo —reconexión, otra base— la pestaña se entera
+	// con la próxima ejecución en vez de seguir mostrando lo de antes.
+	var estadoDePestana *TransactionState
+	if tabID != "" {
+		estado := q.estadoDe(sesion, nil)
+		estadoDePestana = &estado
 	}
 
 	limite := sesion.conn.Safety.EffectiveRowLimit()
@@ -173,12 +208,12 @@ func (q *Queries) Run(ctx context.Context, runID, sql string) RunResult {
 			f.Statement = i + 1
 			f.Line = st.Line
 			f.TotalStatements = len(sentencias)
-			return RunResult{Batch: lote, Failure: q.porElTunel(f)}
+			return RunResult{Batch: lote, Failure: q.porElTunel(f), Transaction: estadoDePestana}
 		}
 	}
 	lote.ElapsedMs = time.Since(inicio).Milliseconds()
 	q.anotar(sesion.conn.ID, sql, lote, nil)
-	return RunResult{OK: true, Batch: lote}
+	return RunResult{OK: true, Batch: lote, Transaction: estadoDePestana}
 }
 
 // setAutocommit reconoce `SET [SESSION|GLOBAL|@@…] autocommit = …` de MySQL,
@@ -232,6 +267,20 @@ func controlDeTransaccion(sql string, d query.Dialect) *engine.Failure {
 		Hint: "No se ejecutó ninguna sentencia del lote. Para revertir, editá desde la " +
 			"grilla o el changeset, que sí van en transacción. El control manual de " +
 			"transacciones en el editor está agendado.",
+	}
+}
+
+// rechazarSetAutocommit es la parte de controlDeTransaccion que vale en los
+// dos modos.
+func rechazarSetAutocommit(sql string, d query.Dialect) *engine.Failure {
+	if query.Command(sql, d) != "SET" || !setAutocommit.MatchString(query.Trim(sql, d)) {
+		return nil
+	}
+	return &engine.Failure{
+		Kind: engine.FailureOther,
+		Message: "SET autocommit no se ejecuta desde el editor: la casilla «Auto-commit» de la " +
+			"pestaña hace eso, y de una forma que la pestaña puede seguir.",
+		Hint: "No se ejecutó ninguna sentencia del lote.",
 	}
 }
 

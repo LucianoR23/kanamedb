@@ -81,6 +81,12 @@ type openSession struct {
 	ultimoUso   atomic.Int64
 	inactividad *time.Timer
 
+	// pestanas es el estado del control manual de transacciones de cada
+	// pestaña del editor: la conexión dedicada que retiene y cuántas
+	// sentencias lleva. Vive acá porque muere con la conexión. Ver
+	// transacciones.go.
+	pestanas pestanas
+
 	// escritura excluye entre sí las operaciones que escriben en la base por
 	// lotes: Apply, DryRun e importar. Los bindings de Wails corren en
 	// goroutines independientes, así que un doble clic o dos ventanas podían
@@ -280,6 +286,7 @@ func (s *Session) abrirConexion(ctx context.Context, id, acceptOnce string) (*op
 		server:   db.Server(),
 		openedAt: time.Now(),
 		cambios:  &change.Set{},
+		pestanas: pestanas{porID: map[string]*pestana{}},
 	}, nil
 }
 
@@ -314,12 +321,25 @@ func (o *openSession) cerrar() {
 	if o.inactividad != nil {
 		o.inactividad.Stop()
 	}
+	// Las conexiones dedicadas de las pestañas, ANTES del pool: revierten lo
+	// que tuvieran abierto y vuelven, y recién entonces el pool se cierra.
+	o.pestanas.cerrar()
 	if o.db != nil {
 		o.db.Close()
 	}
 	if o.tunel != nil {
 		o.tunel.Close()
 	}
+}
+
+// pestanaManual dice si la pestaña tiene auto-commit sacado.
+func (o *openSession) pestanaManual(tabID string) bool {
+	if tabID == "" {
+		return false
+	}
+	o.pestanas.mu.Lock()
+	defer o.pestanas.mu.Unlock()
+	return o.pestanas.porID[tabID] != nil
 }
 
 // tunnelDown dice si esta sesión usa túnel y el túnel se cayó. No se exporta:

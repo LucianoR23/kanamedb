@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/LucianoR23/kanamedb/internal/change"
@@ -135,6 +136,85 @@ type RowStream interface {
 	// Close libera la consulta. Idempotente, y se puede llamar sin haber
 	// terminado de leer.
 	Close()
+}
+
+// Session es una conexión dedicada que sobrevive entre ejecuciones.
+//
+// Existe por el control manual de transacciones del editor (K-03/C-01 de la
+// auditoría del 2026-09-11). Cada Run del editor tomaba su propia conexión
+// del pool, así que `BEGIN; UPDATE …; ROLLBACK;` corría el UPDATE en otra
+// conexión, en autocommit, y el ROLLBACK respondía bien sin revertir nada.
+// Con la pestaña dueña de UNA conexión, BEGIN, COMMIT y ROLLBACK significan
+// lo que dicen. Quien la toma es responsable de cerrarla: nunca vuelve al
+// pool con una transacción abierta.
+type Session interface {
+	// Run ejecuta una sentencia en esta conexión.
+	Run(ctx context.Context, sql string, opts RunOptions) (*query.Batch, *Failure)
+	// InTransaction dice si hay una transacción abierta —o abortada y sin
+	// cerrar— en esta conexión. En Postgres lo dice el protocolo; en MySQL y
+	// SQLite se sigue por las sentencias que pasaron.
+	InTransaction() bool
+	// Alive dice si la conexión sigue servible. Cancelar la cierra en pgx y
+	// en el driver de MySQL —y con ella se pierde la transacción—; quien la
+	// retiene tiene que descartarla y decirlo, no seguir fallando con «conn
+	// closed» hasta cerrar la pestaña.
+	Alive() bool
+	// Close revierte lo que haya abierto y devuelve la conexión al pool.
+	Close(ctx context.Context) error
+}
+
+// CierreDeSesion es el plazo del ROLLBACK de Close: con el túnel caído, una
+// escritura sin plazo colgaría Disconnect y el cierre por inactividad.
+const CierreDeSesion = 5 * time.Second
+
+// TransactionAfter dice si la conexión queda en transacción después de una
+// sentencia, para los motores donde hay que seguirlo a mano.
+//
+// Recibe la sentencia YA sin comentarios (query.Trim), porque se miran sus
+// palabras. ddlConfirma es MySQL y MariaDB: un DDL hace commit implícito y
+// deja la conexión fuera de la transacción. SAVEPOINT abre una en SQLite si
+// no había; RELEASE no la cierra (la cierra el COMMIT). `ROLLBACK [WORK|
+// TRANSACTION] TO [SAVEPOINT] x` tampoco, y `COMMIT/ROLLBACK … AND CHAIN`
+// cierra una y abre otra.
+func TransactionAfter(cmd, sqlSinComentarios string, enTx, ddlConfirma bool) bool {
+	campos := strings.Fields(strings.ToUpper(sqlSinComentarios))
+	switch cmd {
+	case "BEGIN", "START", "SAVEPOINT":
+		return true
+	case "COMMIT", "END":
+		return conChain(campos)
+	case "ROLLBACK":
+		if aUnSavepoint(campos) {
+			return enTx
+		}
+		return conChain(campos)
+	case "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME":
+		if ddlConfirma {
+			return false
+		}
+	}
+	return enTx
+}
+
+// aUnSavepoint dice si un ROLLBACK es a un savepoint: `TO` entre las tres
+// primeras palabras que siguen, salteando WORK y TRANSACTION.
+func aUnSavepoint(campos []string) bool {
+	for i := 1; i < len(campos) && i <= 3; i++ {
+		switch campos[i] {
+		case "WORK", "TRANSACTION":
+			continue
+		case "TO":
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+// conChain dice si la sentencia termina en `AND CHAIN`.
+func conChain(campos []string) bool {
+	n := len(campos)
+	return n >= 2 && campos[n-2] == "AND" && campos[n-1] == "CHAIN"
 }
 
 // CellClasses lo implementa un RowStream que sabe, fila por fila, de qué
@@ -329,6 +409,11 @@ type Conn interface {
 	// Una y no varias: el editor parte el texto antes de llegar acá. Ver
 	// query.Split y § 6 del plan.
 	Run(ctx context.Context, sql string, opts RunOptions) (*query.Batch, *Failure)
+
+	// Dedicated toma UNA conexión del pool y la entrega para que una pestaña
+	// del editor la retenga entre ejecuciones: es lo que hace posible el
+	// control manual de transacciones. Ver Session.
+	Dedicated(ctx context.Context) (Session, error)
 	// Page lee una página de una tabla.
 	Page(ctx context.Context, esquema, tabla string, opts PageOptions) (*query.Result, *Failure)
 	// Count cuenta las filas de una tabla, exacto. Con condiciones cuenta las

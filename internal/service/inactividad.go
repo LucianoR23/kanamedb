@@ -97,6 +97,13 @@ func (s *Session) vencerInactividad(o *openSession) {
 	// devolvérselas. Se guarda atado a la conexión Y a la base, y se
 	// restituye solo si la próxima conexión es a esa misma base (review del
 	// 2026-09-12).
+	// Una transacción abierta en una pestaña NO frena el cierre: mantener una
+	// conexión de producción en transacción durante horas es justo lo que la
+	// protección evita. Se revierte al cerrar (pestanas.cerrar) y se dice.
+	if n := o.pestanas.enTransaccion(); n > 0 {
+		s.motivoDeCierre += fmt.Sprintf(" Se revirtió %s que quedó abierta en el editor.",
+			cuentaDeTransacciones(n))
+	}
 	if n := o.cambios.Summarize().Total; n > 0 {
 		s.rescatado = &rescate{connID: o.conn.ID, base: nombreDeLaBase(o), cambios: o.cambios}
 		s.motivoDeCierre += fmt.Sprintf(" %s se conservan si volvés a conectar a la misma base.",
@@ -188,4 +195,11 @@ func duracionLegible(d time.Duration) string {
 		return "1 hora"
 	}
 	return fmt.Sprintf("%d horas", h)
+}
+
+func cuentaDeTransacciones(n int) string {
+	if n == 1 {
+		return "la transacción"
+	}
+	return fmt.Sprintf("%d transacciones", n)
 }
