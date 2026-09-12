@@ -97,8 +97,8 @@ marcados. Contra producción, eso no es una comodidad — es la diferencia entre
 ## Dónde guarda sus cosas
 
 Ninguno de estos archivos tiene contraseñas: viven en el keychain del sistema
-—Credential Manager, Keychain, Secret Service; en Android, almacenamiento
-cifrado con una clave del Keystore—. La pantalla **Ajustes** muestra la ruta
+—Credential Manager, Keychain, Secret Service; en Android, cifradas con una
+clave del Keystore que solo se habilita con la huella o el rostro—. La pantalla **Ajustes** muestra la ruta
 del archivo de preferencias y **About** las de todos. En Windows y Android el
 directorio de estado es el mismo que el de configuración; en Linux y macOS no.
 

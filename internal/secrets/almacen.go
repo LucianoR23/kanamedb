@@ -15,4 +15,7 @@ type almacen interface {
 	leer(service, id string) (secreto string, hay bool, err error)
 	// borrar no falla si no había nada: el resultado buscado ya se cumple.
 	borrar(service, id string) error
+	// hay dice si existe una entrada sin traer el secreto: en Android leer
+	// pide la biometría, y la lista de conexiones no tiene por qué pedirla.
+	hay(service, id string) (bool, error)
 }

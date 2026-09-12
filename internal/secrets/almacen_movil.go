@@ -2,24 +2,24 @@ package secrets
 
 import "fmt"
 
-// almacenSeguro es lo que Wails expone en el teléfono para guardar secretos:
-// en Android, EncryptedSharedPreferences con una clave AES del Keystore. Es el
-// subconjunto de application.MobileManager que se usa, declarado acá para que
-// la lógica de arriba se pueda probar con un doble sin arrastrar Wails.
+// almacenSeguro es el almacenamiento de secretos del teléfono con un solo
+// espacio de claves. En Android lo implementa el vault (KanameVault.java por
+// JNI); la forma es la de application.MobileManager de Wails más SecureHas,
+// declarada acá para que la lógica se pueda probar con un doble.
 //
-// Contrato heredado de Wails: un valor vacío guardado es válido (hay=true);
-// una clave que no existe devuelve ("", false, nil); borrar lo que no está no
-// falla.
+// Contrato: una clave que no existe devuelve ("", false, nil); borrar lo que
+// no está no falla; SecureHas no descifra ni pide biometría.
 type almacenSeguro interface {
 	SecureSet(clave, valor string) error
 	SecureGet(clave string) (valor string, hay bool, err error)
 	SecureDelete(clave string) error
+	SecureHas(clave string) (bool, error)
 }
 
 // almacenMovil adapta almacenSeguro al contrato de almacen.
 //
-// Wails tiene un solo espacio de claves —no hay «servicio» como en el keychain
-// de escritorio—, así que el servicio va dentro de la clave. Es lo que mantiene
+// Hay un solo espacio de claves —no hay «servicio» como en el keychain de
+// escritorio—, así que el servicio va dentro de la clave. Es lo que mantiene
 // aislados a los tests del secreto real del usuario también acá.
 type almacenMovil struct {
 	s almacenSeguro
@@ -46,8 +46,12 @@ func (a almacenMovil) borrar(service, id string) error {
 	return a.s.SecureDelete(a.clave(service, id))
 }
 
+func (a almacenMovil) hay(service, id string) (bool, error) {
+	return a.s.SecureHas(a.clave(service, id))
+}
+
 // nuevoMovil construye un Keyring sobre un almacenSeguro concreto. Es lo que
-// usa Android con el bridge real y lo que usan los tests con el doble.
+// usa Android con el vault real y lo que usan los tests con el doble.
 func nuevoMovil(service string, s almacenSeguro) *Keyring {
 	return &Keyring{service: service, almacen: almacenMovil{s: s}}
 }

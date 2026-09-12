@@ -12,7 +12,10 @@
 
     <!-- allowBackup=false: la libreta no tiene secretos, pero el estado de la
          app no tiene por qué viajar a la nube de Google por su cuenta. -->
+    <!-- KanameApp es propia: le da al vault de contraseñas el Context y la
+         activity en primer plano. MainActivity y el bridge son los de Wails. -->
     <application
+        android:name="dev.kaname.vault.KanameApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

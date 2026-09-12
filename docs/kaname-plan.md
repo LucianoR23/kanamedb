@@ -946,6 +946,21 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Android, paso 2b: el vault con biometría, sin forkear el bridge de Wails.**
+Opción (b) de las dos que se plantearon: una clase Java propia
+(`dev.kaname.vault.KanameVault`) más una `Application` que le da el `Context`
+y la activity, y un solo archivo cgo (`vault_android.go`) que define
+`JNI_OnLoad` —Wails no la tiene— para quedarse con la `JavaVM` sin que ningún
+Java llame a Go. Clave AES-256 en el Keystore, StrongBox si hay, autenticación
+**por uso** con `BIOMETRIC_STRONG` y `CryptoObject` en cada cifrado y
+descifrado; huella nueva invalida la clave y se borra todo con un mensaje
+claro; AAD con la clave de la entrada. Todo cruza JNI como `byte[]`
+(`NewStringUTF` rompe con emoji). El contrato `almacen` gana `hay` para que
+`Has` no descifre: sin eso listar conexiones pediría el dedo por cada una. El
+backend de Wails de 2a se descarta. Con el modelo por uso, reemplazar una
+contraseña pide el dedo dos veces (`recordarSecreto` lee la anterior); si
+molesta, el knob es una ventana de validez, y se decide en el teléfono.
+
 **Android, paso 2a: `secrets` con almacén por plataforma.** `Keyring` delega
 en una interfaz interna `almacen` (guardar/leer/borrar); escritorio la cumple
 con `go-keyring`, Android con `application.Mobile.SecureSet/Get/Delete`

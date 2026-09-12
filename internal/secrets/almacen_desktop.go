@@ -31,6 +31,13 @@ func (almacenKeyring) leer(service, id string) (string, bool, error) {
 	return pw, true, nil
 }
 
+// hay lee: go-keyring no tiene forma de preguntar sin traer el valor, y en
+// escritorio eso no le cuesta nada a nadie.
+func (a almacenKeyring) hay(service, id string) (bool, error) {
+	_, hay, err := a.leer(service, id)
+	return hay, err
+}
+
 func (almacenKeyring) borrar(service, id string) error {
 	err := keyring.Delete(service, id)
 	if errors.Is(err, keyring.ErrNotFound) {

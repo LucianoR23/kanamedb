@@ -11,6 +11,8 @@ import (
 // vacío es válido, borrar lo que no está no falla.
 type bridgeFalso struct {
 	datos map[string]string
+	// lecturas cuenta los SecureGet: en el vault real cada uno pide el dedo.
+	lecturas int
 	// falla, si no es nil, es lo que devuelve cada llamada: simula el bridge
 	// caído o el Keystore que no entrega la clave.
 	falla error
@@ -27,6 +29,7 @@ func (b *bridgeFalso) SecureSet(clave, valor string) error {
 }
 
 func (b *bridgeFalso) SecureGet(clave string) (string, bool, error) {
+	b.lecturas++
 	if b.falla != nil {
 		return "", false, b.falla
 	}
@@ -40,6 +43,14 @@ func (b *bridgeFalso) SecureDelete(clave string) error {
 	}
 	delete(b.datos, clave)
 	return nil
+}
+
+func (b *bridgeFalso) SecureHas(clave string) (bool, error) {
+	if b.falla != nil {
+		return false, b.falla
+	}
+	_, ok := b.datos[clave]
+	return ok, nil
 }
 
 // El adaptador de Android cumple el mismo contrato que el keychain de
@@ -79,6 +90,29 @@ func TestElAlmacenMovilCumpleElContratoDelKeyring(t *testing.T) {
 	}
 	if _, err := k.Get("conn1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("después de Delete, Get() = %v, se esperaba ErrNotFound", err)
+	}
+}
+
+// Has no descifra. En el vault de Android cada SecureGet es un BiometricPrompt,
+// y la lista de conexiones pregunta por cada una si tiene contraseña: si Has
+// leyera, abrir la app pediría el dedo una vez por conexión.
+func TestHasNoLeeElSecreto(t *testing.T) {
+	bridge := nuevoBridgeFalso()
+	k := nuevoMovil("Kaname-test", bridge)
+	if err := k.Set("conn1", "secreto"); err != nil {
+		t.Fatalf("Set() error: %v", err)
+	}
+	bridge.lecturas = 0
+
+	hay, err := k.Has("conn1")
+	if err != nil || !hay {
+		t.Fatalf("Has() = %v, %v; se esperaba true, nil", hay, err)
+	}
+	if hay, err := k.Has("otra"); err != nil || hay {
+		t.Fatalf("Has() de algo que no existe = %v, %v; se esperaba false, nil", hay, err)
+	}
+	if bridge.lecturas != 0 {
+		t.Errorf("Has() hizo %d lecturas del secreto; no tiene que hacer ninguna", bridge.lecturas)
 	}
 }
 

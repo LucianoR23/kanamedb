@@ -181,7 +181,8 @@ plantilla antes de saber si sirve:
   paso 4, cuando haya frontend móvil.
 - `WailsForegroundService.java` y el código de cámara y ubicación de
   `WailsBridge.java` quedaron aunque el manifest ya no los declara: Kaname no
-  los llama, y sacarlos es editar el bridge, que es lo que se decide en 2b.
+  los llama. En 2b se decidió **no** forkear el bridge —el vault es una clase
+  aparte—, así que se quedan tal cual vienen de la plantilla.
 
 ## Estado del paso 2a (2026-09-12): hecho, falta probarlo en el teléfono
 
@@ -197,14 +198,65 @@ espacio de claves, así que el servicio va dentro de la clave con prefijo de
 longitud: con un separador a secas, `("a", "b:c")` y `("a:b", "c")` serían la
 misma entrada, y hay un test que lo demuestra.
 
-Lo que 2a **no** da todavía es la biometría: la clave del Keystore que usa
-Wails no exige `BiometricPrompt` para descifrar. Quien tiene el archivo y el
-UID de la app lee la contraseña. Es el paso 2b.
+2a duró un commit: dejó la interfaz `almacen` y el adaptador con sus tests,
+que 2b reutiliza tal cual. El backend de Wails (`SecureSet/Get/Delete`, sin
+biometría) ya no se usa.
 
-Prueba a mano pendiente: guardar una conexión **con** contraseña en el
-teléfono, cerrar la app, volver a abrir y conectar. Y con un build de debug,
-`adb shell run-as dev.kaname.app cat shared_prefs/wails_secure.xml` tiene que
-mostrar texto cifrado, no la contraseña.
+## Estado del paso 2b (2026-09-12): escrito, falta el teléfono
+
+El vault es propio y el bridge de Wails queda intacto —la opción (b)—:
+
+- **`KanameVault.java`** (`dev.kaname.vault`): una clave AES-256 en el
+  Keystore —StrongBox si hay, TEE si no— con `setUserAuthenticationRequired`
+  y `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`: **por uso**,
+  cada `Cipher.init` exige pasar por un `BiometricPrompt` con `CryptoObject`.
+  Solo biometría fuerte; el PIN del equipo no vale como respaldo. Una huella
+  nueva invalida la clave (`setInvalidatedByBiometricEnrollment`); al
+  detectarlo se borran la clave y todo lo cifrado, con un mensaje que lo dice.
+  Lo que queda en disco (`shared_prefs/kaname_vault.xml`) es IV + texto
+  cifrado en base64, con la clave de la entrada como AAD para que un blob no
+  se pueda mover de una conexión a otra. `has` no descifra.
+- **`KanameApp.java`**: la `Application`, declarada en el manifest. Le da al
+  vault el `Context` y la activity en primer plano; es todo lo que hace.
+- **`vault_android.go`** (`android && cgo`): el único JNI propio del proyecto.
+  Define `JNI_OnLoad` —Wails no la tiene—, que se queda con la `JavaVM` y
+  resuelve la clase al cargar la `.so`, así ningún Java tiene que llamar a Go.
+  Todo cruza como `byte[]`, no como `String`: `NewStringUTF` usa UTF-8
+  modificado y rompe con caracteres fuera del BMP (un emoji en la
+  contraseña). El buffer del secreto se pisa con ceros antes de liberarse, de
+  los dos lados. Implementa `almacenSeguro`, así que la composición de claves
+  y sus tests son los mismos que con el bridge falso.
+- **`Has` ya no lee**: el contrato `almacen` tiene `hay`, y hay un test que
+  cuenta lecturas. Sin eso, abrir la lista de conexiones pediría el dedo una
+  vez por conexión.
+
+Del review `high` de este paso salieron cinco cosas, todas arregladas: `set`
+ya no rehace la clave en silencio cuando la biometría cambió —falla con el
+mismo mensaje que `get`, porque «guardado» taparía que el resto de las
+contraseñas acaba de desaparecer—; el texto en claro se pisa con ceros también
+si la persona cancela el prompt; si no hay clave pero sí entradas viejas, se
+limpian antes de crear la nueva (nadie las iba a poder leer); la activity se
+retiene hasta que se destruye, no hasta que se pausa (el propio prompt pausa la
+activity en algunos equipos, y la segunda lectura —la del bastión— llegaría sin
+activity); y ProGuard mantiene `KanameVault`, que se resuelve por `FindClass`
+y no lo referencia nadie.
+
+Cuántas veces pide el dedo, con el modelo por uso: conectar, una (dos si hay
+túnel con contraseña de bastión). Guardar una conexión nueva, una. Reemplazar
+una contraseña, dos: `recordarSecreto` lee la anterior para poder deshacer.
+Si molesta, el knob es `setUserAuthenticationParameters(segundos, …)`: una
+ventana de validez tras la autenticación, en vez de por uso. Se decide con el
+teléfono en la mano, no antes.
+
+Prueba a mano pendiente, con el APK de este paso:
+
+1. Guardar una conexión **con** contraseña → pide el dedo una vez; sin huella
+   registrada, lo dice y no guarda.
+2. Cerrar la app del todo, abrir, conectar → pide el dedo y conecta.
+3. Cancelar el prompt → «Cancelado.», sin conectar.
+4. Con un build de debug, `adb shell run-as dev.kaname.app cat
+   shared_prefs/kaname_vault.xml`: base64 de IV y texto cifrado, la contraseña
+   no aparece. Es el equivalente en el teléfono del test «byte a byte».
 
 ## Cuándo
 

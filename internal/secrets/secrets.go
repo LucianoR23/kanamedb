@@ -1,7 +1,8 @@
 // Package secrets guarda las contraseñas de las conexiones en el keychain del
 // sistema operativo: Credential Manager en Windows, Keychain en macOS, el
-// Secret Service en Linux y, en Android, el almacenamiento cifrado con clave
-// del Keystore que expone Wails.
+// Secret Service en Linux y, en Android, un vault propio: cifradas con una
+// clave del Keystore que solo se habilita con biometría (vault_android.go y
+// build/android/.../KanameVault.java).
 //
 // Es el único lugar de la aplicación donde vive una credencial. No se escriben
 // en el archivo de conexiones, no se guardan en el estado local, no salen en
@@ -98,16 +99,17 @@ func (k *Keyring) Get(connectionID string) (string, error) {
 // Has dice si hay una contraseña guardada, sin traerla a memoria.
 //
 // La UI lo usa para mostrar si una conexión ya tiene credencial en esta máquina
-// sin necesidad de leer el secreto.
+// sin necesidad de leer el secreto. En Android la diferencia es visible: leer
+// pide el dedo, preguntar no.
 func (k *Keyring) Has(connectionID string) (bool, error) {
-	_, err := k.Get(connectionID)
-	if errors.Is(err, ErrNotFound) {
-		return false, nil
-	}
-	if err != nil {
+	if err := validID(connectionID); err != nil {
 		return false, err
 	}
-	return true, nil
+	hay, err := k.almacen.hay(k.service, connectionID)
+	if err != nil {
+		return false, fmt.Errorf("consultar la contraseña de %s en el keychain: %w", connectionID, err)
+	}
+	return hay, nil
 }
 
 // Delete borra la contraseña de una conexión.
