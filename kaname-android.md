@@ -312,7 +312,7 @@ parte de seguridad y no se duplica.
 
 | Pantalla | Archivo | Qué hace |
 |---|---|---|
-| Conexiones | `Conexiones.tsx` | Tarjetas con entorno, URI y **qué credencial falta**; Credenciales y Conectar; importar desde el archivo de la PC. |
+| Conexiones | `Conexiones.tsx` | Tarjetas con entorno, URI y **qué credencial falta**; Borrar (con sus tres secretos), Credenciales y Conectar; importar desde el archivo de la PC. |
 | Credenciales | `Credenciales.tsx` | Contraseña de la base, secreto del bastión y —con túnel por clave— la clave privada pegada como texto (`SetSSHKey`). Lo vacío queda como está. |
 | Sesión | `Sesion.tsx` | Cuatro pestañas abajo: Tablas, SQL, Historial, Ajustes. Barra con nombre, `describe` y lavado rojo en producción. |
 | Tablas | `Tablas.tsx` | El esquema como lista con buscador; ~filas, «sin clave primaria». Sin objetos de texto. |
@@ -327,8 +327,17 @@ Al volver del segundo plano la app pregunta si la sesión sigue
 los bindings que devuelven un fallo en vez de lanzar (`TableData`, `Run`)
 también lo preguntan.
 
-Lo que no se pudo ver en la PC —los bindings solo existen dentro del
-WebView— y se prueba en el teléfono, en este orden:
+Primera vuelta en el teléfono (2026-09-12): importar, credenciales,
+conectar, tablas, fila, SQL e historial **funcionan**. Faltaba borrar una
+conexión —se agregó a la tarjeta—, y el túnel SSH no se probó porque el
+archivo de la clave no estaba en el teléfono. Pendiente de decidir: que Kaname
+aparezca en «Abrir con» para el `.toml` exportado; hoy se importa desde
+adentro. Wails no mira el intent de apertura en Android, así que sería Java
+propio en `KanameApp.onActivityCreated` más un binding `PendingImport`, con la
+trampa de que `.toml` no tiene tipo MIME y los exploradores lo mandan como
+`text/plain` u `octet-stream`.
+
+Lo que se prueba en el teléfono, en este orden:
 
 1. Exportar dos conexiones desde la PC (una con túnel por clave), pasar el
    archivo, importar. La tarjeta dice qué falta.

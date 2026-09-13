@@ -4,7 +4,7 @@ import type {
   ConnectionView,
   ImportPreview,
 } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
-import { Button, EnvBadge } from "../components/ui";
+import { Button, ConfirmDialog, EnvBadge } from "../components/ui";
 import type { ToastItem } from "../components/ui";
 import { ImportConnectionsDialog } from "../screens/ImportConnectionsDialog";
 import { elegirLibreta } from "../lib/libreta";
@@ -34,6 +34,8 @@ export function Conexiones({
   onError: (mensaje: string | null) => void;
 }) {
   const [credenciales, setCredenciales] = useState<ConnectionView | null>(null);
+  const [aBorrar, setABorrar] = useState<ConnectionView | null>(null);
+  const [borrando, setBorrando] = useState(false);
   const [importacion, setImportacion] = useState<{
     preview: ImportPreview;
     importing: boolean;
@@ -78,6 +80,24 @@ export function Conexiones({
     });
   }
 
+  /** Borra la conexión y, con ella, sus secretos del vault: lo hace Go. */
+  async function borrar() {
+    if (!aBorrar) return;
+    setBorrando(true);
+    onError(null);
+    try {
+      await Connections.Delete(aBorrar.connection.id);
+      setABorrar(null);
+      onRecargar();
+      onAviso({ id: `del-${Date.now()}`, tone: "success", title: `Se borró «${aBorrar.connection.name}»` });
+    } catch (err) {
+      setABorrar(null);
+      onError(textoDe(err));
+    } finally {
+      setBorrando(false);
+    }
+  }
+
   return (
     <>
       <header className={styles.barra}>
@@ -112,6 +132,7 @@ export function Conexiones({
                 v={v}
                 onConectar={() => onConectar(v)}
                 onCredenciales={() => setCredenciales(v)}
+                onBorrar={() => setABorrar(v)}
               />
             ))}
           </div>
@@ -133,6 +154,21 @@ export function Conexiones({
         />
       ) : null}
 
+      <ConfirmDialog
+        open={aBorrar !== null}
+        title="Borrar la conexión"
+        severidad="aviso"
+        etiqueta={borrando ? "Borrando…" : "Borrar"}
+        onClose={() => {
+          if (!borrando) setABorrar(null);
+        }}
+        onConfirm={() => void borrar()}
+      >
+        Se borra <strong>{aBorrar?.connection.name}</strong> de este teléfono, con su contraseña y
+        lo que tuviera del túnel. La libreta de la PC no se toca: si la volvés a importar, hay que
+        cargar las credenciales otra vez.
+      </ConfirmDialog>
+
       {importacion ? (
         <ImportConnectionsDialog
           preview={importacion.preview}
@@ -150,10 +186,12 @@ function Conexion({
   v,
   onConectar,
   onCredenciales,
+  onBorrar,
 }: {
   v: ConnectionView;
   onConectar: () => void;
   onCredenciales: () => void;
+  onBorrar: () => void;
 }) {
   const c = v.connection;
   const prod = c.environment === "production";
@@ -187,6 +225,9 @@ function Conexion({
       </div>
       {problemas.length > 0 ? <div className={styles.error}>{problemas.join(" · ")}</div> : null}
       <div className={styles.acciones}>
+        <Button variant="ghost" onClick={onBorrar} aria-label={`Borrar ${c.name}`} style={{ flex: "0 0 auto" }}>
+          Borrar
+        </Button>
         <Button onClick={onCredenciales}>Credenciales</Button>
         <Button variant="primary" onClick={onConectar} disabled={problemas.length > 0}>
           Conectar
