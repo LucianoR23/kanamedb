@@ -946,6 +946,17 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**El APK se construye con el resto: job `build-android` en `build`, y en el
+release.** El workflow `android` sobre `spike/android` era del spike; ahora la
+app del teléfono es un producto y el APK sale en cada push a `main` como los
+otros tres sistemas, y con un tag entra en el borrador del release con su
+`SHA256SUMS` (siete archivos). Firma: sin secretos, el keystore de debug del
+runner es distinto en cada corrida —una máquina nueva—, así que dos APK
+seguidos no se instalan uno encima del otro; con `ANDROID_KEYSTORE_B64` y
+las tres contraseñas/alias (que `build.gradle` ya leía) se firma siempre con
+la misma clave. El keystore lo crea y guarda el usuario, fuera del repo; el
+README dice cómo y avisa que perderlo es no poder actualizar más.
+
 **Android, segunda tanda: filtrar y ordenar, guardadas con nombre, mantener
 apretado para copiar; «Abrir con» descartado.** Las tres eran «lo que
 agregaría primero si el uso lo pide» y el uso lo pidió el mismo día. Ninguna

@@ -430,7 +430,114 @@ jobs:
           path: bin/kaname-mac-universal.zip
           if-no-files-found: error
 
-  # Con un tag v*: un release EN BORRADOR con los seis archivos y su
+
+  # Android: el APK arm64, en cada push a main como los demás sistemas y en
+  # el release con un tag. Vivía en un workflow aparte (`android`, sobre
+  # `spike/android`) mientras era un spike; desde que la app del teléfono es
+  # un producto, se construye junto con el resto.
+  #
+  # Va por CI y no en la máquina de desarrollo porque el Taskfile de Android
+  # de Wails solo resuelve el toolchain del NDK en Linux y macOS x86_64; el
+  # equipo de desarrollo es windows/arm64. Es la única plataforma del
+  # proyecto que necesita cgo.
+  build-android:
+    name: Build android-arm64
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      # Pineado como todo lo demás. Es el que sugiere el propio Taskfile de
+      # Wails cuando no encuentra ninguno.
+      NDK_VERSION: 26.3.11579264
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # AGP 8.7 y el wrapper de Gradle 9.2 piden JDK 17 como mínimo.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # El runner trae el SDK en $ANDROID_HOME con cmdline-tools; lo que se
+      # instala explícito es el NDK, la plataforma y las build-tools, con
+      # versión, para que el build no dependa de lo que la imagen tenga hoy.
+      - name: NDK, plataforma y build-tools
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      # El CLI de Wails en Linux se compila con cgo y linkea GTK4 y WebKitGTK
+      # (internal/operatingsystem), aunque el objetivo sea Android. Son los
+      # mismos -dev del job build-linux.
+      - name: Dependencias de GTK4 y WebKitGTK para compilar el CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Instalar el CLI de Wails
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - name: Instalar deps del frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # La firma. Con los cuatro secretos puestos, el APK sale firmado con ESA
+      # clave en cada corrida, y el teléfono acepta la versión nueva encima de
+      # la vieja. Sin ellos, Gradle firma con el keystore de debug del runner,
+      # que es una máquina nueva cada vez: una clave distinta por corrida, y
+      # el teléfono rechaza actualizar («el paquete entra en conflicto») hasta
+      # desinstalar, con lo que se pierde lo guardado en el vault. Cómo
+      # crearlos, en el README, «Android › Firmar».
+      - name: Keystore de firma, si hay
+        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/kaname.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/kaname.jks" >> "$GITHUB_ENV"
+
+      # Dos pasos y no `android:package`, para que si uno falla se vea cuál:
+      # primero el .so (overlay + bindings + frontend + go build c-shared con
+      # el NDK), después Gradle. Build de producción (-trimpath, -w -s, tag
+      # production).
+      - name: libwails.so (bindings + frontend + go build c-shared)
+        run: wails3 task android:build ARCH=arm64 PRODUCTION=true
+
+      - name: APK (Gradle assembleRelease)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: wails3 task android:assemble:apk:release
+
+      - name: Tamaños y nombre por arquitectura
+        run: |
+          ls -l build/android/app/src/main/jniLibs/arm64-v8a/libwails.so bin/kaname.apk
+          mv bin/kaname.apk bin/kaname-android-arm64.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaname-android-arm64
+          path: bin/kaname-android-arm64.apk
+          if-no-files-found: error
+
+  # Con un tag v*: un release EN BORRADOR con los siete archivos y su
   # SHA256SUMS. Borrador a propósito: se publica a mano después de mirar las
   # notas y, si hay con qué, de abrir el binario de macOS o Linux en una
   # máquina de verdad. Es el único job que escribe en el repositorio.
@@ -440,7 +547,7 @@ jobs:
     # ${{ github.ref_name }}» parece un error que no es.
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, build-linux, build-macos]
+    needs: [build, build-linux, build-macos, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

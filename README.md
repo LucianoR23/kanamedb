@@ -149,7 +149,20 @@ wails3 task build ARCH=amd64       # win-x64
 wails3 task build ARCH=arm64       # win-arm64
 ```
 
-El binario queda en `bin/kaname.exe` (~14 MB: pgx, el cliente SSH y el keychain).
+El binario queda en `bin/kaname.exe` (~23 MB: pgx, el cliente SSH, el keychain
+y el frontend embebido). Es portable: no instala nada ni escribe en el
+registro, así que «instalarlo» es copiarlo a un lugar fijo y hacerle un acceso
+directo. El lugar habitual de Windows para programas por usuario es
+`%LOCALAPPDATA%\Programs\Kaname\kaname.exe`; para actualizar, se pisa el
+`.exe` con el nuevo (la libreta y las preferencias viven aparte, en
+`%APPDATA%\Kaname`, y no se tocan):
+
+```powershell
+$d = "$env:LOCALAPPDATA\Programs\Kaname"; mkdir -Force $d | Out-Null
+Copy-Item bin\kaname.exe $d -Force
+$l = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\Kaname.lnk")
+$l.TargetPath = "$d\kaname.exe"; $l.WorkingDirectory = $d; $l.Save()
+```
 
 > No uses `go build` directo. Se saltea el tag `production` —que deja el webview
 > en modo desarrollo— y el `.syso` con ícono, manifest de DPI y metadata de versión.
@@ -173,9 +186,9 @@ wails3 task darwin:package:universal   # bin/kaname.app, arm64 + x86_64
 Un build hecho en la propia máquina no pasa por SmartScreen ni por Gatekeeper:
 esos avisos son para lo que se **descarga**. Ver [Releases](#releases).
 
-**Android** se construye solo en CI: el workflow `android` —a mano desde
-Actions eligiendo la rama, o en cada push a `spike/android`— deja
-`kaname-android-arm64.apk` como artifact. Ver [Android](#android).
+**Android** se construye solo en CI: el job `build-android` del workflow
+`build` deja `kaname-android-arm64.apk` como artifact en cada push a `main`, y
+con un tag entra en el release. Ver [Android](#android).
 
 Los íconos no se generan en el build: el `.ico` de Windows, los nueve PNG de
 hicolor de Linux y el `.icns` de macOS vienen del brand kit y están
@@ -490,12 +503,19 @@ que la protección «Bloquear DROP y TRUNCATE»—. El porqué, en
 
 ### Instalar
 
-No está en Play. El workflow `android` de GitHub Actions deja el APK
-(`kaname-android-arm64.apk`) como artifact, firmado con el keystore de debug:
+No está en Play. CI construye `kaname-android-arm64.apk` en cada push a
+`main` (artifact del workflow `build`, que solo se puede bajar con sesión en
+GitHub) y lo suma al release cuando hay tag (descarga pública, con su
+`SHA256SUMS`):
 
 1. Bajar el APK al teléfono y abrirlo; Android pide permitir «instalar apps
    desconocidas» para el navegador o el explorador desde el que se abre.
 2. O con cable: `adb install kaname-android-arm64.apk`.
+
+Para **actualizar** encima de una versión instalada, el APK nuevo tiene que
+estar firmado con la misma clave que el anterior; si no, Android lo rechaza
+(«el paquete entra en conflicto») y hay que desinstalar, perdiendo lo guardado
+en el vault. Ver [Firmar](#firmar).
 
 Pide Android 11 (API 30) o más nuevo, y **huella o rostro registrados**: sin
 biometría fuerte Kaname no guarda contraseñas, y lo dice.
@@ -529,6 +549,38 @@ túnel por clave, la clave privada **pegada como texto** —en el teléfono no h
   mismo aparato. Y el WebView es el del sistema: lo actualiza Play y reporta a
   su dueño por su cuenta, como WebView2 en Windows.
 
+### Firmar
+
+Sin nada configurado, Gradle firma el APK de release con el **keystore de
+debug del runner**, y el runner es una máquina nueva en cada corrida: cada APK
+sale con una clave distinta, así que instalar el segundo pide desinstalar el
+primero. Para que las versiones se instalen una encima de otra, el repo firma
+con una clave propia si están estos cuatro secretos de Actions:
+
+| Secreto | Qué es |
+|---|---|
+| `ANDROID_KEYSTORE_B64` | El `.jks` en base64 |
+| `ANDROID_KEYSTORE_PASSWORD` | Contraseña del keystore |
+| `ANDROID_KEY_ALIAS` | Alias de la clave adentro del keystore |
+| `ANDROID_KEY_PASSWORD` | Contraseña de la clave (puede ser la misma) |
+
+Se crea una vez, **fuera del repo**, con el `keytool` de cualquier JDK (Android
+Studio trae uno en `jbr/bin`):
+
+```sh
+keytool -genkeypair -v -keystore kaname-android.jks -alias kaname \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Kaname"
+base64 -w0 kaname-android.jks | gh secret set ANDROID_KEYSTORE_B64
+gh secret set ANDROID_KEYSTORE_PASSWORD   # pide el valor
+gh secret set ANDROID_KEY_ALIAS --body kaname
+gh secret set ANDROID_KEY_PASSWORD
+```
+
+El `.jks` y su contraseña se guardan como cualquier otra credencial —un gestor
+de contraseñas—: **perderlos es no poder actualizar la app nunca más** sin que
+todos los teléfonos desinstalen. No es la firma de Play ni pasa por ninguna
+tienda; es solo la identidad del paquete para el propio Android.
+
 ### Construir
 
 Solo en CI —el Taskfile de Android de Wails resuelve el NDK únicamente en
@@ -547,8 +599,8 @@ en la URL del webview y las herramientas de desarrollo en modo dispositivo.
 
 ## Releases
 
-Un tag `v*` hace que CI construya los tres sistemas y deje un **release en
-borrador** con seis archivos y su `SHA256SUMS`. El tag tiene que ser la versión
+Un tag `v*` hace que CI construya los cuatro sistemas y deje un **release en
+borrador** con siete archivos y su `SHA256SUMS`. El tag tiene que ser la versión
 de `internal/appinfo/appinfo.go` —el job `release` lo comprueba— y se hace
 sobre un commit que ya está en `main` y en verde:
 
@@ -566,6 +618,7 @@ Lo que deja:
 | `kaname-linux-x64.AppImage` | Se copia, se le da permiso de ejecución y anda. |
 | `kaname-linux-x64.deb`, `kaname-linux-x64.rpm` | Instalan en `/usr/bin` con el `.desktop` y los íconos, y declaran las dependencias. |
 | `kaname-mac-universal.zip` | `Kaname.app`, arm64 + x86_64. |
+| `kaname-android-arm64.apk` | Se instala a mano; pide Android 11 y biometría. Ver [Android](#android). |
 
 El borrador se publica a mano después de mirar las notas. **Nada está
 firmado**, y eso tiene una consecuencia por sistema:
@@ -576,6 +629,10 @@ firmado**, y eso tiene una consecuencia por sistema:
   *Ajustes → Privacidad y seguridad → Abrir de todos modos*. O `xattr -d
   com.apple.quarantine Kaname.app` en la terminal.
 - **Linux**: nada que pasar. No hay cadena de confianza equivalente.
+- **Android**: «instalar apps desconocidas» la primera vez, y Play Protect
+  puede pedir confirmación porque el paquete no viene de la tienda. La firma
+  propia del repo —si está configurada— es para poder actualizar, no para
+  saltear eso.
 
 Quien clona el repo y compila no ve ninguno de esos avisos. Firmar —USD 99 al
 año en macOS, un certificado OV en Windows— está evaluado en `kaname-plan.md` y

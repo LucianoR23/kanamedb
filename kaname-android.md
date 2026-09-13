@@ -341,7 +341,11 @@ trampa de que `.toml` no tiene tipo MIME y los exploradores lo mandan como
 Segunda vuelta (2026-09-12): borrar funciona; el resto seguía funcionando.
 
 Tercera tanda (2026-09-12), a pedido: filtrar y ordenar la tabla, consultas
-guardadas con nombre y mantener apretado para copiar. Sin cambios en Go.
+guardadas con nombre y mantener apretado para copiar. Sin cambios en Go. El
+APK dejó de tener workflow propio: es el job `build-android` de `build`, en
+cada push a `main` y en el release con tag; con los secretos del keystore
+(README › Android › Firmar) sale firmado con la misma clave en cada corrida,
+que es lo que hace falta para actualizar sin desinstalar.
 «Abrir con» para el `.toml` queda **descartado**. Probado en la PC con la app
 real por CDP (`?movil`); pendiente verlo en el teléfono, en particular el
 gesto de mantener apretado sobre el WebView de Android.
