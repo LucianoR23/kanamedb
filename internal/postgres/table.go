@@ -121,7 +121,7 @@ func TableCount(
 	}
 	var n int64
 	if err := pool.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
-		return 0, Classify(err, "el conteo de "+schema+"."+table)
+		return 0, ClassifyStatement(err, "el conteo de "+schema+"."+table)
 	}
 	return n, nil
 }

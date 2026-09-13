@@ -85,7 +85,10 @@ func leerConParams(
 	}
 	tag, err := rr.Close()
 	if err != nil {
-		return nil, nil, Classify(err, "la consulta")
+		// De la sentencia, no de la conexión: acá el servidor ya contestó. Con
+		// Classify, un filtro que compara texto con un entero se mostraba
+		// como «el servidor rechazó la conexión con la consulta».
+		return nil, nil, ClassifyStatement(err, "la consulta")
 	}
 	res.Command = tag.String()
 	res.AffectedRows = tag.RowsAffected()

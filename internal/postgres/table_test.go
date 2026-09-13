@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LucianoR23/kanamedb/internal/query"
 )
 
 func TestQuoteIdent(t *testing.T) {
@@ -207,5 +209,40 @@ func TestConnectStatementTimeoutLoAplicaElServidor(t *testing.T) {
 	}
 	if tardo > 5*time.Second {
 		t.Errorf("tardó %s: el timeout no se aplicó", tardo)
+	}
+}
+
+// Un filtro que el servidor rechaza —texto contra una columna entera— es un
+// error de la SENTENCIA, y tiene que contarse como tal: con SQLSTATE y con lo
+// que dijo el motor. Pasaba por Classify, el de la conexión, y se mostraba «el
+// servidor rechazó la conexión con la consulta», que es falso: el servidor
+// contestó. Lo encontró el filtro del teléfono, 2026-09-12.
+func TestTableDataYCountCuentanElErrorDeLaSentenciaComoTal(t *testing.T) {
+	pool, esquema := conectar(t)
+	ejecutar(t, pool, fmt.Sprintf(`create table %s.t (id int primary key)`, esquema))
+
+	abc := "abc"
+	where := []query.Condition{{Column: "id", Operator: query.OpEq, Values: []*string{&abc}}}
+
+	_, f := TableData(context.Background(), pool, esquema, "t", TableDataOptions{Limit: 10, Where: where})
+	comprobarErrorDeSentencia(t, "TableData", f)
+
+	_, f = TableCount(context.Background(), pool, esquema, "t", where)
+	comprobarErrorDeSentencia(t, "TableCount", f)
+}
+
+func comprobarErrorDeSentencia(t *testing.T, quien string, f *Failure) {
+	t.Helper()
+	if f == nil {
+		t.Fatalf("%s: comparar un entero con %q tendría que fallar", quien, "abc")
+	}
+	if f.SQLState != sqlStateInvalidTextRepr {
+		t.Errorf("%s: SQLState = %q, se esperaba %s", quien, f.SQLState, sqlStateInvalidTextRepr)
+	}
+	if strings.Contains(f.Message, "conexión") {
+		t.Errorf("%s: el mensaje habla de la conexión y el servidor contestó: %q", quien, f.Message)
+	}
+	if !strings.Contains(f.Detail, "invalid input syntax") {
+		t.Errorf("%s: el detalle no trae lo que dijo el motor: %q", quien, f.Detail)
 	}
 }
