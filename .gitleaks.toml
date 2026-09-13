@@ -30,7 +30,7 @@ keywords = ["postgres", "mysql", "mariadb", "sqlserver", "mssql", "mongodb", "re
 [[rules.allowlists]]
 description = "Contraseñas de mentira de los tests y palabras de relleno de los comentarios"
 regexTarget = "secret"
-regexes = ['''^(?i:kaname|secret[ao]?|s3cr3t|contrase[ñn]a|password|clave|hunter2|p4ssw0rd|toor|simple123|uno|dos|a%b|a%40b(?:%3Ac)?|100%descuento)$''']
+regexes = ['''^(?i:kaname|secret[ao]?|s3cr3t|contrase[ñn]a|password|clave|hunter2|p4ssw0rd|toor|simple123|uno|dos|a%b|a%40b(?:%3Ac)?|p%40ss|100%descuento)$''']
 
 # La clave puede llevar prefijo en MAYÚSCULAS (`DBPASSWORD`, `POSTGRES_PASSWORD`)
 # o con guion bajo (`db_password`), y puede ir entre comillas (JSON). Lo que no
