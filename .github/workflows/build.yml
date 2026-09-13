@@ -448,6 +448,8 @@ jobs:
       # Pineado como todo lo demás. Es el que sugiere el propio Taskfile de
       # Wails cuando no encuentra ninguno.
       NDK_VERSION: 26.3.11579264
+      # `secrets` no se puede usar en el `if` de un paso; pasa por env.
+      HAY_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
     steps:
       - uses: actions/checkout@v5
 
@@ -505,11 +507,9 @@ jobs:
       # desinstalar, con lo que se pierde lo guardado en el vault. Cómo
       # crearlos, en el README, «Android › Firmar».
       - name: Keystore de firma, si hay
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        if: ${{ env.HAY_KEYSTORE != '' }}
         run: |
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/kaname.jks"
+          echo "$HAY_KEYSTORE" | base64 -d > "$RUNNER_TEMP/kaname.jks"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/kaname.jks" >> "$GITHUB_ENV"
 
       # Dos pasos y no `android:package`, para que si uno falla se vea cuál:
