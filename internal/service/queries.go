@@ -160,6 +160,9 @@ func (q *Queries) RunIn(ctx context.Context, tabID, runID, sql string) RunResult
 		} else {
 			f = controlDeTransaccion(st.SQL, sesion.db.Dialect())
 		}
+		if f == nil && q.session.soloDatos {
+			f = esquemaEnElTelefono(st.SQL, sesion.db.Dialect())
+		}
 		if f == nil && sesion.conn.Safety.BlockDropTruncate {
 			f = bloqueadaPorPolitica(st.SQL, sesion.db.Dialect())
 		}

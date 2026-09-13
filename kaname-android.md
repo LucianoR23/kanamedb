@@ -337,6 +337,33 @@ propio en `KanameApp.onActivityCreated` más un binding `PendingImport`, con la
 trampa de que `.toml` no tiene tipo MIME y los exploradores lo mandan como
 `text/plain` u `octet-stream`.
 
+Segunda vuelta (2026-09-12): borrar funciona; el resto seguía funcionando.
+
+## Estado del paso 5 (2026-09-12): hecho, salvo la vuelta por los cuatro motores
+
+- **El candado de esquema en el núcleo.** `Session.soloDatos` —true en
+  Android por `solodatos_android.go`, false en escritorio— hace que `Stage` y
+  `StageMany` rechacen con `ErrSchemaLocked` cualquier cambio de `KindSchema`,
+  antes de la confirmación de producción: no hay palabra que lo habilite. Una
+  tanda mixta se rechaza entera. El editor SQL es la otra puerta:
+  `esquemaEnElTelefono` rechaza `CREATE`, `ALTER`, `DROP`, `TRUNCATE`,
+  `RENAME`, `COMMENT`, `GRANT`, `REVOKE` y `REINDEX` por el verbo de cada
+  sentencia, antes de correr ninguna del lote —el mismo mecanismo y la misma
+  fuerza que «Bloquear DROP y TRUNCATE»—. El test corre en cualquier
+  plataforma encendiendo el campo, y se comprobó que falla si se saca el `if`.
+- **Íconos del brand kit**: `build/android/iconos.py` genera el adaptativo
+  (fondo `bg-app` + la marca como capa de frente) y el heredado (tile oscuro)
+  desde `build/appicon.png`; los PNG se commitean. Lección: «--bg-app» dentro
+  de un comentario XML es inválido —dos guiones seguidos— y aapt lo rechaza.
+- **README**: sección «Android» con instalar, traer las conexiones, qué
+  protege y qué no, cuántas veces pide el dedo, y cómo se construye.
+- Los pendientes del spike que quedan a propósito: `WailsForegroundService` y
+  el código de cámara y ubicación del bridge de Wails, sin uso y sin declarar
+  en el manifest.
+
+Falta: la vuelta a mano por los cuatro motores desde el teléfono (leer y
+corregir una fila en Postgres, MySQL, MariaDB y SQLite) y decidir «Abrir con».
+
 Lo que se prueba en el teléfono, en este orden:
 
 1. Exportar dos conexiones desde la PC (una con túnel por clave), pasar el

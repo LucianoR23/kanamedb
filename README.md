@@ -173,22 +173,9 @@ wails3 task darwin:package:universal   # bin/kaname.app, arm64 + x86_64
 Un build hecho en la propia máquina no pasa por SmartScreen ni por Gatekeeper:
 esos avisos son para lo que se **descarga**. Ver [Releases](#releases).
 
-**Android** es un spike (ver `kaname-android.md`) y se construye solo en CI:
-el workflow `android` —a mano desde Actions, o en cada push a `spike/android`—
-deja `kaname-android-arm64.apk` como artifact, firmado con el keystore de
-debug, para instalar con `adb install`. El Taskfile de Android de Wails solo
-resuelve el NDK en Linux/macOS x86_64, y es la única plataforma que necesita
-cgo. Para correrlo en una máquina Linux hacen falta JDK 17, el SDK con
-`platforms;android-35`, `build-tools;35.0.0` y `ndk;26.3.11579264`:
-
-```sh
-wails3 task android:build ARCH=arm64    # overlay + bindings + frontend + libwails.so
-wails3 task android:assemble:apk        # Gradle; deja bin/kaname.apk
-```
-
-La interfaz del teléfono es otra (`frontend/src/mobile/`, mismo backend); se
-elige sola por el user agent de Android. Para verla en la PC, `?movil` en la
-URL del webview con las herramientas de desarrollo en modo dispositivo.
+**Android** se construye solo en CI: el workflow `android` —a mano desde
+Actions eligiendo la rama, o en cada push a `spike/android`— deja
+`kaname-android-arm64.apk` como artifact. Ver [Android](#android).
 
 Los íconos no se generan en el build: el `.ico` de Windows, los nueve PNG de
 hicolor de Linux y el `.icns` de macOS vienen del brand kit y están
@@ -483,8 +470,78 @@ versión del módulo Go.
 Windows x64 y arm64, Linux x64 y macOS universal (arm64 + x86_64). Linux y
 macOS necesitan cgo, así que no se cross-compilan desde Windows: los construye
 CI. Linux pide GTK4 + WebKitGTK 6.0 (Ubuntu 24.04 / Debian 13 o más nuevos);
-macOS, 12 o más nuevo. Android (arm64, API 30+) es un spike: se construye en
-CI y se instala a mano; ver `kaname-android.md`.
+macOS, 12 o más nuevo. Android (arm64, API 30+) es un segundo producto sobre
+el mismo núcleo: se construye en CI y se instala a mano. Ver abajo.
+
+## Android
+
+Kaname en el teléfono es para **leer, consultar y corregir filas**: la lista de
+conexiones, el esquema como lista, las filas como tarjetas, un editor SQL
+reducido y el historial. Editar una fila, agregar una y borrar una pasan por el
+mismo camino que en la PC —vista previa del SQL, confirmación en producción—.
+Lo que no hay: ERD, cambios de esquema, importar CSV, volcados, comparar. Y no
+es solo una omisión de la interfaz: en Android el núcleo rechaza los cambios de
+esquema por las dos puertas —el changeset, por tipo de cambio; el editor SQL,
+por el verbo de cada sentencia (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`…), igual
+que la protección «Bloquear DROP y TRUNCATE»—. El porqué, en
+[`kaname-android.md`](kaname-android.md).
+
+### Instalar
+
+No está en Play. El workflow `android` de GitHub Actions deja el APK
+(`kaname-android-arm64.apk`) como artifact, firmado con el keystore de debug:
+
+1. Bajar el APK al teléfono y abrirlo; Android pide permitir «instalar apps
+   desconocidas» para el navegador o el explorador desde el que se abre.
+2. O con cable: `adb install kaname-android-arm64.apk`.
+
+Pide Android 11 (API 30) o más nuevo, y **huella o rostro registrados**: sin
+biometría fuerte Kaname no guarda contraseñas, y lo dice.
+
+### Traer las conexiones
+
+Las conexiones no se escriben con el pulgar: se **exportan desde la PC**
+(gestor de conexiones → exportar, sin contraseñas), se lleva el archivo al
+teléfono y se importa desde Kaname con el botón ⤓. Después, en cada conexión,
+**Credenciales**: la contraseña de la base, la del bastión si hay túnel y, con
+túnel por clave, la clave privada **pegada como texto** —en el teléfono no hay
+`~/.ssh`; la clave va cifrada como una contraseña más—.
+
+### Qué protege, y qué no
+
+- Las contraseñas y las claves se cifran con una clave AES del **Android
+  Keystore** (StrongBox si el equipo lo tiene) que solo se habilita con la
+  huella o el rostro, **cada vez**. Guardar una contraseña pide el dedo;
+  conectar pide el dedo (dos si hay túnel con contraseña o frase de paso);
+  reemplazar una contraseña, dos. Cambiar la biometría del equipo invalida la
+  clave: lo guardado se borra y hay que cargarlo de nuevo, y Kaname lo dice.
+- La pantalla no sale en capturas, grabaciones ni en la miniatura del selector
+  de apps (`FLAG_SECURE`).
+- Si Kaname queda **dos minutos en segundo plano**, la sesión se cierra sola;
+  al volver, reconectar pide el dedo. Con una consulta o una escritura en
+  curso, espera a que termine.
+- No hay copia de seguridad a la nube de los datos de la app (`allowBackup`
+  apagado), y nada de telemetría: igual que en la PC.
+- **No cubre** un teléfono rooteado ni a una persona a la que se le fuerza el
+  dedo. Es el mismo límite que tiene cualquier gestor de contraseñas en el
+  mismo aparato. Y el WebView es el del sistema: lo actualiza Play y reporta a
+  su dueño por su cuenta, como WebView2 en Windows.
+
+### Construir
+
+Solo en CI —el Taskfile de Android de Wails resuelve el NDK únicamente en
+Linux/macOS x86_64— o en una máquina Linux con JDK 17, el SDK
+(`platforms;android-35`, `build-tools;35.0.0`) y `ndk;26.3.11579264`:
+
+```sh
+wails3 task android:build ARCH=arm64 PRODUCTION=true   # overlay + bindings + frontend + libwails.so
+wails3 task android:assemble:apk:release               # Gradle; deja bin/kaname.apk
+```
+
+Los íconos salen de `build/appicon.png` con `python build/android/iconos.py`
+(Pillow) y se commitean, como los de las otras plataformas. La interfaz del
+teléfono es `frontend/src/mobile/` (mismo backend); en la PC se ve con `?movil`
+en la URL del webview y las herramientas de desarrollo en modo dispositivo.
 
 ## Releases
 

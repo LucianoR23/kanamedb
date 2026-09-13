@@ -33,6 +33,13 @@ var ErrBusy = errors.New("ya hay una escritura en curso sobre esta conexión")
 // conexión la exige.
 var ErrStalePreview = errors.New("la SQL no es la de la vista previa")
 
+// ErrSchemaLocked lo devuelve Stage en el teléfono ante cualquier cambio de
+// esquema. La interfaz de Android no los ofrece; esto es para que el núcleo
+// tampoco los acepte si alguien llama al binding a mano. El editor SQL tiene
+// su propia mitad de la regla en esquemaEnElTelefono. Un cambio de esquema
+// no va en un dispositivo que se pierde (kaname-android.md).
+var ErrSchemaLocked = errors.New("en el teléfono no se cambia el esquema: solo filas")
+
 // ErrRebuildNotAlone lo devuelven Stage y Apply cuando un cambio que
 // reconstruye una tabla comparte el changeset con otro cambio de estructura
 // sobre la misma tabla. Ver reconstruccionesAisladas.
@@ -288,6 +295,15 @@ func (s *Session) StageMany(ctx context.Context, cs []change.Change, confirm str
 	}
 	if len(cs) == 0 {
 		return nil, errors.New("no hay ningún cambio que preparar")
+	}
+	// En el teléfono, datos sí y esquema no. Antes que la confirmación de
+	// producción: no hay palabra que lo habilite.
+	if s.soloDatos {
+		for _, c := range cs {
+			if c.Kind() == change.KindSchema {
+				return nil, fmt.Errorf("%w: %s sobre %s", ErrSchemaLocked, c.Type, c.Target())
+			}
+		}
 	}
 	// Contra producción, un cambio destructivo no entra al changeset «sin
 	// querer». La confirmación va acá y no en cada pantalla que puede prepararlo:

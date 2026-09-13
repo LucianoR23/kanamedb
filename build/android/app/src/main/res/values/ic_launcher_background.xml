@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- El token bg-app del tema oscuro. Lo genera build/android/iconos.py. -->
+    <color name="ic_launcher_background">#17181B</color>
+</resources>

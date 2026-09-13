@@ -48,6 +48,11 @@ type Session struct {
 	// sesión, guardado para devolvérselo a la próxima conexión a la MISMA
 	// base. Ver inactividad.go.
 	rescatado *rescate
+	// soloDatos rechaza en Stage cualquier cambio de esquema. Es true en
+	// Android y false en escritorio (solodatos_*.go); es un campo y no la
+	// constante para que un test lo pueda encender en cualquier plataforma.
+	soloDatos bool
+
 	// ocupado dice si hay una ejecución registrada fuera de Apply (consultas,
 	// exportaciones, volcados). Lo pone NewQueries. Ver inactividad.go.
 	ocupado func() bool
@@ -99,7 +104,7 @@ type openSession struct {
 
 // NewSession arma el servicio.
 func NewSession(st *store.Store, kr Keyring, known *tunnel.KnownHosts, diagramas *layout.Store) *Session {
-	return &Session{store: st, keyring: kr, known: known, layouts: diagramas}
+	return &Session{store: st, keyring: kr, known: known, layouts: diagramas, soloDatos: soloDatosEnEstaPlataforma}
 }
 
 // SessionView es el estado de la conexión tal como lo ve la interfaz.

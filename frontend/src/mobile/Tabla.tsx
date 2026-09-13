@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Queries from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
 import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { Table } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
@@ -49,10 +49,15 @@ export function Tabla({
   const [abierta, setAbierta] = useState<number | null>(null);
   // Cambia para volver a leer desde cero después de aplicar.
   const [version, setVersion] = useState(0);
+  // La última carga pedida. Una respuesta de una carga anterior —«cargar
+  // más» que llega después de un «recargar»— se descarta: si se aplicara,
+  // pegaría una página vieja sobre una lista nueva.
+  const ultima = useRef(0);
 
   const clave = new Set((tabla.columns ?? []).filter((c) => c.primaryKey).map((c) => c.name));
 
   async function cargar(offset: number) {
+    const pedido = ++ultima.current;
     setCargando(true);
     setError("");
     try {
@@ -66,6 +71,7 @@ export function Tabla({
         limit: PAGINA,
         offset,
       });
+      if (pedido !== ultima.current) return;
       if (!res.ok || !res.result) {
         // Sin sesión Go no lanza: devuelve un fallo. Se pregunta igual.
         if (!(await siLaSesionSeCerro(onSesionCerrada))) {
@@ -79,9 +85,10 @@ export function Tabla({
       setHayMas(nuevas.length === PAGINA);
       setOrdenada((res.orderedBy ?? []).length > 0);
     } catch (err) {
+      if (pedido !== ultima.current) return;
       if (!(await siLaSesionSeCerro(onSesionCerrada))) setError(textoDe(err));
     } finally {
-      setCargando(false);
+      if (pedido === ultima.current) setCargando(false);
     }
   }
 

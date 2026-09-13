@@ -946,6 +946,21 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Android, paso 5: el candado de esquema, los íconos y el README.**
+`Session.soloDatos` (constante por build tag: true en Android) hace que
+`Stage`/`StageMany` rechacen todo `KindSchema` con `ErrSchemaLocked`, antes de
+la confirmación de producción; una tanda mixta se rechaza entera; y el editor
+SQL rechaza el DDL por el verbo de cada sentencia (`esquemaEnElTelefono`, el
+mismo mecanismo que «Bloquear DROP y TRUNCATE») — el review señaló que sin
+eso «el núcleo rechaza cualquier cambio de esquema» era decir de más. Test que
+enciende el campo en cualquier plataforma y que falla si se saca el `if`. Los
+íconos de Android salen del brand kit con `build/android/iconos.py`
+(adaptativo + heredado) y se commitean; «--bg-app» en un comentario XML es
+inválido y aapt lo rechaza, así que el comentario no lleva los guiones. README
+con la sección «Android». Con esto Android queda como primera versión; queda
+la vuelta a mano por los cuatro motores desde el teléfono y «Abrir con» para
+el `.toml`, que se decide después.
+
 **Android, paso 4: el frontend del teléfono, en `feat/android-frontend`.** Un
 solo frontend: `frontend/src/mobile/` comparte bindings, `lib/` y los átomos
 de `components/ui` con el escritorio; `main.tsx` elige por user agent o
