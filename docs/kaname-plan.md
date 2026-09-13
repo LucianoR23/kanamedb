@@ -944,6 +944,32 @@ preview/apply. Todo lo demás es agregable cuando ya lo estés usando.
 Toda decisión técnica que no se deduzca del código va acá, con fecha y motivo.
 Se anota **cuando se toma**, no al final de la iteración.
 
+### Iteración 9 — 2026-09-13
+
+**La interfaz del teléfono según el diseño (M01–M15), primera tanda: la
+entrada.** Claude Design produjo quince pantallas para el teléfono; se
+implementan una por una sobre la app que ya funciona, sin tocar Go. Lo que
+cambió de base, y vale para todas: (1) la raíz del teléfono lleva
+`data-movil`, y con eso `Dialog`, `ConfirmDialog` y `Toast` de
+`components/ui` se vuelven **hojas** —pegadas abajo, ancho completo, botones
+de 48 px, velo rojo en producción (`--scrim-prod`, token nuevo)— sin duplicar
+componentes ni saltearse la regla de «nada nativo»; (2) `useConectar` devuelve
+además `estado` y `acciones`, así el teléfono dibuja su propio conectando /
+clave del host / error a pantalla completa sobre la misma máquina de estados
+que el escritorio —la que garantiza que el bastión no reciba credenciales
+antes del TOFU—; (3) `Selector.tsx` reemplaza al `Combobox` en el teléfono:
+un campo que abre una hoja con la lista y buscador, porque una lista
+flotante queda debajo del teclado. Dos cosas del diseño se corrigieron en vez
+de copiarse: M02 decía que sin biometría fuerte se protege con el PIN, y la
+app no guarda —se muestra el error real—; M01 deshabilitaba «Conectar» cuando
+falta la contraseña, y una base con acceso sin contraseña existe: queda en
+segundo plano, no apagado. Hecho en esta tanda: M01 Conexiones, M02
+Credenciales (pantalla completa, con la hoja «confirmá con tu huella»
+mientras Go espera el dedo), M03 clave del host, M04 conectando y error.
+Las pantallas de la sesión (M05–M15) siguen con sus clases anteriores,
+sostenidas por un bloque transitorio al final de `mobile.module.css` que se
+borra con la última migrada.
+
 ### Iteración 9 — 2026-09-12
 
 **El APK se construye con el resto: job `build-android` en `build`, y en el

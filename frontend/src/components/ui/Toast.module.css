@@ -67,3 +67,43 @@
   align-self: flex-start;
 }
 .close:hover { color: var(--text-1); }
+
+/* ---------------------------------------------------------------- teléfono
+
+   En el teléfono (raíz con `data-movil`) el toast va abajo, sobre la barra de
+   pestañas y sin taparla, del ancho de la pantalla, con el borde entero del
+   color del tono y un glifo adelante: ✓ para lo que salió, ✕ para lo que no,
+   · para un aviso. Entra desde abajo, que es donde vive. Ver M15. */
+:global([data-movil]) .stack {
+  left: 16px;
+  right: 16px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  width: auto;
+}
+:global([data-movil]) .toast {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+}
+:global([data-movil]) .toast::before {
+  content: "·";
+  flex: none;
+  font: 700 13px/1.4 var(--font-mono);
+  color: var(--text-3);
+}
+:global([data-movil]) .success { border-color: var(--success); }
+:global([data-movil]) .success::before { content: "✓"; color: var(--success); }
+:global([data-movil]) .error { border-color: var(--danger); }
+:global([data-movil]) .error::before { content: "✕"; color: var(--danger); }
+:global([data-movil]) .warning { border-color: var(--warning); }
+:global([data-movil]) .warning::before { content: "!"; color: var(--warning); }
+:global([data-movil]) .info { border-color: var(--border-strong); }
+:global([data-movil]) .title { font: 500 14px/1.4 var(--font-ui); }
+:global([data-movil]) .detail { font-size: 12px; }
+:global([data-movil]) .close { width: 24px; font-size: 13px; }
+@starting-style {
+  :global([data-movil]) .toast { transform: translateY(8px); }
+}
+:global([data-movil]) .saliendo { transform: translateY(8px); }

@@ -21,6 +21,11 @@ import type { ConnectionFailure } from "../screens/ConnectionError";
  * host pendiente, fallo) y de sus diálogos; quien lo usa solo dice qué hacer
  * al conectar y qué hacer si la persona quiere editar la conexión desde el
  * error.
+ *
+ * Devuelve dos formas de lo mismo: `dialogos`, ya dibujados como los usa el
+ * escritorio, y `estado` + `acciones`, para que el teléfono dibuje los suyos
+ * —hojas a pantalla completa— sobre exactamente la misma máquina de estados.
+ * Lo que no se duplica es la decisión; la piel sí puede ser otra.
  */
 export function useConectar({
   onStart,
@@ -131,6 +136,10 @@ export function useConectar({
       }
       onConnected();
     } catch (err) {
+      // Cancelada por la persona: la promesa de Wails rechaza con CancelError
+      // y eso no es un fallo que mostrar —en el teléfono terminaba en la
+      // pantalla de error con «Reintentar», por haber apretado Cancelar—.
+      if (err instanceof Error && err.name === "CancelError") return;
       // El servicio devuelve el fallo ya interpretado; si el puente falla, se
       // muestra lo que haya en vez de nada.
       const f = err as Partial<ConnectionFailure> | undefined;
@@ -210,5 +219,47 @@ export function useConectar({
     </>
   );
 
-  return { connect, dialogos, conectando: conectando !== null };
+  /** El estado crudo, para quien dibuja sus propias pantallas. */
+  const estado = {
+    conectando: conectando ? { view: conectando.view } : null,
+    hostKey: hostKey ? { view: hostKey.view, inspection: hostKey.inspection } : null,
+    failure,
+  };
+
+  /** Las mismas acciones que disparan los diálogos de arriba. */
+  const acciones = {
+    cancelar() {
+      if (!conectando) return;
+      conectando.cancelar();
+      setConectando(null);
+    },
+    cancelarHostKey() {
+      setHostKey(null);
+    },
+    conectarUnaVez() {
+      if (!hostKey) return;
+      const { view, inspection } = hostKey;
+      setHostKey(null);
+      void conectarDeVerdad(view, inspection.presented.fingerprint);
+    },
+    confiar() {
+      if (!hostKey) return;
+      const { view, inspection } = hostKey;
+      setHostKey(null);
+      void HostsSvc.Trust(inspection.address, inspection.authorizedKey)
+        .then(() => conectarDeVerdad(view))
+        .catch((err) => onError?.(err instanceof Error ? err.message : String(err)));
+    },
+    cerrarError() {
+      setFailure(null);
+    },
+    reintentar() {
+      if (!failure) return;
+      const view = failure.connection;
+      setFailure(null);
+      void connect(view);
+    },
+  };
+
+  return { connect, dialogos, conectando: conectando !== null, estado, acciones };
 }

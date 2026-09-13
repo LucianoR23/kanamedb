@@ -11,6 +11,9 @@ import { cargar as cargarPreferencias } from "../lib/preferencias";
 import { textoDe } from "../lib/dialogos";
 import { useConectar } from "../lib/useConectar";
 import { Conexiones } from "./Conexiones";
+import { Conectando, ErrorDeConexion } from "./Conectar";
+import { ClaveDelHost } from "./ClaveDelHost";
+import { Credenciales } from "./Credenciales";
 import { Sesion } from "./Sesion";
 import styles from "./mobile.module.css";
 
@@ -22,12 +25,17 @@ import styles from "./mobile.module.css";
  * lo demás —árbol, consulta, historial, ajustes— vive dentro de la sesión con
  * pestañas abajo. El backend es exactamente el mismo que el de escritorio;
  * lo que cambia es la forma.
+ *
+ * La raíz lleva `data-movil`: es lo que convierte los diálogos y los toasts
+ * de `components/ui` en hojas del teléfono (M01–M15).
  */
 export function Mobile() {
   const [conexiones, setConexiones] = useState<ConnectionView[] | null>(null);
   const [sesion, setSesion] = useState<SessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<ToastItem | null>(null);
+  // Credenciales abiertas desde el error de conexión, para arreglar y volver.
+  const [credenciales, setCredenciales] = useState<ConnectionView | null>(null);
 
   async function recargar() {
     const lista = (await Connections.List()) ?? [];
@@ -87,23 +95,24 @@ export function Mobile() {
     return () => document.removeEventListener("visibilitychange", alVolver);
   }, [sesion]);
 
-  const { connect, dialogos } = useConectar({
+  // El hook es dueño del orden inspección → clave del host → conexión; acá
+  // solo se dibujan sus tres estados con las pantallas del teléfono.
+  const { connect, estado, acciones } = useConectar({
     onStart: () => setError(null),
     onConnected: () => void refrescarSesion(),
     onError: setError,
   });
 
-  if (conexiones === null) {
-    return (
-      <div className={styles.app}>
-        <div className={styles.vacio}>Cargando…</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.app}>
-      {sesion ? (
+  function contenido() {
+    if (conexiones === null) {
+      return (
+        <div className={styles.centro}>
+          <span className={styles.aro} />
+        </div>
+      );
+    }
+    if (sesion) {
+      return (
         <Sesion
           sesion={sesion}
           onDesconectar={() => {
@@ -119,17 +128,65 @@ export function Mobile() {
           }}
           onAviso={setAviso}
         />
-      ) : (
-        <Conexiones
-          conexiones={conexiones}
-          error={error}
-          onConectar={(v) => void connect(v)}
-          onRecargar={() => recargar().catch((err) => setError(textoDe(err)))}
-          onAviso={setAviso}
-          onError={setError}
+      );
+    }
+    if (estado.conectando) {
+      return <Conectando view={estado.conectando.view} onCancelar={acciones.cancelar} />;
+    }
+    if (estado.failure) {
+      return (
+        <ErrorDeConexion
+          failure={estado.failure}
+          onVolver={acciones.cerrarError}
+          onReintentar={acciones.reintentar}
+          onCredenciales={() => {
+            const view = estado.failure?.connection ?? null;
+            acciones.cerrarError();
+            setCredenciales(view);
+          }}
         />
+      );
+    }
+    return (
+      <Conexiones
+        conexiones={conexiones}
+        error={error}
+        onConectar={(v) => void connect(v)}
+        onRecargar={() => recargar().catch((err) => setError(textoDe(err)))}
+        onAviso={setAviso}
+        onError={setError}
+      />
+    );
+  }
+
+  return (
+    <div className={styles.app} data-movil="">
+      {credenciales ? (
+        <Credenciales
+          view={credenciales}
+          onClose={() => {
+            setCredenciales(null);
+            void recargar().catch((err) => setError(textoDe(err)));
+          }}
+          onSaved={(mensaje) => {
+            setCredenciales(null);
+            void recargar().catch((err) => setError(textoDe(err)));
+            setAviso({ id: `cred-${Date.now()}`, tone: "success", title: mensaje });
+          }}
+        />
+      ) : (
+        contenido()
       )}
-      {dialogos}
+
+      {estado.hostKey ? (
+        <ClaveDelHost
+          inspection={estado.hostKey.inspection}
+          onCancelar={acciones.cancelarHostKey}
+          onConectarUnaVez={acciones.conectarUnaVez}
+          onConfiar={acciones.confiar}
+        />
+      ) : null}
+
       {aviso ? <ToastStack toasts={[aviso]} onDismiss={() => setAviso(null)} /> : null}
     </div>
   );

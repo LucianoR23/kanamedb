@@ -340,6 +340,14 @@ trampa de que `.toml` no tiene tipo MIME y los exploradores lo mandan como
 
 Segunda vuelta (2026-09-12): borrar funciona; el resto seguía funcionando.
 
+Rediseño (2026-09-13, en curso): Claude Design entregó M01–M15 para el
+teléfono y se implementan sobre la app que ya funciona. Base común: raíz
+`data-movil` que vuelve hojas a los diálogos y toasts de `components/ui`,
+`Barra.tsx`, `Selector.tsx` (desplegable en hoja con buscador) y
+`useConectar` exponiendo estado y acciones. Hechas: M01 Conexiones, M02
+Credenciales, M03 Clave del host (`ClaveDelHost.tsx`), M04 Conectando y error
+(`Conectar.tsx`). Pendientes: M05–M15 (sesión). Ver el registro del plan.
+
 Tercera tanda (2026-09-12), a pedido: filtrar y ordenar la tabla, consultas
 guardadas con nombre y mantener apretado para copiar. Sin cambios en Go. El
 APK dejó de tener workflow propio: es el job `build-android` de `build`, en

@@ -122,3 +122,39 @@
 .size_md { --dialog-max: 520px; }
 .size_lg { --dialog-max: min(720px, calc(100vw - 48px)); }
 .size_xl { --dialog-max: min(980px, calc(100vw - 48px)); }
+
+/* ---------------------------------------------------------------- teléfono
+
+   Con `data-movil` en la raíz (frontend/src/mobile), todo diálogo es una
+   HOJA: pegada abajo, del ancho de la pantalla menos 16 px por lado, con el
+   borde fuerte y los textos y botones del tamaño del dedo. Es una sola regla
+   para todos —confirmaciones, vista previa, clave del host, credenciales—
+   porque un diálogo centrado y chico en un teléfono queda lejos del pulgar y
+   parece de otra aplicación. Ver M01–M15 en el proyecto de diseño. */
+:global([data-movil]) .scrim { place-items: end center; padding: 16px; }
+:global([data-movil]) .scrim:has(.production) { background: var(--scrim-prod); }
+:global([data-movil]) .dialog {
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  border-color: var(--border-strong);
+}
+:global([data-movil]) .production { border-color: var(--danger); }
+:global([data-movil]) .prodStripe { height: 4px; }
+:global([data-movil]) .header { padding: 16px 18px 4px; border-bottom: 0; }
+:global([data-movil]) .production .header { background: transparent; }
+:global([data-movil]) .title { font: 600 17px var(--font-ui); color: var(--text-1); }
+:global([data-movil]) .close {
+  width: 36px;
+  height: 36px;
+  margin: -8px -10px -8px 0;
+  font-size: 16px;
+  color: var(--text-2);
+}
+:global([data-movil]) .body { padding: 8px 18px 14px; font: 400 13.5px/1.65 var(--font-ui); }
+:global([data-movil]) .footer {
+  padding: 4px 18px 18px;
+  gap: 10px;
+  border-top: 0;
+  background: transparent;
+}
+:global([data-movil]) .footer > * { flex: 1; min-height: 48px; border-radius: var(--r-lg); font-size: 15px; }

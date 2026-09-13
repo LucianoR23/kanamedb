@@ -1,6 +1,8 @@
-/* La interfaz del teléfono. Mismos tokens que el escritorio, otra forma:
-   una columna, tarjetas en vez de grilla, dedo en vez de puntero. Ver
-   kaname-android.md. Nada de colores literales: todo sale de tokens.css. */
+/* La interfaz del teléfono. Mismos tokens que el escritorio, otra forma: una
+   columna, tarjetas en vez de grilla, dedo en vez de puntero. Sigue M01–M15
+   del proyecto de diseño (ver kaname-android.md). Nada de colores literales:
+   todo sale de tokens.css. Los diálogos y los toasts se vuelven hojas por la
+   raíz `data-movil` (Dialog.module.css, Toast.module.css). */
 
 .app {
   position: fixed;
@@ -10,113 +12,1704 @@
   background: var(--bg-app);
   color: var(--text-1);
   font-family: var(--font-ui);
-  font-size: 15px;
-  line-height: 1.4;
-  /* El teclado, la barra de estado y el gesto de volver. */
+  font-size: 14px;
+  line-height: 1.45;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
 }
 
-/* ---------------------------------------------------------------- barra */
-
-.barra {
+/* Una pantalla dentro de la app: barra arriba, cuerpo con scroll, pie. */
+.pantalla {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
-  flex: none;
+  flex-direction: column;
 }
 
-.titulo {
+/* ----------------------------------------------------------------- barra */
+
+.barra {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 60px;
+  padding: 0 10px 0 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.barraConAtras {
+  padding-left: 2px;
+}
+
+/* En producción la barra entera se lava de rojo: no es un chip, es el
+   ambiente. */
+.barraProd {
+  background: var(--prod-wash);
+  border-bottom-color: var(--env-prod-border);
+}
+
+.tituloCaja {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
-.titulo strong {
-  font-size: 16px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.titulo small {
-  font-size: 12px;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.prod {
-  background: var(--prod-wash);
-}
-
-/* Botón de icono de la barra: 44 px de área táctil, sin fondo. */
-.icono {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-2);
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-sm);
-  display: inline-flex;
+.tituloFila {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  font: inherit;
-  font-size: 20px;
-  flex: none;
+  gap: 8px;
+  min-width: 0;
 }
 
-.icono:active {
-  background: var(--bg-active);
+.titulo {
+  font: 600 17px/1.25 var(--font-ui);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.icono:disabled {
-  color: var(--text-dim);
+/* Lo que entra o sale de una base va en mono: el nombre de una tabla es un
+   identificador, no una palabra de la app. */
+.tituloMono {
+  font: 600 16px/1.25 var(--font-mono);
 }
 
-/* El botón de filtrar/ordenar cuando hay algo puesto. */
-.iconoActivo {
+.subtitulo {
+  font: 400 12px/1.3 var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtituloAcento {
   color: var(--accent);
 }
 
-/* ------------------------------------------------------------- contenido */
+/* Botón de icono plano (volver, recargar): 44 px, sin fondo. */
+.plano {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+  color: var(--text-1);
+  font: 400 20px var(--font-mono);
+}
+
+.plano:active {
+  background: var(--bg-active);
+}
+
+.plano:disabled {
+  color: var(--text-dim);
+}
+
+/* Botón de icono con borde (importar, filtrar): la acción de la pantalla. */
+.accion {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--bg-elev);
+  color: var(--text-1);
+  font: 400 16px var(--font-mono);
+}
+
+.accion:active {
+  background: var(--bg-active);
+}
+
+.accion:disabled {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
+.accionActiva {
+  border-color: var(--accent);
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+/* La cabecera con más que el título: buscador, pestañas, editor. */
+.cabecera {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.cabeceraProd {
+  background: var(--prod-wash);
+  border-bottom-color: var(--env-prod-border);
+}
+
+/* ---------------------------------------------------------------- cuerpo */
 
 .cuerpo {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 12px 12px 24px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cuerpoGap12 {
+  gap: 12px;
+}
+
+.cuerpoGap10 {
+  gap: 10px;
+}
+
+.cuerpoGap20 {
+  gap: 20px;
+}
+
+/* Deja lugar al botón flotante de abajo. */
+.cuerpoConFlotante {
+  padding-bottom: 90px;
+}
+
+/* Centrado vertical: conectando, errores de pantalla entera. */
+.cuerpoCentrado {
+  justify-content: center;
+}
+
+.pie {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+
+.pie > * {
+  flex: 1;
+  min-height: 48px;
+  border-radius: var(--r-lg);
+  font-size: 15px;
+}
+
+.pie > .fijo {
+  flex: none;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+/* El botón principal flotando sobre la lista (Nueva fila). */
+.flotante {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+}
+
+.flotante > * {
+  width: 100%;
+  min-height: 50px;
+  border-radius: var(--r-lg);
+  font-size: 15px;
+  box-shadow: var(--shadow-menu);
+}
+
+/* ------------------------------------------------------------- tarjetas */
+
+.tarjeta {
+  appearance: none;
+  text-align: left;
+  width: 100%;
+  padding: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  color: var(--text-1);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  font: inherit;
+}
+
+button.tarjeta:active {
+  background: var(--bg-elev);
+}
+
+.tarjetaProd {
+  border-color: var(--env-prod-border);
+}
+
+.fila1 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.nombre {
+  flex: 1;
+  min-width: 0;
+  font: 600 16px/1.3 var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nombreMono {
+  font: 500 15.5px/1.3 var(--font-mono);
+}
+
+.uri {
+  font: 400 12.5px/1.4 var(--font-mono);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Estado con punto: «credenciales cargadas», «falta: contraseña». */
+.estado {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 12.5px var(--font-ui);
+  color: var(--text-3);
+}
+
+.estadoMal {
+  color: var(--warning);
+}
+
+.punto {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.estadoMal .punto {
+  background: var(--warning);
+}
+
+.acciones {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.acciones > * {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+.acciones > .fijo {
+  flex: none;
+  padding: 0 14px;
+}
+
+/* Botón de texto rojo con borde neutro: Borrar en una tarjeta. */
+.borrar {
+  color: var(--danger);
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  font: 400 11.5px/1.5 var(--font-mono);
+  background: var(--bg-active);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.chipAviso {
+  font-weight: 500;
+  background: var(--warning-quiet);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+
+.chipMal {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 11px;
+  background: var(--danger-quiet);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+
+.chipSuave {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.comentario {
+  font: 400 12.5px/1.55 var(--font-ui);
+  color: var(--text-3);
+  text-wrap: pretty;
+}
+
+.notaPie {
+  padding: 0 2px;
+  font: 400 12px/1.55 var(--font-ui);
+  color: var(--text-dim);
+}
+
+/* Cabecera de sección: nombre del esquema y cuántas tablas. */
+.seccion {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+
+.seccion strong {
+  font: 600 11.5px var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.seccion span {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* Título de una sección de formulario o de diálogo: FILTRAR, TÚNEL SSH. */
+.rotulo {
+  font: 600 11px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.rotuloFila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rotuloFila span:last-child {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-dim);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.divisor {
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+/* -------------------------------------------------------------- buscador */
+
+.busqueda {
+  height: 44px;
+  padding: 0 12px;
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+}
+
+.busqueda input {
+  height: 100%;
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------ carga y vacíos */
+
+.aro {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: kn-spin 0.9s linear infinite;
+}
+
+.aroChico {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+  animation-duration: 0.8s;
+}
+
+.cargando {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 400 12.5px var(--font-mono);
+  color: var(--text-3);
+}
+
+.esqueleto {
+  flex: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xl);
+  animation: kn-pulse 1.6s ease-in-out infinite;
+}
+
+.esqueleto:nth-child(2) { animation-delay: 0.2s; }
+.esqueleto:nth-child(3) { animation-delay: 0.4s; }
+.esqueleto:nth-child(4) { animation-delay: 0.6s; }
+
+.vacio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px 36px;
+  text-align: center;
+}
+
+.vacioIcono {
+  font: 400 28px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.vacioTitulo {
+  font: 600 16px var(--font-ui);
+  color: var(--text-1);
+}
+
+.vacioTexto {
+  font: 400 13.5px/1.65 var(--font-ui);
+  color: var(--text-3);
+  text-wrap: pretty;
+}
+
+.vacioTexto code {
+  font: 500 12.5px var(--font-mono);
+  color: var(--text-2);
+}
+
+.vacio > button {
+  min-height: 44px;
+  padding: 0 20px;
+  margin-top: 4px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+/* --------------------------------------------------- errores y avisos */
+
+/* Tarjeta de error: título con ✕, qué pasó, lo que dijo el motor en mono. */
+.errorTarjeta {
+  padding: 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-xl);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.errorTitulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 15px var(--font-ui);
+  color: var(--text-1);
+}
+
+.errorTitulo::before {
+  content: "✕";
+  font: 700 13px var(--font-mono);
+  color: var(--danger);
+}
+
+.errorTexto {
+  font: 400 13px/1.6 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.errorTexto code {
+  font: 500 12.5px var(--font-mono);
+  color: var(--text-1);
+}
+
+/* Lo que dijo el motor, textual: es lo que se pega en un ticket. */
+.detalleMotor {
+  padding: 10px 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font: 400 11.5px/1.7 var(--font-mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.sugerencia {
+  display: flex;
+  gap: 9px;
+  padding: 11px 12px;
+  background: var(--accent-quiet);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--r-md);
+  font: 400 12.5px/1.6 var(--font-ui);
+  color: var(--text-2);
+}
+
+.sugerencia::before {
+  content: "→";
+  flex: none;
+  font: 400 12px var(--font-mono);
+  color: var(--accent);
+}
+
+.aviso {
+  display: flex;
+  gap: 9px;
+  padding: 12px 14px;
+  background: var(--warning-quiet);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-lg);
+  font: 400 12.5px/1.6 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.aviso::before {
+  content: "!";
+  flex: none;
+  font: 700 12px/1.6 var(--font-mono);
+  color: var(--warning);
+}
+
+.avisoMal {
+  background: var(--danger-quiet);
+  border-color: var(--danger-border);
+}
+
+.avisoMal::before {
+  content: "✕";
+  color: var(--danger);
+}
+
+.avisoTitulo {
+  display: block;
+  font: 600 14px var(--font-ui);
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+
+.notaCaja {
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font: 400 12.5px/1.65 var(--font-ui);
+  color: var(--text-3);
+  text-wrap: pretty;
+}
+
+/* ---------------------------------------------------- tarjeta de fila */
+
+.filaTarjeta {
+  appearance: none;
+  text-align: left;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  color: var(--text-1);
+  display: grid;
+  grid-template-columns: minmax(0, 88px) minmax(0, 1fr);
+  gap: 9px 12px;
+  font: inherit;
+  /* Mantener apretado es nuestro: sin esto el WebView arranca la selección
+     de texto del sistema encima de la hoja con el valor. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+button.filaTarjeta:active {
+  background: var(--bg-elev);
+}
+
+.k {
+  font: 400 12px/1.55 var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v {
+  min-width: 0;
+  font: 400 13px/1.55 var(--font-mono);
+  color: var(--text-1);
+  word-break: break-word;
+  white-space: pre-wrap;
+  /* Tres líneas: una celda con un JSON entero no puede comerse la
+     pantalla; la hoja la muestra entera. */
+  max-height: 62px;
+  overflow: hidden;
+}
+
+.kPk {
+  color: var(--erd-pk);
+}
+
+.vPk {
+  color: var(--erd-pk);
+  font-weight: 500;
+}
+
+.nulo {
+  color: var(--cell-null);
+  font-style: italic;
+}
+
+.vacioValor {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.mas {
+  grid-column: 1 / -1;
+  font: 400 12px var(--font-ui);
+  color: var(--text-dim);
+}
+
+/* Lo puesto en la tabla: orden y filtros como chips, tocable para cambiar. */
+.filtrosPuestos {
+  appearance: none;
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border: 0;
+  border-bottom: 1px dashed var(--border-strong);
+  font: inherit;
+  text-align: left;
+}
+
+.filtrosPuestos:active {
+  background: var(--bg-elev);
+}
+
+.chipFiltro {
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  font: 400 12px/1.5 var(--font-mono);
+  background: var(--accent-quiet);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  word-break: break-word;
+}
+
+.contador {
+  text-align: center;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.cargarMas {
+  min-height: 48px;
+  margin-top: 2px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------------- campos */
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.campoGap8 {
+  gap: 8px;
+}
+
+.margenArriba {
+  margin-top: 8px;
+}
+
+.campoEtiqueta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.campoNombre {
+  font: 500 13px var(--font-mono);
+  color: var(--text-2);
+}
+
+.campoNombrePk {
+  color: var(--erd-pk);
+}
+
+.campoTipo {
+  font: 400 11px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.campoNotNull {
+  font: 600 9.5px var(--font-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.campoRequerido {
+  color: var(--warning);
+}
+
+.campoChip {
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  font: 400 10.5px var(--font-mono);
+  background: var(--bg-active);
+  color: var(--text-dim);
+}
+
+.etiqueta {
+  font: 500 13.5px var(--font-ui);
+  color: var(--text-2);
+}
+
+.ayuda {
+  font: 400 12px/1.5 var(--font-ui);
+  color: var(--text-dim);
+}
+
+.valor {
+  padding: 12px 13px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font: 400 14px/1.5 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 48px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.valorPk {
+  color: var(--erd-pk);
+}
+
+.valorBloqueado {
+  background: var(--bg-panel);
+  border-color: var(--border-subtle);
+  color: var(--text-dim);
+}
+
+.valorEditado {
+  border-color: var(--accent);
+}
+
+/* La entrada de un campo en edición: la misma caja, escribible. */
+.entrada {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 12px 13px;
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  font: 400 14px/1.5 var(--font-mono);
+  resize: vertical;
+}
+
+.entradaEditada {
+  border-color: var(--accent);
+}
+
+.entradaLarga {
+  min-height: 96px;
+}
+
+.miniBotones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.miniBotones > * {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: var(--r-md);
+  font-size: 12px;
+}
+
+.miniMono {
+  font-family: var(--font-mono);
+}
+
+/* Contraseña con el ojo al lado. */
+.secreto {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding-right: 4px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.secreto:focus-within {
+  border-color: var(--accent);
+}
+
+.secretoMal {
+  border-color: var(--danger);
+}
+
+.secreto input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  font: 400 14px var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.secreto input::placeholder {
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+}
+
+.ojo {
+  appearance: none;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-3);
+  font: 400 15px var(--font-mono);
+}
+
+.ojo:active {
+  background: var(--bg-active);
+}
+
+.claveArea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 172px;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  font: 400 11.5px/1.65 var(--font-mono);
+  resize: vertical;
+}
+
+/* --------------------------------------------------- bloques de texto */
+
+.hojaTexto {
+  font: 400 13.5px/1.65 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.hojaTexto code,
+.hojaTexto strong {
+  font: 500 13px var(--font-mono);
+  color: var(--text-1);
+}
+
+/* SQL que se va a ejecutar, o el guardado: mono, con scroll propio. */
+.sqlBloque {
+  margin: 0;
+  padding: 13px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font: 400 12.5px/1.75 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+  max-height: 220px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.sqlApagado {
+  color: var(--text-3);
+  max-height: 120px;
+}
+
+.kw { color: var(--syn-kw); }
+.str { color: var(--syn-str); }
+.num { color: var(--syn-num); }
+.punc { color: var(--syn-punc); }
+
+/* El valor entero en la hoja: acá sí se puede seleccionar, y no se corta. */
+.valorEntero {
+  margin: 0;
+  padding: 12px 13px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font: 400 13px/1.7 var(--font-mono);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 390px;
+  overflow: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.valorEnteroNulo {
+  padding: 16px 13px;
+  font-size: 14px;
+}
+
+.tituloHoja {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.tituloHoja strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 16px var(--font-mono);
+  color: var(--text-1);
+}
+
+.tituloHoja span {
+  flex: none;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.metaChica {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* La palabra de confirmación de producción. */
+.palabra {
+  font: 400 13px var(--font-ui);
+  color: var(--text-2);
+}
+
+.palabra code {
+  font: 600 13px var(--font-mono);
+  color: var(--danger);
+}
+
+.palabraEntrada {
+  height: 48px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+/* Franja de alarma arriba de un diálogo: la clave del host cambió, esto es
+   producción. Va con el texto en el color de «sobre acento», que es el que
+   ya cambia con el tema (ver Button.module.css). */
+.franja {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: -8px -18px 10px;
+  padding: 11px 18px;
+  background: var(--danger);
+  color: var(--text-on-accent);
+  font: 700 13px var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.franja::before {
+  content: "!";
+  font: 700 13px var(--font-mono);
+}
+
+/* Ficha de datos: filas etiqueta/valor con fondo hundido. */
+.ficha {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.fichaFila {
+  display: flex;
+  gap: 12px;
+  padding: 11px 13px;
+  background: var(--bg-inset);
+}
+
+.fichaFila > span:first-child {
+  flex: none;
+  width: 74px;
+  font: 400 12px/1.6 var(--font-ui);
+  color: var(--text-3);
+}
+
+.fichaFila > span:last-child {
+  min-width: 0;
+  font: 400 12.5px/1.6 var(--font-mono);
+  color: var(--text-1);
+  word-break: break-all;
+}
+
+.fichaVieja > span:last-child {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.fichaMal {
+  background: var(--danger-quiet);
+}
+
+.fichaMal > span:first-child,
+.fichaMal > span:last-child {
+  color: var(--danger);
+}
+
+.fichaMal > span:last-child {
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------- segmentado */
+
+/* PillTabs vestido de control segmentado: el de Historial. */
+.segmentado [role="tablist"] {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.segmentado [role="tab"] {
+  flex: 1;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 13.5px var(--font-ui);
+}
+
+.segmentado [role="tab"][aria-selected="true"] {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------- selector */
+
+.selectorDisparador {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  color: var(--text-1);
+  font: 400 13.5px var(--font-mono);
+  text-align: left;
+}
+
+.selectorDisparador:active {
+  border-color: var(--accent);
+}
+
+.selectorDisparador > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectorUi > span:first-child {
+  font-family: var(--font-ui);
+}
+
+.selectorVacio > span:first-child {
+  color: var(--text-dim);
+}
+
+.selectorTag {
+  flex: none;
+  font: 400 11px var(--font-mono);
+  color: var(--text-dim);
+}
+
+.selectorCaret {
+  flex: none;
+  font: 400 10px var(--font-mono);
+  color: var(--text-3);
+}
+
+.selectorLista {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -18px;
+}
+
+.selectorOpcion {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-1);
+  font: 400 14px var(--font-mono);
+  text-align: left;
+}
+
+.selectorOpcionUi {
+  font-family: var(--font-ui);
+}
+
+.selectorOpcion:active {
+  background: var(--bg-active);
+}
+
+.selectorOpcion > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectorElegida {
+  background: var(--bg-sel);
+  font-weight: 500;
+}
+
+.selectorTilde {
+  flex: none;
+  font: 400 12px var(--font-mono);
+  color: var(--accent);
+}
+
+.selectorNada {
+  padding: 20px 0;
+  text-align: center;
+  font: 400 13px var(--font-ui);
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------- condición */
+
+.condicion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
+
+.condicionCabeza {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.condicionCabeza > span {
+  flex: 1;
+  font: 700 10.5px var(--font-ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.condicionCabeza > span.primera {
+  color: var(--accent);
+}
+
+.quitar {
+  appearance: none;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: -6px -6px -6px 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-3);
+  font: 400 14px var(--font-mono);
+}
+
+.quitar:active {
+  background: var(--bg-active);
+}
+
+.valores {
+  display: flex;
+  gap: 10px;
+}
+
+.valores > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.entradaValor {
+  height: 46px;
+  border-radius: var(--r-lg);
+  font-size: 13.5px;
+}
+
+.agregar {
+  min-height: 46px;
+  border-radius: var(--r-lg);
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.direccion {
+  display: flex;
+  gap: 10px;
+}
+
+.direccion > * {
+  flex: 1;
+  min-height: 46px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+/* --------------------------------------------------------------- SQL */
+
+.editor {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 132px;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  font: 400 13px/1.7 var(--font-mono);
+  resize: vertical;
+}
+
+.editorMal {
+  border-color: var(--danger);
+}
+
+.botonera {
+  display: flex;
+  gap: 10px;
+}
+
+.botonera > * {
+  flex: 1;
+  min-height: 44px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+.resumen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font: 500 12px var(--font-mono);
+  color: var(--text-2);
+}
+
+.resumen span {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.corriendo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 36px;
+  text-align: center;
+}
+
+.corriendo > span {
+  font: 400 13px var(--font-mono);
+  color: var(--text-3);
+}
+
+.corriendo > p {
+  margin: 0;
+  font: 400 12.5px/1.6 var(--font-ui);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+/* ---------------------------------------------------------- historial */
+
+.sqlLinea {
+  font: 400 13px/1.4 var(--font-mono);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sqlParrafo {
+  font: 400 12.5px/1.6 var(--font-mono);
+  color: var(--text-2);
+  word-break: break-word;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------ ajustes */
+
+.opcion {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 15px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
+
+button.opcion {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  color: var(--text-1);
+  font: inherit;
+}
+
+button.opcion:active {
+  background: var(--bg-elev);
+}
+
+.opcionTexto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.opcionTexto strong {
+  font: 500 15px var(--font-ui);
+  color: var(--text-1);
+}
+
+.opcionTexto span {
+  font: 400 12.5px/1.5 var(--font-ui);
+  color: var(--text-3);
+}
+
+.opcionTexto .monoChico {
+  font: 400 12px var(--font-mono);
+}
+
+.opcionValor {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 13.5px var(--font-ui);
+  color: var(--text-2);
+}
+
+.opcionValor span:last-child {
+  font: 400 10px var(--font-mono);
+  color: var(--text-3);
+}
+
+.opcion > button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+.proteccion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
+
+.proteccion p {
+  margin: 0;
+  font: 400 12.5px/1.7 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+/* ---------------------------------------------------------- pestañas */
+
+.nav {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+
+.navItem {
+  position: relative;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 60px;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 11.5px var(--font-ui);
+}
+
+.navItem > span:first-child {
+  font: 400 17px/1 var(--font-mono);
+}
+
+.navActivo {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Una consulta corriendo mientras se mira otra cosa. */
+.navPunto {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  margin-left: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: kn-pulse 1.4s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------- conectando */
+
+.centro {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 0 36px;
+  text-align: center;
+}
+
+.centro > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.centroTitulo {
+  font: 600 16px var(--font-ui);
+  color: var(--text-1);
+}
+
+.centroMono {
+  font: 400 12.5px var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.centroTiempo {
+  font: 400 12px var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* Velo con hoja propia sobre la pantalla: «confirmá con tu huella». */
+.velo {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  padding: 16px;
+  background: var(--scrim);
+}
+
+.hoja {
+  width: 100%;
+  padding: 22px 18px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-dialog);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.huella {
+  font: 400 34px/1 var(--font-mono);
+  color: var(--accent);
+  animation: kn-pulse 1.6s ease-in-out infinite;
+}
+
+.hoja strong {
+  font: 600 16px var(--font-ui);
+  color: var(--text-1);
+}
+
+.hoja p {
+  margin: 0;
+  font: 400 13px/1.6 var(--font-ui);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+/* Botón principal solo, ancho completo, en el cuerpo. */
+.grande {
+  min-height: 48px;
+  border-radius: var(--r-lg);
+  font-size: 15px;
+}
+
+.par {
+  display: flex;
+  gap: 10px;
+}
+
+.par > * {
+  flex: 1;
+  min-height: 48px;
+  border-radius: var(--r-lg);
+  font-size: 15px;
+}
+
+.columna {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+.crece {
+  flex: 1;
+}
+
+.centrado {
+  text-align: center;
+}
+
+.textoFuerte {
+  color: var(--text-1);
+}
+
+/* ------------------------------------------------- transitorio: sesión
+
+   Las pantallas de la sesión (M05–M14: Tablas, Tabla, Fila, SQL, Historial,
+   Ajustes) todavía usan los nombres de la hoja anterior. Estas reglas las
+   sostienen hasta que se migren; se borran con la última. */
+
+.icono {
+  composes: plano;
+}
+
+.iconoActivo {
+  color: var(--accent);
+}
+
 .cuerpoSinPadding {
   padding: 0;
   gap: 0;
-}
-
-.vacio {
-  margin: 40px 16px;
-  text-align: center;
-  color: var(--text-3);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
 }
 
 .error {
@@ -129,66 +1722,15 @@
   word-break: break-word;
 }
 
-.aviso {
-  padding: 10px 12px;
-  border-radius: var(--r-sm);
-  background: var(--warning-quiet);
-  border: 1px solid var(--warning-border);
-  color: var(--text-1);
-  font-size: 14px;
-}
-
 .nota {
   color: var(--text-3);
   font-size: 13px;
 }
 
-/* ---------------------------------------------------------------- listas */
-
 .lista {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-/* Una tarjeta tocable: conexión, tabla, fila. */
-.tarjeta {
-  appearance: none;
-  text-align: left;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-panel);
-  color: var(--text-1);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font: inherit;
-}
-
-button.tarjeta:active {
-  background: var(--bg-active);
-}
-
-.tarjetaProd {
-  border-color: var(--env-prod-border);
-}
-
-.fila1 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.fila1 strong {
-  flex: 1;
-  min-width: 0;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .mono {
@@ -198,47 +1740,16 @@ button.tarjeta:active {
   word-break: break-all;
 }
 
-.chip {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--text-3);
-  white-space: nowrap;
-}
-
 .chipOk {
   background: var(--success-quiet);
   color: var(--success);
 }
-
-.chipMal {
-  background: var(--warning-quiet);
-  color: var(--warning);
-}
-
-/* Cabecera de sección dentro de una lista. */
-.seccion {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 2px 2px;
-  color: var(--text-3);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-/* ------------------------------------------------- filas como tarjetas */
 
 .campos {
   display: grid;
   grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
   gap: 3px 10px;
   font-size: 13.5px;
-  /* Mantener apretado es nuestro: sin esto el WebView arranca la selección
-     de texto del sistema encima de la hoja con el valor. */
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -251,7 +1762,6 @@ button.tarjeta:active {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-top: 1px;
 }
 
 .campos dd {
@@ -261,273 +1771,37 @@ button.tarjeta:active {
   word-break: break-word;
   font-family: var(--font-mono);
   font-size: 12.5px;
-  /* Tres líneas y puntos: una celda con un JSON entero no puede comerse la
-     pantalla; el detalle la muestra entera. */
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.nulo {
-  color: var(--cell-null);
-  font-style: italic;
-}
-
 .pk {
   color: var(--erd-pk);
 }
 
-/* Detalle de una fila: un campo por bloque, editable. */
 .detalle {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.campo {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.script {
+  composes: sqlBloque;
 }
 
-.campo label {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-3);
+.sql {
+  composes: editor;
 }
 
-.campo label span {
-  color: var(--text-dim);
-  font-size: 11px;
-}
-
-.valor {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  background: var(--bg-inset);
-  border: 1px solid var(--border-subtle);
-  white-space: pre-wrap;
-  word-break: break-word;
-  min-height: 36px;
-}
-
-.valorEditado {
-  border-color: var(--accent);
-  background: var(--cell-modified);
-}
-
-.valor[data-mantener] {
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-/* El valor entero en la hoja: acá sí se puede seleccionar, y no se corta. */
-.valorEntero {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.45;
-  padding: 10px;
-  border-radius: var(--r-sm);
-  background: var(--bg-inset);
-  border: 1px solid var(--border-subtle);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 50vh;
-  overflow: auto;
-  color: var(--text-1);
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-/* Lo puesto en la tabla: orden y filtros como chips, tocable para cambiar. */
 .vistaPuesta {
-  appearance: none;
+  composes: filtrosPuestos;
   border: 1px dashed var(--border);
   border-radius: var(--r-sm);
   background: transparent;
-  padding: 8px 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font: inherit;
-  text-align: left;
 }
 
-.vistaPuesta .chip {
-  white-space: normal;
-  word-break: break-word;
-  color: var(--text-2);
-}
-
-/* Una condición del filtro, en vertical: columna, operador, valores. */
-.condicion {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-panel);
-}
-
-.condicion .fila1 strong {
-  color: var(--text-3);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.campo textarea {
-  width: 100%;
-  box-sizing: border-box;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  min-height: 40px;
-  resize: vertical;
-}
-
-.acciones {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.acciones > * {
-  flex: 1;
-}
-
-/* Botonera fija abajo del contenido, para acciones de la pantalla. */
-.pie {
-  flex: none;
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-}
-
-.pie > * {
-  flex: 1;
-}
-
-/* Botones de 44 px: el mínimo tocable. */
-.pie button,
-.acciones button,
-.grande {
-  min-height: 44px;
-  font-size: 15px;
-}
-
-/* ------------------------------------------------------------- pestañas */
-
-.nav {
-  flex: none;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-}
-
-.navItem {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-3);
-  font: inherit;
-  font-size: 11px;
-  padding: 8px 4px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  min-height: 56px;
-}
-
-.navItem span:first-child {
-  font-size: 20px;
-  line-height: 1;
-}
-
-.navActivo {
-  color: var(--accent);
-}
-
-/* -------------------------------------------------------------- consulta */
-
-.sql {
-  width: 100%;
-  box-sizing: border-box;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.45;
-  min-height: 120px;
-  resize: vertical;
-  background: var(--bg-inset);
-  color: var(--text-1);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 10px;
-}
-
-.sql:focus {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -1px;
-}
-
-.resumen {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  color: var(--text-3);
-  font-size: 12.5px;
-}
-
-.script {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--bg-inset);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 10px;
-  max-height: 40vh;
-  overflow: auto;
-  color: var(--text-1);
-}
-
-/* -------------------------------------------------------------- ajustes */
-
-.opcion {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-panel);
-}
-
-.opcion > div:first-child {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.opcion small {
-  color: var(--text-3);
-  font-size: 12.5px;
+.prod {
+  background: var(--prod-wash);
 }

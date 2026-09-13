@@ -106,6 +106,9 @@
   --shadow-menu:   0 6px 22px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.6);
   --shadow-dialog: 0 24px 64px rgba(0,0,0,.62), 0 2px 8px rgba(0,0,0,.5);
   --scrim:         rgba(8,9,11,.62);
+  /* El velo detrás de una hoja de producción en el teléfono: teñido de rojo,
+     para que la pantalla entera diga dónde se está escribiendo. */
+  --scrim-prod:    rgba(46,8,6,.72);
 
   /* tipografía */
   --font-ui:   "Inter Variable", Inter, "Segoe UI", system-ui, sans-serif;
@@ -208,6 +211,7 @@
   --shadow-menu:   0 6px 20px rgba(20,20,25,.16), 0 1px 2px rgba(20,20,25,.12);
   --shadow-dialog: 0 24px 60px rgba(20,20,25,.22), 0 2px 8px rgba(20,20,25,.12);
   --scrim:         rgba(40,40,45,.34);
+  --scrim-prod:    rgba(70,22,18,.42);
 
   color-scheme: light;
 }

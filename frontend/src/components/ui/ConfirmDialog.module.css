@@ -46,3 +46,9 @@
 }
 .ok { border-color: var(--success); }
 .mal { border-color: var(--env-prod); }
+
+/* Teléfono (raíz con `data-movil`): la hoja ya dice de qué se trata con el
+   título y el botón; el texto va suelto y del tamaño del dedo. Ver M01 D. */
+:global([data-movil]) .texto { font: 400 13.5px/1.65 var(--font-ui); }
+:global([data-movil]) .sev_aviso .texto,
+:global([data-movil]) .sev_produccion .texto { padding: 0; background: transparent; }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { ToastItem } from "../components/ui";
 import { cx } from "../lib/cx";
+import { Barra } from "./Barra";
 import { Tablas } from "./Tablas";
 import { Consulta } from "./Consulta";
 import { Historial } from "./Historial";
@@ -93,22 +94,13 @@ export function BarraDeSesion({
   atras?: () => void;
   derecha?: React.ReactNode;
 }) {
-  const prod = sesion.environment === "production";
   return (
-    <header className={cx(styles.barra, prod && styles.prod)}>
-      {atras ? (
-        <button type="button" className={styles.icono} onClick={atras} aria-label="Volver">
-          ‹
-        </button>
-      ) : null}
-      <div className={styles.titulo}>
-        <strong>{titulo ?? sesion.name}</strong>
-        <small>
-          {sesion.describe}
-          {sesion.readOnly ? " · solo lectura" : ""}
-        </small>
-      </div>
-      {derecha}
-    </header>
+    <Barra
+      titulo={titulo ?? sesion.name}
+      subtitulo={sesion.describe + (sesion.readOnly ? " · solo lectura" : "")}
+      prod={sesion.environment === "production"}
+      {...(atras ? { atras } : {})}
+      {...(derecha ? { derecha } : {})}
+    />
   );
 }
