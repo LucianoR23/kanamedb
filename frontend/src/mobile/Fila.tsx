@@ -9,24 +9,28 @@ import type {
 import type { Table } from "../../bindings/github.com/LucianoR23/kanamedb/internal/schema";
 import type { Column } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import { Button, ConfirmDialog, Dialog, Input, Textarea } from "../components/ui";
+import type { ToastItem } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import { useStage } from "../lib/useStage";
 import { cx } from "../lib/cx";
 import { BarraDeSesion } from "./Sesion";
 import type { Valor } from "./Tarjeta";
+import { HojaDeValor } from "./HojaDeValor";
+import type { CampoElegido } from "./HojaDeValor";
+import { useMantener } from "./useMantener";
 import { siLaSesionSeCerro } from "./sesionCerrada";
 import styles from "./mobile.module.css";
 
 /**
  * Una fila entera, y la edición por fila del teléfono.
  *
- * Ver es gratis. Editar, agregar y borrar pasan por el mismo camino que la
- * grilla de escritorio, sin atajos: `StageGrid` convierte la edición en
- * cambios del changeset —Go decide la clave y el orden—, la palabra de
- * producción se pide si Go la pide, y después se muestra el SQL y se aplica
- * con `Apply`, con la huella de lo que se mostró. El changeset del teléfono es
- * siempre esta fila y nada más: se descarta antes de preparar y después de un
- * fallo.
+ * Ver es gratis, y mantener apretado un valor lo muestra entero con «Copiar».
+ * Editar, agregar y borrar pasan por el mismo camino que la grilla de
+ * escritorio, sin atajos: `StageGrid` convierte la edición en cambios del
+ * changeset —Go decide la clave y el orden—, la palabra de producción se pide
+ * si Go la pide, y después se muestra el SQL y se aplica con `Apply`, con la
+ * huella de lo que se mostró. El changeset del teléfono es siempre esta fila y
+ * nada más: se descarta antes de preparar y después de un fallo.
  */
 export function Fila({
   sesion,
@@ -38,6 +42,7 @@ export function Fila({
   onVolver,
   onAplicado,
   onSesionCerrada,
+  onAviso,
 }: {
   sesion: SessionView;
   esquema: string;
@@ -49,6 +54,7 @@ export function Fila({
   onVolver: () => void;
   onAplicado: (mensaje: string) => void;
   onSesionCerrada: (motivo: string) => void;
+  onAviso: (t: ToastItem) => void;
 }) {
   const nueva = fila === null;
   const puedeEditar = !sesion.readOnly && clave.size > 0;
@@ -62,6 +68,14 @@ export function Fila({
   const [aplicando, setAplicando] = useState(false);
   const [resultado, setResultado] = useState<ApplyResult | null>(null);
   const [error, setError] = useState("");
+  // El valor que alguien mantuvo apretado, para verlo entero y copiarlo.
+  const [campo, setCampo] = useState<CampoElegido | null>(null);
+  const mantener = useMantener((el) => {
+    const i = Number(el.dataset["mantener"]);
+    const c = columnas[i];
+    const v = valorDe(i);
+    if (c && v !== undefined) setCampo({ columna: c.name, valor: v });
+  });
 
   const meta = new Map((tabla.columns ?? []).map((c) => [c.name, c]));
   const nombres = columnas.map((c) => c.name);
@@ -184,7 +198,7 @@ export function Fila({
         {error ? <div className={styles.error}>{error}</div> : null}
         {stage.error ? <div className={styles.error}>{stage.error}</div> : null}
 
-        <div className={styles.detalle}>
+        <div className={styles.detalle} {...mantener}>
           {columnas.map((c, i) => {
             const m = meta.get(c.name);
             const esClave = clave.has(c.name);
@@ -232,7 +246,7 @@ export function Fila({
                     </div>
                   </>
                 ) : (
-                  <div className={cx(styles.valor, editado && styles.valorEditado)}>
+                  <div className={cx(styles.valor, editado && styles.valorEditado)} data-mantener={i}>
                     {v === undefined ? (
                       <span className={styles.nulo}>(por defecto)</span>
                     ) : v === null ? (
@@ -281,6 +295,7 @@ export function Fila({
       ) : null}
 
       {stage.dialogo}
+      <HojaDeValor campo={campo} onCerrar={() => setCampo(null)} onAviso={onAviso} />
 
       <ConfirmDialog
         open={borrando}

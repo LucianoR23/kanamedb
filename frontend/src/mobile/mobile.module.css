@@ -82,6 +82,15 @@
   background: var(--bg-active);
 }
 
+.icono:disabled {
+  color: var(--text-dim);
+}
+
+/* El botón de filtrar/ordenar cuando hay algo puesto. */
+.iconoActivo {
+  color: var(--accent);
+}
+
 /* ------------------------------------------------------------- contenido */
 
 .cuerpo {
@@ -228,6 +237,11 @@ button.tarjeta:active {
   grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
   gap: 3px 10px;
   font-size: 13.5px;
+  /* Mantener apretado es nuestro: sin esto el WebView arranca la selección
+     de texto del sistema encima de la hoja con el valor. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .campos dt {
@@ -306,6 +320,69 @@ button.tarjeta:active {
 .valorEditado {
   border-color: var(--accent);
   background: var(--cell-modified);
+}
+
+.valor[data-mantener] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* El valor entero en la hoja: acá sí se puede seleccionar, y no se corta. */
+.valorEntero {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 50vh;
+  overflow: auto;
+  color: var(--text-1);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Lo puesto en la tabla: orden y filtros como chips, tocable para cambiar. */
+.vistaPuesta {
+  appearance: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font: inherit;
+  text-align: left;
+}
+
+.vistaPuesta .chip {
+  white-space: normal;
+  word-break: break-word;
+  color: var(--text-2);
+}
+
+/* Una condición del filtro, en vertical: columna, operador, valores. */
+.condicion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+}
+
+.condicion .fila1 strong {
+  color: var(--text-3);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .campo textarea {

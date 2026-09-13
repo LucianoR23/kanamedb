@@ -61,9 +61,9 @@ es cambiar un valor, no mover una tabla.
 | S01/S02 Conexiones | Sí | Lista, conectar, importar desde el archivo exportado en la PC. Sin editor completo: los campos del túnel y TLS se importan, no se escriben con el pulgar. |
 | S04 Clave del host SSH | Sí | El mismo diálogo TOFU; es donde más importa no simplificar. |
 | S05 Árbol del esquema | Sí | Tablas, columnas, índices, claves. Solo lectura. |
-| S06 Editor SQL | Sí, reducido | Un área de texto con el historial a mano; los resultados como lista de tarjetas (una fila = una tarjeta), no una grilla. Paginado del núcleo tal cual. Acepta escrituras escritas a mano con la misma confirmación de producción que en escritorio. |
+| S06 Editor SQL | Sí, reducido | Un área de texto con el historial a mano; los resultados como lista de tarjetas (una fila = una tarjeta), no una grilla. Paginado del núcleo tal cual. Acepta escrituras escritas a mano con la misma confirmación de producción que en escritorio. «Guardar…» con nombre. |
 | Edición por fila | Sí | Tocar una tarjeta, editar un campo, confirmar: `UPDATE`, `INSERT` y `DELETE` de una fila por vez, por `Stage`/`Apply` del núcleo con el preview y la confirmación de escritorio. Sin edición masiva. |
-| S21 Historial | Sí | Igual: filtra, repite. |
+| S21 Historial | Sí | Igual: filtra, repite. Y las guardadas con nombre: abrir, borrar. |
 | S23 Ajustes | Mínimo | Tema, bloqueo, borrar historial. |
 | ERD (lectura y edición), aplicar DDL, importar CSV, volcados, comparar esquemas, dumps | **No** | Son interacciones de escritorio, y un cambio de esquema no va en un dispositivo que se pierde. |
 
@@ -316,10 +316,11 @@ parte de seguridad y no se duplica.
 | Credenciales | `Credenciales.tsx` | Contraseña de la base, secreto del bastión y —con túnel por clave— la clave privada pegada como texto (`SetSSHKey`). Lo vacío queda como está. |
 | Sesión | `Sesion.tsx` | Cuatro pestañas abajo: Tablas, SQL, Historial, Ajustes. Barra con nombre, `describe` y lavado rojo en producción. |
 | Tablas | `Tablas.tsx` | El esquema como lista con buscador; ~filas, «sin clave primaria». Sin objetos de texto. |
-| Tabla | `Tabla.tsx` | Filas como tarjetas de a 40, «cargar más», recargar; aviso sin clave primaria; «Nueva fila» si se puede escribir. |
+| Tabla | `Tabla.tsx` | Filas como tarjetas de a 40, «cargar más», recargar; aviso sin clave primaria; «Nueva fila» si se puede escribir. **Filtrar y ordenar** (⇅) con `FiltroYOrden.tsx`: el constructor de filtros de escritorio en vertical más la columna de orden; lo puesto se ve como chips arriba de la lista y se toca para cambiarlo. Con orden elegido, la clave primaria va detrás como desempate del paginado. |
 | Fila | `Fila.tsx` | Ver entera; Editar (NULL, por defecto, deshacer por campo; la clave no se toca), Borrar…, Agregar…. Los tres: `StageGrid` → palabra de producción si Go la pide → **vista previa del SQL** → `Apply` con la huella. El changeset del teléfono es siempre esa fila. |
-| SQL | `Consulta.tsx` | Área de texto, ejecutar/cancelar, el resultado en tarjetas, varias sentencias. Sin CodeMirror ni transacciones manuales. |
-| Historial | `Historial.tsx` | El de esta conexión, filtrable; tocar repite en SQL. |
+| Valor | `HojaDeValor.tsx`, `useMantener.ts`, `portapapeles.ts` | **Mantener apretado** un campo —en una tarjeta de la tabla, del resultado SQL o en la fila— abre el valor entero con «Copiar» (portapapeles del sistema por Wails; NULL no se copia; toast «Copiado»). El gesto cancela al mover el dedo y se traga el click que sigue, así no abre la fila. |
+| SQL | `Consulta.tsx` | Área de texto, ejecutar/cancelar, el resultado en tarjetas, varias sentencias. Sin CodeMirror ni transacciones manuales. «Guardar…» le pone nombre (Go rechaza si lleva una contraseña escrita). |
+| Historial | `Historial.tsx` | Dos pestañas: **Corridas** (las de esta conexión, filtrable; tocar repite en SQL) y **Guardadas** (las de la PC que vinieron con la libreta más las de acá; abrir en SQL, borrar preguntando). |
 | Ajustes | `Ajustes.tsx` | Tema, borrar el historial de esta conexión, desconectar, versión, y el texto de qué cubre y qué no. |
 
 Al volver del segundo plano la app pregunta si la sesión sigue
@@ -338,6 +339,12 @@ trampa de que `.toml` no tiene tipo MIME y los exploradores lo mandan como
 `text/plain` u `octet-stream`.
 
 Segunda vuelta (2026-09-12): borrar funciona; el resto seguía funcionando.
+
+Tercera tanda (2026-09-12), a pedido: filtrar y ordenar la tabla, consultas
+guardadas con nombre y mantener apretado para copiar. Sin cambios en Go.
+«Abrir con» para el `.toml` queda **descartado**. Probado en la PC con la app
+real por CDP (`?movil`); pendiente verlo en el teléfono, en particular el
+gesto de mantener apretado sobre el WebView de Android.
 
 ## Estado del paso 5 (2026-09-12): hecho, salvo la vuelta por los cuatro motores
 

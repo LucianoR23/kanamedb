@@ -476,9 +476,11 @@ el mismo núcleo: se construye en CI y se instala a mano. Ver abajo.
 ## Android
 
 Kaname en el teléfono es para **leer, consultar y corregir filas**: la lista de
-conexiones, el esquema como lista, las filas como tarjetas, un editor SQL
-reducido y el historial. Editar una fila, agregar una y borrar una pasan por el
-mismo camino que en la PC —vista previa del SQL, confirmación en producción—.
+conexiones, el esquema como lista, las filas como tarjetas —con filtro y orden
+(⇅)—, un editor SQL reducido con consultas guardadas, y el historial. Editar
+una fila, agregar una y borrar una pasan por el mismo camino que en la PC
+—vista previa del SQL, confirmación en producción—. **Mantener apretado** un
+valor lo muestra entero y lo copia al portapapeles.
 Lo que no hay: ERD, cambios de esquema, importar CSV, volcados, comparar. Y no
 es solo una omisión de la interfaz: en Android el núcleo rechaza los cambios de
 esquema por las dos puertas —el changeset, por tipo de cambio; el editor SQL,

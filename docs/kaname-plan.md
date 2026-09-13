@@ -946,6 +946,40 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-12
 
+**Android, segunda tanda: filtrar y ordenar, guardadas con nombre, mantener
+apretado para copiar; «Abrir con» descartado.** Las tres eran «lo que
+agregaría primero si el uso lo pide» y el uso lo pidió el mismo día. Ninguna
+tocó Go: los bindings ya estaban (`TableData` con `where`/`orderBy`,
+`Operators`, `History.Saved/Save/DeleteSaved`) y la regla de Android es que
+el teléfono es otra forma del mismo backend. Decisiones: (1) con un orden
+elegido, la interfaz manda `[columna, ...clave primaria]` y no solo la
+columna —escritorio manda solo la columna—, porque en el teléfono el paginado
+es «cargar más» y dos filas empatadas en una columna no única podían cambiar
+de página entre una carga y la siguiente; probado con 95 filas ordenadas por
+una columna de cuatro valores: 95 distintas en tres páginas. (2) Copiar va por
+`Clipboard.SetText` del runtime de Wails —en Android es el `ClipboardManager`
+del sistema, sin exigir activación del usuario ni contexto seguro— con caída al
+del navegador para la vista `?movil` en la PC; y se copia desde un botón en una
+hoja que muestra el valor entero, no en el momento del gesto: quien copia ve
+qué copió, NULL no se copia, y el aviso «Copiado» es la mitad de la función.
+(3) El gesto es un solo juego de manejadores por tarjeta, delegado por
+`data-mantener`, que cancela con 10 px de movimiento —eso es un scroll—, anula
+el menú contextual del WebView y se traga el click que sigue al soltar, para
+que mantener apretado un campo no abra además la fila. (4) Las guardadas del
+teléfono son las de este teléfono: llegan las de la PC con la libreta
+importada y se suman las de acá, y no hay sincronización de vuelta; el texto
+de la interfaz lo dice así y no promete que «se ven en la PC». «Abrir con»
+para el `.toml` queda descartado por decisión del usuario: importar desde
+adentro alcanza, y `.toml` sin tipo MIME lo haría funcionar «casi siempre».
+Probado con la app real por CDP contra Postgres (filtro, orden, paginado,
+hoja y portapapeles del sistema, guardar/abrir/borrar, rechazo de una
+consulta con contraseña); queda verlo en el teléfono. La prueba encontró un
+bug de Postgres que no era del teléfono: `leerConParams` y `TableCount`
+pasaban el error del servidor por `Classify` —el de la conexión— y un filtro
+que compara texto con un entero decía «el servidor rechazó la conexión con la
+consulta». Ahora van por `ClassifyStatement`, como `Run` desde la mañana;
+test que falla con el clasificador viejo.
+
 **Android, paso 5: el candado de esquema, los íconos y el README.**
 `Session.soloDatos` (constante por build tag: true en Android) hace que
 `Stage`/`StageMany` rechacen todo `KindSchema` con `ErrSchemaLocked`, antes de

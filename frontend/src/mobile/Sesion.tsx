@@ -49,6 +49,7 @@ export function Sesion({
           inicial={sqlPedida}
           onTomada={() => setSqlPedida(null)}
           onSesionCerrada={onSesionCerrada}
+          onAviso={onAviso}
         />
       ) : pestana === "historial" ? (
         <Historial
