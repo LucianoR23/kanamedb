@@ -879,10 +879,10 @@ verde; y con un tag `v*`, un job `release` que junta los seis archivos, calcula
   (2026-09-11)
 - Android: un APK propio, acotado a leer, consultar y corregir filas —sin
   DDL, ERD ni import—, con las contraseñas cifradas por una clave del
-  Keystore atada a biometría. Qué viaja del núcleo
-  (casi todo), qué no (el keychain, la interfaz, cgo), el alcance por pantalla
-  y el orden si se hace, en `kaname-android.md`. No ahora: es un segundo
-  producto, semanas, y después del 1.0.0 de escritorio. (2026-09-11)
+  Keystore atada a biometría. Anotado el 2026-09-11 como «no ahora»; hecho
+  entero el 2026-09-12 (cinco pasos, ver § 6 y `kaname-android.md`) y
+  probado en un teléfono. Lo que queda abierto no bloquea: la vuelta por los
+  cuatro motores desde el teléfono y «Abrir con» para el `.toml`.
 - Si el keychain guarda la contraseña de la base y falla al guardar la del
   bastión, la conexión no se guarda —correcto— pero la primera credencial
   queda en el keychain bajo un ID que ninguna conexión referencia. No es un
