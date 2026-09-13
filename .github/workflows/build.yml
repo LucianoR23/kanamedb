@@ -295,7 +295,7 @@ jobs:
         shell: bash
         run: mv bin/kaname.exe "bin/kaname-${{ matrix.arch }}.exe"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kaname-${{ matrix.arch }}
           path: bin/kaname-${{ matrix.arch }}.exe
@@ -369,7 +369,7 @@ jobs:
           mv bin/kaname.deb bin/kaname-linux-x64.deb
           mv bin/kaname.rpm bin/kaname-linux-x64.rpm
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kaname-linux-x64
           path: |
@@ -424,7 +424,7 @@ jobs:
       - name: Empaquetar
         run: ditto -c -k --sequesterRsrc --keepParent bin/kaname.app bin/kaname-mac-universal.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kaname-mac-universal
           path: bin/kaname-mac-universal.zip
@@ -531,7 +531,7 @@ jobs:
           ls -l build/android/app/src/main/jniLibs/arm64-v8a/libwails.so bin/kaname.apk
           mv bin/kaname.apk bin/kaname-android-arm64.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kaname-android-arm64
           path: bin/kaname-android-arm64.apk
