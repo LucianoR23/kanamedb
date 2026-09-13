@@ -946,6 +946,19 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-13
 
+**El KILL de MySQL/MariaDB al cancelar corría una carrera, y en CI la
+perdió.** `TestEnMySQLCancelarMataLaSentenciaEnElServidor/mariadb` falló en
+el runner con «el UPDATE cancelado se confirmó igual»: el bug C-14 de vuelta.
+La causa no era MariaDB sino `vigilarCancelacion`: una goroutine esperaba el
+contexto y se apagaba con una señal de «terminó»; al cancelar, el driver
+cierra el socket y devuelve en el acto, así que las dos señales llegaban
+juntas y, si la goroutine se despertaba después, tomaba la cancelación por un
+final normal y no mandaba nada. En la máquina de desarrollo ganaba siempre;
+en el runner cargado perdió. Ahora no hay goroutine: `runEn` manda `KILL
+QUERY` sincrónico, por otra conexión del pool, cuando la sentencia volvió con
+el contexto cancelado (`matarConsulta`). El test existente sigue siendo la
+guardia; comprobado que falla en los dos motores si el KILL se saca.
+
 **La interfaz del teléfono según el diseño (M01–M15), segunda tanda: la
 sesión, y con eso las quince.** M05 navegación (con el punto que late en SQL
 mientras corre una consulta, y la barra que se esconde con una tabla abierta,

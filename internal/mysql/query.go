@@ -56,7 +56,21 @@ func runEn(
 	if err := cn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&id); err != nil {
 		return nil, ClassifyStatement(err, "")
 	}
-	defer vigilarCancelacion(ctx, db, id)()
+	// El KILL va DESPUÉS de que la sentencia volvió, sincrónico, y solo si
+	// volvió por el contexto cancelado. Antes lo mandaba una goroutine que
+	// vigilaba el contexto y se apagaba con una señal de «terminó»; pero al
+	// cancelar el driver devuelve en el acto —cierra el socket—, así que la
+	// señal de «terminó» y la cancelación llegaban juntas y la goroutine, si
+	// se despertaba después, tomaba la cancelación por un final normal y no
+	// mataba nada. En la máquina de desarrollo ganaba siempre; en el runner
+	// de CI, cargado, perdió, y el UPDATE se confirmó igual: el bug que este
+	// código existe para evitar (C-14). Sin goroutine no hay carrera.
+	terminada := false
+	defer func() {
+		if !terminada && ctx.Err() != nil {
+			matarConsulta(db, id)
+		}
+	}()
 
 	inicio := time.Now()
 	rows, err := cn.QueryContext(ctx, sql_)
@@ -91,6 +105,7 @@ func runEn(
 				afectadas = 0
 			}
 		}
+		terminada = true
 		return &query.Batch{
 			Results: []query.Result{{
 				ReturnsRows:  false,
@@ -106,6 +121,7 @@ func runEn(
 		return nil, fail
 	}
 	r.Command = cmd
+	terminada = true
 	return &query.Batch{Results: []query.Result{*r}, ElapsedMs: time.Since(inicio).Milliseconds()}, nil
 }
 
@@ -119,37 +135,21 @@ func modificaFilas(cmd string) bool {
 	return false
 }
 
-// vigilarCancelacion manda KILL QUERY a la conexión `id` si el contexto se
-// cancela antes de que la sentencia termine. Devuelve la función que apaga la
-// vigilancia; llamarla es obligatorio, o el KILL podría alcanzar a la próxima
-// sentencia de esa conexión.
+// matarConsulta manda KILL QUERY a la conexión `id`, que es la que acaba de
+// volver con el contexto cancelado. «Cancelar» en el driver cierra el socket
+// y nada más: el servidor solo se entera cuando intenta escribir, así que
+// sin esto un UPDATE grande cancelado desde el editor terminaba y confirmaba
+// en autocommit (C-14 de la auditoría del 2026-09-11).
 //
 // Va por OTRA conexión del pool, con su propio plazo: la cancelada ya no
-// sirve —el driver la cierra— y el contexto que se canceló tampoco. El id es
-// un número que dio el servidor, no texto de nadie: KILL no acepta
-// parámetros.
-func vigilarCancelacion(ctx context.Context, db *sql.DB, id int64) func() {
-	listo := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			// El contexto también se cancela al TERMINAR una corrida normal
-			// —registrar lo cancela al soltar—, y si las dos señales llegan
-			// juntas el select elige al azar. Se vuelve a mirar `listo` antes
-			// de matar: un KILL a una conexión que ya volvió al pool alcanza a
-			// la sentencia siguiente, y nada explicaría por qué murió.
-			select {
-			case <-listo:
-				return
-			default:
-			}
-			plazo, cancelar := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancelar()
-			_, _ = db.ExecContext(plazo, fmt.Sprintf("KILL QUERY %d", id))
-		case <-listo:
-		}
-	}()
-	return func() { close(listo) }
+// sirve —el driver la cerró, no la devolvió al pool, así que el id no puede
+// alcanzar a la sentencia siguiente de nadie— y el contexto que se canceló
+// tampoco. El id es un número que dio el servidor, no texto de nadie: KILL
+// no acepta parámetros.
+func matarConsulta(db *sql.DB, id int64) {
+	plazo, cancelar := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelar()
+	_, _ = db.ExecContext(plazo, fmt.Sprintf("KILL QUERY %d", id))
 }
 
 // textoDe convierte los bytes que dio el servidor en el texto de la celda.
