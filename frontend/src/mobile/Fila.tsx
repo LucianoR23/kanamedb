@@ -13,24 +13,27 @@ import type { ToastItem } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import { useStage } from "../lib/useStage";
 import { cx } from "../lib/cx";
-import { BarraDeSesion } from "./Sesion";
+import { Barra } from "./Barra";
 import type { Valor } from "./Tarjeta";
 import { HojaDeValor } from "./HojaDeValor";
 import type { CampoElegido } from "./HojaDeValor";
 import { useMantener } from "./useMantener";
+import { resaltarSql } from "./sql";
 import { siLaSesionSeCerro } from "./sesionCerrada";
 import styles from "./mobile.module.css";
 
 /**
- * Una fila entera, y la edición por fila del teléfono.
+ * M10: una fila entera, y la edición por fila del teléfono. Un bloque por
+ * columna: nombre, tipo y NOT NULL en la etiqueta; el valor en una caja mono.
+ * La clave y las columnas que escribe la base se ven bloqueadas.
  *
  * Ver es gratis, y mantener apretado un valor lo muestra entero con «Copiar».
  * Editar, agregar y borrar pasan por el mismo camino que la grilla de
  * escritorio, sin atajos: `StageGrid` convierte la edición en cambios del
  * changeset —Go decide la clave y el orden—, la palabra de producción se pide
- * si Go la pide, y después se muestra el SQL y se aplica con `Apply`, con la
- * huella de lo que se mostró. El changeset del teléfono es siempre esta fila y
- * nada más: se descarta antes de preparar y después de un fallo.
+ * si Go la pide, y después se muestra el SQL (M11) y se aplica con `Apply`,
+ * con la huella de lo que se mostró. El changeset del teléfono es siempre esta
+ * fila y nada más: se descarta antes de preparar y después de un fallo.
  */
 export function Fila({
   sesion,
@@ -67,6 +70,8 @@ export function Fila({
   const [palabra, setPalabra] = useState("");
   const [aplicando, setAplicando] = useState(false);
   const [resultado, setResultado] = useState<ApplyResult | null>(null);
+  // Después de un fallo, «Ver el SQL» vuelve a mostrar lo que se intentó.
+  const [verSql, setVerSql] = useState(false);
   const [error, setError] = useState("");
   // El valor que alguien mantuvo apretado, para verlo entero y copiarlo.
   const [campo, setCampo] = useState<CampoElegido | null>(null);
@@ -74,7 +79,7 @@ export function Fila({
     const i = Number(el.dataset["mantener"]);
     const c = columnas[i];
     const v = valorDe(i);
-    if (c && v !== undefined) setCampo({ columna: c.name, valor: v });
+    if (c && v !== undefined) setCampo({ columna: c.name, valor: v, tipo: c.dataType });
   });
 
   const meta = new Map((tabla.columns ?? []).map((c) => [c.name, c]));
@@ -114,6 +119,7 @@ export function Fila({
         .then((v) => {
           setPalabra("");
           setResultado(null);
+          setVerSql(false);
           setPrevia(v);
         })
         .catch((err) => setError(textoDe(err)));
@@ -189,77 +195,113 @@ export function Fila({
   }
 
   const hayCambios = cambios.size > 0;
-  const titulo = nueva ? `Nueva fila · ${tabla.name}` : tabla.name;
+  // «id = 10482»: la fila, dicha por su clave.
+  const resumenClave = fila
+    ? columnas
+        .map((c, i) => (clave.has(c.name) ? `${c.name} = ${fila[i] ?? "NULL"}` : null))
+        .filter((s): s is string => s !== null)
+        .join(", ")
+    : "";
+  const prod = sesion.environment === "production";
 
   return (
-    <>
-      <BarraDeSesion sesion={sesion} titulo={titulo} atras={onVolver} />
-      <main className={styles.cuerpo}>
-        {error ? <div className={styles.error}>{error}</div> : null}
-        {stage.error ? <div className={styles.error}>{stage.error}</div> : null}
+    <div className={styles.pantalla}>
+      {nueva ? (
+        <Barra titulo="Nueva fila" subtitulo={tabla.name} atras={onVolver} prod={prod} />
+      ) : (
+        <Barra
+          titulo={tabla.name}
+          mono
+          subtitulo={editando ? `editando · ${resumenClave}` : resumenClave}
+          subtituloAcento={editando}
+          atras={onVolver}
+          prod={prod}
+        />
+      )}
 
-        <div className={styles.detalle} {...mantener}>
-          {columnas.map((c, i) => {
-            const m = meta.get(c.name);
-            const esClave = clave.has(c.name);
-            const v = valorDe(i);
-            const editado = cambios.has(i);
-            // La clave no se edita desde acá: cambiarla es otra fila. Y una
-            // columna generada o identity la escribe la base.
-            const bloqueada = (esClave && !nueva) || Boolean(m?.autoIncrement && nueva);
-            return (
-              <div key={c.name} className={styles.campo}>
-                <label>
-                  <span className={cx(esClave && styles.pk)} style={esClave ? { color: "var(--erd-pk)" } : undefined}>
-                    {c.name}
-                  </span>
-                  <span>{c.dataType}</span>
-                  {m && !m.nullable ? <span>NOT NULL</span> : null}
-                </label>
-                {editando && !bloqueada ? (
-                  <>
-                    <Textarea
-                      rows={1}
-                      value={v ?? ""}
-                      disabled={v === null}
-                      placeholder={v === undefined ? "(valor por defecto)" : v === null ? "NULL" : ""}
-                      onChange={(e) => poner(i, e.target.value)}
-                      spellCheck={false}
-                      autoCapitalize="off"
-                    />
-                    <div className={styles.resumen}>
-                      {m?.nullable !== false ? (
-                        <Button size="sm" variant={v === null ? "secondary" : "ghost"} onClick={() => poner(i, v === null ? "" : null)}>
-                          {v === null ? "NULL ✓" : "NULL"}
-                        </Button>
-                      ) : null}
-                      {nueva && m?.hasDefault ? (
-                        <Button size="sm" variant={v === undefined ? "secondary" : "ghost"} onClick={() => poner(i, undefined)}>
-                          por defecto
-                        </Button>
-                      ) : null}
-                      {editado && !nueva ? (
-                        <Button size="sm" variant="ghost" onClick={() => poner(i, fila ? (fila[i] ?? null) : undefined)}>
-                          deshacer
-                        </Button>
-                      ) : null}
-                    </div>
-                  </>
-                ) : (
-                  <div className={cx(styles.valor, editado && styles.valorEditado)} data-mantener={i}>
-                    {v === undefined ? (
-                      <span className={styles.nulo}>(por defecto)</span>
-                    ) : v === null ? (
-                      <span className={styles.nulo}>NULL</span>
-                    ) : (
-                      v
-                    )}
-                  </div>
-                )}
+      <main className={cx(styles.cuerpo, styles.cuerpoGap16)} {...mantener}>
+        {error ? (
+          <div className={cx(styles.aviso, styles.avisoMal)}>
+            <span>{error}</span>
+          </div>
+        ) : null}
+        {stage.error ? (
+          <div className={cx(styles.aviso, styles.avisoMal)}>
+            <span>{stage.error}</span>
+          </div>
+        ) : null}
+
+        {columnas.map((c, i) => {
+          const m = meta.get(c.name);
+          const esClave = clave.has(c.name);
+          const v = valorDe(i);
+          const editado = cambios.has(i);
+          const autoincremental = Boolean(m?.autoIncrement);
+          // La clave no se edita desde acá: cambiarla es otra fila. Y una
+          // columna generada o identity la escribe la base.
+          const bloqueada = (esClave && !nueva) || (autoincremental && nueva);
+          const notNull = m ? !m.nullable : false;
+          return (
+            <div key={c.name} className={styles.campo}>
+              <div className={styles.campoEtiqueta}>
+                <span className={cx(styles.campoNombre, esClave && styles.campoNombrePk)}>{c.name}</span>
+                <span className={styles.campoTipo}>{c.dataType}</span>
+                {editando && bloqueada ? (
+                  <span className={styles.campoChip}>{autoincremental && nueva ? "autoincremental" : "bloqueada"}</span>
+                ) : notNull ? (
+                  <span className={cx(styles.campoNotNull, nueva && !m?.hasDefault && styles.campoRequerido)}>not null</span>
+                ) : null}
               </div>
-            );
-          })}
-        </div>
+
+              {editando && !bloqueada ? (
+                <>
+                  <Textarea
+                    rows={1}
+                    className={cx(styles.entrada, editado && styles.entradaEditada, esLargo(c.dataType) && styles.entradaLarga)}
+                    value={v ?? ""}
+                    disabled={v === null}
+                    placeholder={v === undefined ? (m?.hasDefault ? "por defecto" : "vacío") : v === null ? "NULL" : ""}
+                    onChange={(e) => poner(i, e.target.value)}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    aria-label={c.name}
+                  />
+                  <div className={styles.miniBotones}>
+                    {m?.nullable !== false ? (
+                      <Button size="sm" className={cx(styles.miniMono, v === null && styles.elegido)} aria-pressed={v === null} onClick={() => poner(i, v === null ? "" : null)}>
+                        NULL
+                      </Button>
+                    ) : null}
+                    {nueva && m?.hasDefault ? (
+                      <Button size="sm" className={cx(v === undefined && styles.elegido)} aria-pressed={v === undefined} onClick={() => poner(i, undefined)}>
+                        por defecto
+                      </Button>
+                    ) : null}
+                    {editado && !nueva ? (
+                      <Button size="sm" className={styles.deshacer} onClick={() => poner(i, fila ? (fila[i] ?? null) : undefined)}>
+                        deshacer
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <div
+                  className={cx(
+                    styles.valor,
+                    esClave && styles.valorPk,
+                    (editando && bloqueada) && styles.valorBloqueado,
+                    editado && styles.valorEditado,
+                    v === null && styles.nulo,
+                    (v === "" || v === undefined) && styles.vacioValor,
+                  )}
+                  {...(editando ? {} : { "data-mantener": i })}
+                >
+                  {v === undefined ? (autoincremental ? "lo pone la base" : "por defecto") : v === null ? "NULL" : v === "" ? "vacío" : v}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </main>
 
       {puedeEditar ? (
@@ -301,23 +343,29 @@ export function Fila({
         open={borrando}
         title="Borrar esta fila"
         severidad="aviso"
-        etiqueta="Borrar…"
+        etiqueta="Continuar"
         onClose={() => setBorrando(false)}
         onConfirm={borrar}
       >
-        Se va a preparar un <code>DELETE</code> de esta fila de <code>{tabla.name}</code>. Antes de
-        aplicarlo vas a ver el SQL. Una fila borrada no se recupera desde Kaname.
+        Vas a borrar la fila <code>{resumenClave}</code> de <code>{tabla.name}</code>. En la pantalla siguiente vas
+        a ver el SQL antes de aplicarlo. Una fila borrada no se recupera desde Kaname.
       </ConfirmDialog>
 
       {previa ? (
         <Dialog
           open
           title={resultado ? "No se aplicó" : "Aplicar"}
+          production={previa.production}
           abrupto={previa.production}
           {...(aplicando ? {} : { onClose: cancelarPrevia })}
           footer={
             resultado ? (
-              <Button onClick={() => setPrevia(null)}>Cerrar</Button>
+              <>
+                <Button onClick={() => setPrevia(null)}>Cerrar</Button>
+                <Button variant="primary" onClick={() => setVerSql((v) => !v)}>
+                  {verSql ? "Ver el error" : "Ver el SQL"}
+                </Button>
+              </>
             ) : (
               <>
                 <Button onClick={cancelarPrevia} disabled={aplicando}>
@@ -335,36 +383,58 @@ export function Fila({
             )
           }
         >
-          <div className={styles.detalle}>
-            {previa.production ? (
-              <div className={styles.error}>Esto es producción.</div>
-            ) : null}
-            <pre className={styles.script}>{previa.script}</pre>
-            {(previa.warnings ?? []).map((w) => (
-              <div key={w} className={styles.aviso}>
-                {w}
+          <div className={styles.columna}>
+            {resultado && !verSql ? (
+              <>
+                <p className={styles.hojaTexto}>
+                  La base rechazó el cambio.{resultado.rolledBack ? " No quedó nada aplicado." : ""}
+                </p>
+                <pre className={styles.detalleMotor}>
+                  {resultado.failure?.message ?? (resultado.results ?? []).find((r) => r.error)?.error ?? "Sin detalle."}
+                </pre>
+              </>
+            ) : (
+              <>
+                <p className={styles.hojaTexto}>
+                  Se va a ejecutar esto contra <code>{sesion.describe}</code>.
+                </p>
+                <pre className={styles.sqlBloque}>{resaltarSql(previa.script)}</pre>
+                {(previa.warnings ?? []).map((w) => (
+                  <div key={w} className={styles.aviso}>
+                    <span>{w}</span>
+                  </div>
+                ))}
+                {previa.needsConfirmation && !resultado ? (
+                  <div className={styles.campo}>
+                    <span className={styles.palabra}>
+                      Escribí <code>{previa.confirmWord}</code> para aplicar
+                    </span>
+                    <Input
+                      className={styles.palabraEntrada}
+                      value={palabra}
+                      onChange={(e) => setPalabra(e.target.value)}
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      aria-label="Palabra de confirmación"
+                    />
+                  </div>
+                ) : null}
+              </>
+            )}
+            {error ? (
+              <div className={cx(styles.aviso, styles.avisoMal)}>
+                <span>{error}</span>
               </div>
-            ))}
-            {previa.needsConfirmation && !resultado ? (
-              <div className={styles.campo}>
-                <label>
-                  Escribí <code>{previa.confirmWord}</code> para aplicar
-                </label>
-                <Input value={palabra} onChange={(e) => setPalabra(e.target.value)} autoCapitalize="off" autoCorrect="off" />
-              </div>
             ) : null}
-            {resultado ? (
-              <div className={styles.error}>
-                {resultado.failure?.message ??
-                  (resultado.results ?? []).find((r) => r.error)?.error ??
-                  "La base rechazó el cambio."}
-                {resultado.rolledBack ? " No quedó nada aplicado." : ""}
-              </div>
-            ) : null}
-            {error ? <div className={styles.error}>{error}</div> : null}
           </div>
         </Dialog>
       ) : null}
-    </>
+    </div>
   );
+}
+
+/** Texto, JSON y compañía: la entrada arranca alta, para no escribir en una ranura. */
+function esLargo(tipo: string): boolean {
+  const t = tipo.toLowerCase();
+  return t.includes("text") || t.includes("json") || t.includes("xml");
 }

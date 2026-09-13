@@ -9,9 +9,11 @@ export type Valor = string | null;
 const MAX_CAMPOS = 6;
 
 /**
- * Una fila como tarjeta: nombre de columna y valor, las primeras seis. Es la
- * unidad de la interfaz del teléfono en lugar de la celda de la grilla. Los
- * valores son datos no confiables: van como texto, nunca como HTML.
+ * M07: una fila como tarjeta, columna → valor en dos columnas, las primeras
+ * seis. Es la unidad de la interfaz del teléfono en lugar de la celda de la
+ * grilla. La clave primaria va en su color, NULL en itálica gris, la cadena
+ * vacía dice «vacío». Los valores son datos no confiables: van como texto,
+ * nunca como HTML.
  *
  * Tocar la tarjeta es de quien la usa (`onClick`); mantener apretado un campo
  * avisa cuál (`onMantener`), y el dueño decide qué mostrar —la hoja con el
@@ -39,35 +41,44 @@ export function Tarjeta({
     const i = Number(el.dataset["mantener"]);
     if (Number.isInteger(i) && onMantener) onMantener(i);
   });
-  const contenido = (
-    <>
-      <dl className={styles.campos} {...(onMantener ? mantener : {})}>
-        {visibles.map((c, i) => (
-          <Campo key={c.name} indice={i} nombre={c.name} valor={fila[i] ?? null} esClave={clave?.has(c.name) ?? false} />
-        ))}
-      </dl>
-      {resto > 0 ? <span className={styles.nota}>y {resto} más</span> : null}
-    </>
-  );
+  const manejadores = onMantener ? mantener : {};
+  const contenido = visibles.map((c, i) => {
+    const v = fila[i] ?? null;
+    const pk = clave?.has(c.name) ?? false;
+    return (
+      <Campo key={c.name} indice={i} nombre={c.name} valor={v} pk={pk} />
+    );
+  });
+  const mas = resto > 0 ? <span className={styles.mas}>y {resto} más</span> : null;
+
   if (!onClick) {
-    return <div className={styles.tarjeta}>{contenido}</div>;
+    return (
+      <div className={styles.filaTarjeta} {...manejadores}>
+        {contenido}
+        {mas}
+      </div>
+    );
   }
   return (
-    <button type="button" className={styles.tarjeta} onClick={onClick}>
+    <button type="button" className={styles.filaTarjeta} onClick={onClick} {...manejadores}>
       {contenido}
+      {mas}
     </button>
   );
 }
 
-function Campo({ indice, nombre, valor, esClave }: { indice: number; nombre: string; valor: Valor; esClave: boolean }) {
+function Campo({ indice, nombre, valor, pk }: { indice: number; nombre: string; valor: Valor; pk: boolean }) {
   return (
     <>
-      <dt className={cx(esClave && styles.pk)} title={nombre} data-mantener={indice}>
+      <span className={cx(styles.k, pk && styles.kPk)} title={nombre} data-mantener={indice}>
         {nombre}
-      </dt>
-      <dd data-mantener={indice}>
-        {valor === null ? <span className={styles.nulo}>NULL</span> : valor === "" ? <span className={styles.nulo}>vacío</span> : valor}
-      </dd>
+      </span>
+      <span
+        className={cx(styles.v, pk && styles.vPk, valor === null && styles.nulo, valor === "" && styles.vacioValor)}
+        data-mantener={indice}
+      >
+        {valor === null ? "NULL" : valor === "" ? "vacío" : valor}
+      </span>
     </>
   );
 }

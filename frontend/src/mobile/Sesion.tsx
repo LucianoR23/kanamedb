@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import type { ToastItem } from "../components/ui";
 import { cx } from "../lib/cx";
-import { Barra } from "./Barra";
 import { Tablas } from "./Tablas";
 import { Consulta } from "./Consulta";
 import { Historial } from "./Historial";
@@ -19,10 +18,11 @@ const PESTANAS: { id: Pestana; icono: string; nombre: string }[] = [
 ];
 
 /**
- * La sesión abierta: cuatro pestañas abajo. Cada una es dueña de su estado
- * mientras esté montada; cambiar de pestaña desmonta la anterior, así que una
- * consulta a medio escribir se conserva en el propio componente (Consulta) y
- * no acá.
+ * M05: la sesión abierta, con cuatro pestañas abajo. Cada una es dueña de su
+ * estado mientras esté montada; cambiar de pestaña desmonta la anterior, así
+ * que una consulta a medio escribir se conserva en el propio módulo
+ * (Consulta) y no acá. Con una consulta corriendo, la pestaña SQL lleva un
+ * punto que late.
  */
 export function Sesion({
   sesion,
@@ -39,11 +39,14 @@ export function Sesion({
   // Una consulta que el historial quiere volver a correr, esperando que la
   // pestaña SQL se monte y la tome.
   const [sqlPedida, setSqlPedida] = useState<string | null>(null);
+  const [corriendo, setCorriendo] = useState(false);
+  // Una tabla abierta ocupa la pantalla entera: la navegación se esconde.
+  const [profunda, setProfunda] = useState(false);
 
   return (
-    <>
+    <div className={styles.pantalla}>
       {pestana === "tablas" ? (
-        <Tablas sesion={sesion} onSesionCerrada={onSesionCerrada} onAviso={onAviso} />
+        <Tablas sesion={sesion} onSesionCerrada={onSesionCerrada} onAviso={onAviso} onProfundidad={setProfunda} />
       ) : pestana === "sql" ? (
         <Consulta
           sesion={sesion}
@@ -51,6 +54,7 @@ export function Sesion({
           onTomada={() => setSqlPedida(null)}
           onSesionCerrada={onSesionCerrada}
           onAviso={onAviso}
+          onCorriendo={setCorriendo}
         />
       ) : pestana === "historial" ? (
         <Historial
@@ -64,6 +68,7 @@ export function Sesion({
         <Ajustes sesion={sesion} onDesconectar={onDesconectar} onAviso={onAviso} />
       )}
 
+      {profunda && pestana === "tablas" ? null : (
       <nav className={styles.nav} aria-label="Secciones">
         {PESTANAS.map((p) => (
           <button
@@ -75,32 +80,11 @@ export function Sesion({
           >
             <span aria-hidden="true">{p.icono}</span>
             <span>{p.nombre}</span>
+            {p.id === "sql" && corriendo ? <span className={styles.navPunto} aria-label="consulta corriendo" /> : null}
           </button>
         ))}
       </nav>
-    </>
-  );
-}
-
-/** La barra de arriba de una pestaña, con el nombre de la sesión. */
-export function BarraDeSesion({
-  sesion,
-  titulo,
-  atras,
-  derecha,
-}: {
-  sesion: SessionView;
-  titulo?: string;
-  atras?: () => void;
-  derecha?: React.ReactNode;
-}) {
-  return (
-    <Barra
-      titulo={titulo ?? sesion.name}
-      subtitulo={sesion.describe + (sesion.readOnly ? " · solo lectura" : "")}
-      prod={sesion.environment === "production"}
-      {...(atras ? { atras } : {})}
-      {...(derecha ? { derecha } : {})}
-    />
+      )}
+    </div>
   );
 }

@@ -946,6 +946,24 @@ Se anota **cuando se toma**, no al final de la iteración.
 
 ### Iteración 9 — 2026-09-13
 
+**La interfaz del teléfono según el diseño (M01–M15), segunda tanda: la
+sesión, y con eso las quince.** M05 navegación (con el punto que late en SQL
+mientras corre una consulta, y la barra que se esconde con una tabla abierta,
+porque en M07/M10 la pantalla es de la tabla), M06 Tablas (buscador en la
+cabecera, esqueletos al cargar, error con Reintentar), M07 Tabla (tarjeta de
+fila en grilla 88 px / resto, chips del filtro puesto, contador «40 de
+~12.481», «Nueva fila» flotando sobre la lista), M08 Filtrar y ordenar a
+pantalla completa con `Selector` para columna y operador, M09 hoja de valor,
+M10 Fila (subtítulo «id = 10482», «editando» en acento, chips «bloqueada» /
+«autoincremental», botones chicos NULL / por defecto / deshacer), M11 Aplicar
+como hoja con el SQL resaltado (`resaltarSql`) y, tras un fallo, «Ver el SQL»,
+M12 SQL con el editor en la cabecera y «corriendo · 4,2 s», M13 Historial con
+control segmentado (`PillTabs` vestido con `.segmentado`), M14 Ajustes con
+filas de opción, el tema por `Selector` y la tarjeta «qué protege y qué no»,
+M15 toasts con glifo. Se borró el bloque transitorio del CSS. Probado por CDP
+con viewport 412×880 contra el SQLite de demo: las diez pantallas coinciden con
+los mockups.
+
 **La interfaz del teléfono según el diseño (M01–M15), primera tanda: la
 entrada.** Claude Design produjo quince pantallas para el teléfono; se
 implementan una por una sobre la app que ya funciona, sin tocar Go. Lo que

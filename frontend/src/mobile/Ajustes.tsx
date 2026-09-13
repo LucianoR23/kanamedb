@@ -9,13 +9,21 @@ import { Button, ConfirmDialog } from "../components/ui";
 import type { ToastItem } from "../components/ui";
 import { aplicar, usarPreferencias } from "../lib/preferencias";
 import { textoDe } from "../lib/dialogos";
-import { BarraDeSesion } from "./Sesion";
+import { cx } from "../lib/cx";
+import { Selector } from "./Selector";
 import styles from "./mobile.module.css";
 
+const TEMAS = [
+  { value: Theme.ThemeDark, label: "Oscuro" },
+  { value: Theme.ThemeLight, label: "Claro" },
+  { value: Theme.ThemeSystem, label: "Automático" },
+];
+
 /**
- * S23 mínimo: tema, borrar el historial, desconectar, y la versión. El
- * bloqueo, la captura bloqueada y la biometría no son ajustes: son cómo
- * funciona la app en el teléfono (kaname-android.md).
+ * M14: tema, borrar el historial de esta conexión, desconectar, qué protege
+ * y qué no, y la versión. El bloqueo, la captura bloqueada y la biometría no
+ * son ajustes: son cómo funciona la app en el teléfono (kaname-android.md), y
+ * por eso se explican en vez de ofrecerse.
  */
 export function Ajustes({
   sesion,
@@ -28,14 +36,18 @@ export function Ajustes({
 }) {
   const prefs = usarPreferencias();
   const [version, setVersion] = useState("");
+  const [corridas, setCorridas] = useState<number | null>(null);
   const [borrando, setBorrando] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     AppInfo.Get()
-      .then((i) => setVersion(`${i.version} · ${i.platform}`))
+      .then((i) => setVersion(`kaname ${i.version} · ${i.platform}`))
       .catch(() => {});
-  }, []);
+    HistorySvc.List(500)
+      .then((l) => setCorridas((l ?? []).filter((e) => e.connectionId === sesion.connectionId).length))
+      .catch(() => setCorridas(null));
+  }, [sesion.connectionId]);
 
   async function cambiarTema(t: Theme) {
     if (!prefs) return;
@@ -53,6 +65,7 @@ export function Ajustes({
     setBorrando(false);
     try {
       await HistorySvc.Clear();
+      setCorridas(0);
       onAviso({ id: `hist-${Date.now()}`, tone: "success", title: "Historial borrado" });
     } catch (err) {
       setError(textoDe(err));
@@ -60,60 +73,84 @@ export function Ajustes({
   }
 
   const tema = prefs?.theme || Theme.ThemeDark;
+  const prod = sesion.environment === "production";
+  // Cuenta consultas distintas, no corridas: la misma repetida tres veces es
+  // una entrada con ×3, y es lo que se ve en Historial.
+  const cuantas =
+    corridas === null
+      ? "las consultas corridas"
+      : corridas === 0
+        ? "nada: no hay consultas corridas"
+        : corridas === 1
+          ? "la única consulta corrida"
+          : `las ${corridas >= 500 ? "500 o más" : corridas} consultas distintas corridas`;
 
   return (
     <>
-      <BarraDeSesion sesion={sesion} titulo="Ajustes" />
+      <div className={cx(styles.cabecera, prod && styles.cabeceraProd)}>
+        <div className={styles.tituloCaja}>
+          <span className={styles.titulo}>Ajustes</span>
+          <span className={styles.subtitulo}>{sesion.describe}</span>
+        </div>
+      </div>
+
       <main className={styles.cuerpo}>
-        {error ? <div className={styles.error}>{error}</div> : null}
+        {error ? (
+          <div className={cx(styles.aviso, styles.avisoMal)}>
+            <span>{error}</span>
+          </div>
+        ) : null}
 
         <div className={styles.opcion}>
-          <div>
-            <span>Tema</span>
-            <small>El claro y el oscuro son los mismos que en la PC.</small>
+          <div className={styles.opcionTexto}>
+            <strong>Tema</strong>
+            <span>Sigue el del sistema si lo dejás en automático.</span>
           </div>
-          <div className={styles.acciones} style={{ flex: "none" }}>
-            {(
-              [
-                [Theme.ThemeDark, "Oscuro"],
-                [Theme.ThemeLight, "Claro"],
-                [Theme.ThemeSystem, "Sistema"],
-              ] as const
-            ).map(([t, nombre]) => (
-              <Button key={t} size="sm" variant={tema === t ? "secondary" : "ghost"} onClick={() => void cambiarTema(t)}>
-                {nombre}
-              </Button>
-            ))}
+          <div className={styles.opcionControl}>
+            <Selector valor={tema} opciones={TEMAS} titulo="Tema" ariaLabel="Tema" ui onChange={(v) => void cambiarTema(v as Theme)} />
           </div>
         </div>
 
         <div className={styles.opcion}>
-          <div>
-            <span>Historial</span>
-            <small>Lo que corriste contra esta conexión desde este teléfono. No sale del aparato.</small>
+          <div className={styles.opcionTexto}>
+            <strong>Borrar el historial de esta conexión</strong>
+            <span>Se van {cuantas}. Las guardadas quedan.</span>
           </div>
-          <Button size="sm" variant="dangerOutline" onClick={() => setBorrando(true)}>
+          <Button className={styles.borrar} onClick={() => setBorrando(true)} disabled={corridas === 0}>
             Borrar…
           </Button>
         </div>
 
         <div className={styles.opcion}>
-          <div>
-            <span>Sesión</span>
-            <small>{sesion.describe}</small>
+          <div className={styles.opcionTexto}>
+            <strong>Desconectar</strong>
+            <span>{sesion.name}: cierra la sesión{" "}y el túnel si hay, y vuelve a la lista.</span>
           </div>
-          <Button size="sm" onClick={onDesconectar}>
-            Desconectar
-          </Button>
+          <Button onClick={onDesconectar}>Salir</Button>
         </div>
 
-        <p className={styles.nota}>
-          Las contraseñas están cifradas con una clave del equipo que solo se abre con tu huella o tu
-          rostro; la pantalla no sale en capturas; y si Kaname queda dos minutos en segundo plano,
-          la sesión se cierra sola. Lo que esto no cubre: un teléfono rooteado, y una persona a la
-          que se le fuerza el dedo.
-        </p>
-        <p className={styles.nota}>Kaname {version}</p>
+        <div className={styles.proteccion}>
+          <span className={styles.rotulo}>Qué protege y qué no</span>
+          <p>
+            Las contraseñas y la clave privada se guardan cifradas en el Keystore del teléfono y se abren con tu
+            huella o tu rostro, cada vez. Nunca salen del equipo.
+          </p>
+          <p>
+            La pantalla no aparece en la vista de apps recientes ni se puede capturar. La sesión se cierra sola a
+            los dos minutos en segundo plano.
+          </p>
+          <p>Nada de esto se copia a la nube: si perdés el teléfono, perdés las credenciales guardadas, no la base.</p>
+          <div className={styles.aviso}>
+            <span>No te cubre en un teléfono rooteado, ni de una persona a la que se le fuerza el dedo.</span>
+          </div>
+        </div>
+
+        <div className={styles.opcion}>
+          <div className={styles.opcionTexto}>
+            <strong>Versión</strong>
+            <span className={styles.monoChico}>{version || "…"}</span>
+          </div>
+        </div>
       </main>
 
       <ConfirmDialog
@@ -124,8 +161,8 @@ export function Ajustes({
         onClose={() => setBorrando(false)}
         onConfirm={() => void borrarHistorial()}
       >
-        Se borra el historial de consultas de <strong>esta conexión</strong> en este teléfono. Las
-        de otras conexiones y las consultas guardadas con nombre quedan.
+        Se van {cuantas} en esta conexión, en este teléfono. Las de otras conexiones y las consultas guardadas con
+        nombre quedan donde están.
       </ConfirmDialog>
     </>
   );

@@ -6,10 +6,11 @@ import type { Result } from "../../bindings/github.com/LucianoR23/kanamedb/inter
 import { Button, Dialog, Input, Textarea } from "../components/ui";
 import type { ToastItem } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
-import { BarraDeSesion } from "./Sesion";
+import { cx } from "../lib/cx";
 import { Tarjeta } from "./Tarjeta";
 import { HojaDeValor } from "./HojaDeValor";
 import type { CampoElegido } from "./HojaDeValor";
+import { resaltarSql } from "./sql";
 import { siLaSesionSeCerro } from "./sesionCerrada";
 import styles from "./mobile.module.css";
 
@@ -18,10 +19,11 @@ import styles from "./mobile.module.css";
 let borrador = "";
 
 /**
- * S06 en el teléfono: un área de texto y el resultado como tarjetas. Sin
- * CodeMirror —sus atajos son de teclado—, sin pestañas, sin transacciones
- * manuales. Las escrituras escritas a mano pasan por la misma confirmación de
- * producción que en escritorio: la hace Go.
+ * M12: el editor SQL del teléfono. Un área de texto en la cabecera —sin
+ * CodeMirror: sus atajos son de teclado— con Guardar… y Ejecutar, y el
+ * resultado como tarjetas abajo. Sin pestañas ni transacciones manuales. Las
+ * escrituras escritas a mano pasan por la misma confirmación de producción
+ * que en escritorio: la hace Go.
  *
  * «Guardar…» le pone nombre a lo escrito y lo deja en las consultas guardadas
  * de este teléfono, las mismas que se ven en Historial › Guardadas junto a las
@@ -34,6 +36,7 @@ export function Consulta({
   onTomada,
   onSesionCerrada,
   onAviso,
+  onCorriendo,
 }: {
   sesion: SessionView;
   /** Una consulta que el historial pide repetir. */
@@ -41,9 +44,12 @@ export function Consulta({
   onTomada: () => void;
   onSesionCerrada: (motivo: string) => void;
   onAviso: (t: ToastItem) => void;
+  /** Para el punto en la pestaña: hay una consulta corriendo. */
+  onCorriendo: (corriendo: boolean) => void;
 }) {
   const [sql, setSql] = useState(borrador);
-  const [corriendo, setCorriendo] = useState<{ cancelar: () => void } | null>(null);
+  const [corriendo, setCorriendo] = useState<{ cancelar: () => void; desde: number } | null>(null);
+  const [transcurrido, setTranscurrido] = useState(0);
   const [resultado, setResultado] = useState<RunResult | null>(null);
   const [cual, setCual] = useState(0);
   const [error, setError] = useState("");
@@ -63,6 +69,23 @@ export function Consulta({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inicial]);
 
+  // El contador mientras corre: es lo único que dice que la app no se colgó.
+  useEffect(() => {
+    onCorriendo(corriendo !== null);
+    if (!corriendo) {
+      setTranscurrido(0);
+      return;
+    }
+    const desde = corriendo.desde;
+    const id = window.setInterval(() => setTranscurrido(Date.now() - desde), 100);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corriendo]);
+
+  // Al desmontar —cambio de pestaña— la pestaña deja de estar «corriendo»
+  // aunque Go siga: el punto es de esta pantalla, no de la consulta.
+  useEffect(() => () => onCorriendo(false), [onCorriendo]);
+
   async function correr() {
     const texto = sql.trim();
     if (!texto || corriendo) return;
@@ -70,7 +93,7 @@ export function Consulta({
     setResultado(null);
     const runId = crypto.randomUUID();
     const pedido = Queries.Run(runId, texto);
-    setCorriendo({ cancelar: () => void Queries.Cancel(runId).catch(() => {}) });
+    setCorriendo({ cancelar: () => void Queries.Cancel(runId).catch(() => {}), desde: Date.now() });
     try {
       const res = await pedido;
       if (!res.ok && (await siLaSesionSeCerro(onSesionCerrada))) return;
@@ -101,7 +124,7 @@ export function Consulta({
       const g = await HistorySvc.Save({ id: "", name: nombre, sql: texto, savedAt: "" });
       setGuardando(false);
       setNombre("");
-      onAviso({ id: `guardada-${Date.now()}`, tone: "success", title: "Consulta guardada", detail: g.name });
+      onAviso({ id: `guardada-${Date.now()}`, tone: "success", title: `Consulta guardada · ${g.name}` });
     } catch (err) {
       // Entero: el error que importa —«lleva una contraseña escrita»— es la
       // explicación, no un detalle técnico.
@@ -113,13 +136,14 @@ export function Consulta({
 
   const resultados = resultado?.batch?.results ?? [];
   const actual: Result | undefined = resultados[cual];
+  const fallo = resultado && !resultado.ok ? resultado.failure : null;
+  const prod = sesion.environment === "production";
 
   return (
     <>
-      <BarraDeSesion sesion={sesion} titulo="SQL" />
-      <main className={styles.cuerpo}>
+      <div className={cx(styles.cabecera, prod && styles.cabeceraProd)}>
         <Textarea
-          className={styles.sql}
+          className={cx(styles.editor, fallo && styles.editorMal)}
           value={sql}
           onChange={(e) => {
             setSql(e.target.value);
@@ -130,19 +154,20 @@ export function Consulta({
           autoCapitalize="off"
           autoCorrect="off"
           aria-label="Consulta SQL"
+          readOnly={corriendo !== null}
         />
-        <div className={styles.acciones}>
+        <div className={styles.botonera}>
           <Button
             onClick={() => {
               setErrorGuardar("");
               setGuardando(true);
             }}
-            disabled={!sql.trim()}
+            disabled={!sql.trim() || corriendo !== null}
           >
             Guardar…
           </Button>
           {corriendo ? (
-            <Button variant="dangerOutline" onClick={corriendo.cancelar}>
+            <Button variant="danger" onClick={corriendo.cancelar}>
               Cancelar
             </Button>
           ) : (
@@ -151,63 +176,92 @@ export function Consulta({
             </Button>
           )}
         </div>
+      </div>
 
-        {error ? <div className={styles.error}>{error}</div> : null}
-
-        {resultado && !resultado.ok ? (
-          <div className={styles.error}>
-            {resultado.failure?.message ?? "La consulta falló."}
-            {resultado.failure?.detail ? <div className={styles.mono}>{resultado.failure.detail}</div> : null}
-            {resultado.failure?.hint ? <div className={styles.nota}>{resultado.failure.hint}</div> : null}
-          </div>
-        ) : null}
-
-        {resultado?.ok && resultado.batch ? (
-          <>
-            <div className={styles.resumen}>
-              <span>{resultado.batch.elapsedMs} ms</span>
-              {resultados.length > 1 ? (
-                <span>
-                  · sentencia {cual + 1} de {resultados.length}{" "}
-                  <Button size="sm" variant="ghost" onClick={() => setCual((c) => (c + 1) % resultados.length)}>
-                    siguiente
-                  </Button>
-                </span>
-              ) : null}
-              {actual ? (
-                actual.returnsRows ? (
-                  <span>
-                    · {(actual.rows ?? []).length} {(actual.rows ?? []).length === 1 ? "fila" : "filas"}
-                    {actual.truncated ? ` (cortado en ${actual.rowLimit})` : ""}
-                  </span>
-                ) : (
-                  <span>
-                    · {actual.command || "OK"}, {actual.affectedRows} {actual.affectedRows === 1 ? "fila afectada" : "filas afectadas"}
-                  </span>
-                )
-              ) : null}
+      {corriendo ? (
+        <div className={styles.corriendo} role="status">
+          <span className={styles.aro} />
+          <span>corriendo · {(transcurrido / 1000).toFixed(1).replace(".", ",")} s</span>
+          <p>Podés cancelar. Si la base ya empezó a escribir, cancelar no deshace lo hecho.</p>
+        </div>
+      ) : (
+        <main className={cx(styles.cuerpo, styles.cuerpoGap12, styles.cuerpoArriba)}>
+          {error ? (
+            <div className={styles.errorTarjeta}>
+              <div className={styles.errorTitulo}>No se pudo ejecutar</div>
+              <div className={styles.errorTexto}>{error}</div>
             </div>
-            {actual?.returnsRows ? (
-              <div className={styles.lista}>
-                {(actual.rows ?? []).map((r, i) => {
-                  const fila = (r ?? []).map((v) => v ?? null);
-                  return (
-                    <Tarjeta
-                      key={i}
-                      columnas={actual.columns ?? []}
-                      fila={fila}
-                      onMantener={(c) => {
-                        const col = actual.columns?.[c];
-                        if (col) setCampo({ columna: col.name, valor: fila[c] ?? null });
-                      }}
-                    />
-                  );
-                })}
+          ) : null}
+
+          {fallo ? (
+            <div className={styles.errorTarjeta}>
+              <div className={styles.errorTitulo}>La consulta falló</div>
+              <div className={styles.errorTexto}>{fallo.message}</div>
+              {fallo.detail || fallo.sqlState ? (
+                <pre className={styles.detalleMotor}>
+                  {[fallo.detail, fallo.sqlState ? `SQLSTATE ${fallo.sqlState}` : ""].filter(Boolean).join("\n")}
+                </pre>
+              ) : null}
+              {fallo.hint ? <div className={styles.sugerencia}>{fallo.hint}</div> : null}
+            </div>
+          ) : null}
+
+          {resultado?.ok && resultado.batch ? (
+            <>
+              <div className={styles.resumen}>
+                {actual ? (
+                  actual.returnsRows ? (
+                    <>
+                      {resultado.batch.elapsedMs} ms · {(actual.rows ?? []).length} {(actual.rows ?? []).length === 1 ? "fila" : "filas"}
+                      {actual.truncated ? <span>(cortado en {actual.rowLimit})</span> : null}
+                    </>
+                  ) : (
+                    <>
+                      {resultado.batch.elapsedMs} ms · {actual.command || "OK"}, {actual.affectedRows}{" "}
+                      {actual.affectedRows === 1 ? "fila afectada" : "filas afectadas"}
+                    </>
+                  )
+                ) : (
+                  <>{resultado.batch.elapsedMs} ms</>
+                )}
+                {resultados.length > 1 ? (
+                  <Button size="sm" variant="ghost" onClick={() => setCual((c) => (c + 1) % resultados.length)}>
+                    sentencia {cual + 1} de {resultados.length} · siguiente
+                  </Button>
+                ) : null}
               </div>
-            ) : null}
-          </>
-        ) : null}
-      </main>
+              {actual?.returnsRows
+                ? (actual.rows ?? []).map((r, i) => {
+                    const fila = (r ?? []).map((v) => v ?? null);
+                    return (
+                      <Tarjeta
+                        key={i}
+                        columnas={actual.columns ?? []}
+                        fila={fila}
+                        onMantener={(c) => {
+                          const col = actual.columns?.[c];
+                          if (col) setCampo({ columna: col.name, valor: fila[c] ?? null, tipo: col.dataType });
+                        }}
+                      />
+                    );
+                  })
+                : null}
+              {actual?.returnsRows && (actual.rows ?? []).length === 0 ? (
+                <div className={styles.vacio}>
+                  <span className={styles.vacioTitulo}>Sin filas</span>
+                  <span className={styles.vacioTexto}>La consulta corrió y no devolvió ninguna.</span>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {!resultado && !error ? (
+            <div className={styles.vacio}>
+              <span className={styles.vacioTexto}>Escribí una consulta y tocá Ejecutar. El resultado aparece acá, una fila por tarjeta.</span>
+            </div>
+          ) : null}
+        </main>
+      )}
 
       <HojaDeValor campo={campo} onCerrar={() => setCampo(null)} onAviso={onAviso} />
 
@@ -227,23 +281,29 @@ export function Consulta({
             </>
           }
         >
-          <div className={styles.detalle}>
+          <div className={styles.columna}>
             <div className={styles.campo}>
-              <label>Nombre</label>
+              <span className={styles.etiqueta}>Nombre</span>
               <Input
+                className={cx(styles.palabraEntrada, errorGuardar && styles.editorMal)}
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 placeholder="ventas del mes"
                 autoFocus
                 autoCapitalize="off"
+                aria-label="Nombre de la consulta"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void guardar();
                 }}
               />
             </div>
-            <pre className={styles.script}>{sql.trim()}</pre>
-            <span className={styles.nota}>Queda en Historial › Guardadas de este teléfono.</span>
-            {errorGuardar ? <div className={styles.error}>{errorGuardar}</div> : null}
+            <pre className={cx(styles.sqlBloque, styles.sqlApagado)}>{resaltarSql(sql.trim())}</pre>
+            {errorGuardar ? (
+              <div className={cx(styles.aviso, styles.avisoMal)}>
+                <span>No se guarda: {errorGuardar}</span>
+              </div>
+            ) : null}
+            <span className={styles.ayuda}>Queda en Historial › Guardadas de este teléfono.</span>
           </div>
         </Dialog>
       ) : null}

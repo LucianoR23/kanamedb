@@ -346,7 +346,10 @@ teléfono y se implementan sobre la app que ya funciona. Base común: raíz
 `Barra.tsx`, `Selector.tsx` (desplegable en hoja con buscador) y
 `useConectar` exponiendo estado y acciones. Hechas: M01 Conexiones, M02
 Credenciales, M03 Clave del host (`ClaveDelHost.tsx`), M04 Conectando y error
-(`Conectar.tsx`). Pendientes: M05–M15 (sesión). Ver el registro del plan.
+(`Conectar.tsx`), y después M05–M15: `Sesion.tsx`, `Tablas.tsx`, `Tabla.tsx` +
+`Tarjeta.tsx`, `FiltroYOrden.tsx`, `HojaDeValor.tsx`, `Fila.tsx` (con Aplicar
+adentro, `sql.tsx` para el resaltado), `Consulta.tsx`, `Historial.tsx`,
+`Ajustes.tsx`. Las quince coinciden con los mockups; ver el registro del plan.
 
 Tercera tanda (2026-09-12), a pedido: filtrar y ordenar la tabla, consultas
 guardadas con nombre y mantener apretado para copiar. Sin cambios en Go. El

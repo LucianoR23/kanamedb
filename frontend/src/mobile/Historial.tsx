@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import * as HistorySvc from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/history";
 import type { HistoryEntry, SavedQuery, SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
-import { Button, ConfirmDialog, PillTabs, SearchInput, Spinner } from "../components/ui";
+import { Button, ConfirmDialog, PillTabs, SearchInput } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import { cuando } from "../screens/HistoryPanel";
 import { cx } from "../lib/cx";
-import { BarraDeSesion } from "./Sesion";
 import styles from "./mobile.module.css";
 
 const LIMITE = 200;
@@ -18,12 +17,13 @@ const MODOS = [
 ] as const;
 
 /**
- * S21 en el teléfono, en dos pestañas: las consultas que se corrieron en
- * este teléfono contra esta conexión, y las guardadas con nombre —las de esta
- * conexión primero, después las de otras—. Las guardadas llegan de la PC con
- * la libreta que se importa y se suman las que se guardan acá; no hay
- * sincronización de vuelta. Tocar una la lleva a la pestaña SQL. Se borran
- * desde acá, preguntando: es trabajo con nombre, no un rastro.
+ * M13: el historial en dos pestañas, con un control segmentado y buscador en
+ * la cabecera. Corridas: lo que se corrió en este teléfono contra esta
+ * conexión, una línea de SQL y la meta en mono; tocar repite en SQL.
+ * Guardadas: las de nombre —las de esta conexión primero, después las de
+ * otras—, que llegan de la PC con la libreta importada y se suman las de
+ * acá; no hay sincronización de vuelta. Se borran desde acá, preguntando:
+ * es trabajo con nombre, no un rastro.
  */
 export function Historial({
   sesion,
@@ -71,82 +71,91 @@ export function Historial({
   const q = filtro.trim().toLowerCase();
   const lista = modo === "corridas" ? entradas : guardadas;
   const cargando = lista === null && !error;
+  const prod = sesion.environment === "production";
 
   return (
     <>
-      <BarraDeSesion sesion={sesion} titulo="Historial" />
-      <main className={styles.cuerpo}>
-        <PillTabs items={MODOS} activeId={modo} onSelect={(id) => setModo(id as Modo)} ariaLabel="Qué historial" />
-        {error ? <div className={styles.error}>{error}</div> : null}
-        {cargando ? (
-          <div className={styles.vacio}>
-            <Spinner />
+      <div className={cx(styles.cabecera, prod && styles.cabeceraProd)}>
+        <div className={styles.tituloCaja}>
+          <span className={styles.titulo}>Historial</span>
+          <span className={styles.subtitulo}>{sesion.describe}</span>
+        </div>
+        <div className={styles.segmentado}>
+          <PillTabs items={MODOS} activeId={modo} onSelect={(id) => setModo(id as Modo)} ariaLabel="Qué historial" />
+        </div>
+        <SearchInput
+          className={styles.busqueda}
+          value={filtro}
+          onChange={(e) => setFiltro(e.target.value)}
+          placeholder={modo === "corridas" ? "Buscar en el historial" : "Buscar guardadas"}
+          aria-label={modo === "corridas" ? "Buscar en el historial" : "Buscar guardadas"}
+          disabled={!lista || lista.length === 0}
+        />
+      </div>
+
+      <main className={cx(styles.cuerpo, styles.cuerpoGap10)}>
+        {error ? (
+          <div className={styles.errorTarjeta}>
+            <div className={styles.errorTitulo}>No se pudo leer el historial</div>
+            <div className={styles.errorTexto}>{error}</div>
           </div>
         ) : null}
-        {lista && lista.length > 0 ? (
-          <SearchInput
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            placeholder={modo === "corridas" ? "Buscar en el historial" : "Buscar una guardada"}
-            aria-label={modo === "corridas" ? "Buscar en el historial" : "Buscar una guardada"}
-          />
+        {cargando ? (
+          <div className={styles.cargando}>
+            <span className={cx(styles.aro, styles.aroChico)} />
+            <span>leyendo…</span>
+          </div>
         ) : null}
 
         {modo === "corridas" ? (
           <>
             {entradas && entradas.length === 0 ? (
-              <div className={styles.vacio}>Todavía no corriste nada contra esta conexión desde el teléfono.</div>
+              <div className={styles.vacio}>
+                <span className={styles.vacioTitulo}>Nada todavía</span>
+                <span className={styles.vacioTexto}>Lo que corras contra esta conexión desde el teléfono queda acá.</span>
+              </div>
             ) : null}
-            <div className={styles.lista}>
-              {(entradas ?? [])
-                .filter((e) => !q || e.sql.toLowerCase().includes(q))
-                .map((e) => (
-                  <button key={e.id} type="button" className={styles.tarjeta} onClick={() => onRepetir(e.sql)}>
-                    <div className={styles.mono} style={{ color: "var(--text-1)" }}>
-                      {recortar(e.sql)}
-                    </div>
-                    <div className={styles.resumen}>
-                      <span>{cuando(e.ranAt)}</span>
-                      <span>· {e.elapsedMs} ms</span>
-                      {e.failed ? (
-                        <span className={cx(styles.chip, styles.chipMal)}>falló</span>
-                      ) : (
-                        <span>· {e.rows} {e.rows === 1 ? "fila" : "filas"}</span>
-                      )}
-                      {e.runs > 1 ? <span>· ×{e.runs}</span> : null}
-                    </div>
-                  </button>
-                ))}
-            </div>
+            {(entradas ?? [])
+              .filter((e) => !q || e.sql.toLowerCase().includes(q))
+              .map((e) => (
+                <button key={e.id} type="button" className={cx(styles.tarjeta, styles.tarjetaCorrida)} onClick={() => onRepetir(e.sql)}>
+                  <span className={styles.sqlLinea}>{unaLinea(e.sql)}</span>
+                  <div className={styles.meta}>
+                    <span>
+                      {cuando(e.ranAt)}
+                      {e.failed ? "" : ` · ${e.elapsedMs} ms · ${e.rows} ${e.rows === 1 ? "fila" : "filas"}`}
+                    </span>
+                    {e.failed ? <span className={cx(styles.chip, styles.chipMal)}>falló</span> : null}
+                    {e.runs > 1 ? <span className={styles.chip}>×{e.runs}</span> : null}
+                  </div>
+                </button>
+              ))}
           </>
         ) : (
           <>
             {guardadas && guardadas.length === 0 ? (
               <div className={styles.vacio}>
-                Todavía no hay consultas guardadas. En la pestaña SQL, «Guardar…» le pone nombre a la que tengas escrita.
+                <span className={styles.vacioTitulo}>Ninguna guardada</span>
+                <span className={styles.vacioTexto}>En la pestaña SQL, «Guardar…» le pone nombre a la que tengas escrita.</span>
               </div>
             ) : null}
-            <div className={styles.lista}>
-              {(guardadas ?? [])
-                .filter((g) => !q || g.name.toLowerCase().includes(q) || g.sql.toLowerCase().includes(q))
-                .map((g) => (
-                  <div key={g.id} className={styles.tarjeta}>
-                    <div className={styles.fila1}>
-                      <strong>{g.name}</strong>
-                      {g.connectionId && g.connectionId !== sesion.connectionId ? <span className={styles.chip}>de otra conexión</span> : null}
-                    </div>
-                    <div className={styles.mono}>{recortar(g.sql)}</div>
-                    <div className={styles.acciones}>
-                      <Button variant="dangerOutline" onClick={() => setBorrando(g)}>
-                        Borrar…
-                      </Button>
-                      <Button variant="primary" onClick={() => onRepetir(g.sql)}>
-                        Abrir en SQL
-                      </Button>
-                    </div>
+            {(guardadas ?? [])
+              .filter((g) => !q || g.name.toLowerCase().includes(q) || g.sql.toLowerCase().includes(q))
+              .map((g) => (
+                <div key={g.id} className={cx(styles.tarjeta, styles.tarjetaGuardada)}>
+                  <div className={styles.fila1}>
+                    <span className={cx(styles.nombre, styles.nombreGuardada)}>{g.name}</span>
+                    {g.connectionId && g.connectionId !== sesion.connectionId ? <span className={cx(styles.chip, styles.chipSuave)}>de otra conexión</span> : null}
                   </div>
-                ))}
-            </div>
+                  <span className={styles.sqlParrafo}>{unaLinea(g.sql)}</span>
+                  <div className={styles.acciones}>
+                    <Button className={cx(styles.fijo, styles.borrar)} onClick={() => setBorrando(g)}>
+                      Borrar…
+                    </Button>
+                    <Button onClick={() => onRepetir(g.sql)}>Abrir en SQL</Button>
+                  </div>
+                </div>
+              ))}
           </>
         )}
       </main>
@@ -168,7 +177,7 @@ export function Historial({
   );
 }
 
-function recortar(sql: string): string {
+function unaLinea(sql: string): string {
   const una = sql.replace(/\s+/g, " ").trim();
   return una.length > 240 ? una.slice(0, 240) + "…" : una;
 }

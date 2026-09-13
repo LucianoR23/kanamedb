@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Operator } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import type { Column, Condition, OperatorInfo } from "../../bindings/github.com/LucianoR23/kanamedb/internal/query";
 import * as Queries from "../../bindings/github.com/LucianoR23/kanamedb/internal/service/queries";
-import { Button, Combobox, Dialog, Input } from "../components/ui";
+import { Button, Input } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
 import { plural } from "../lib/motor";
+import { cx } from "../lib/cx";
+import { Selector } from "./Selector";
 import styles from "./mobile.module.css";
 
 /** Por qué columna y hacia dónde. `null` es el orden de Go: la clave primaria. */
@@ -20,20 +22,23 @@ export interface Vista {
 }
 
 /**
- * Filtrar y ordenar una tabla desde el teléfono, en un diálogo.
+ * M08: filtrar y ordenar una tabla desde el teléfono, a pantalla completa.
  *
  * Es el constructor de filtros de escritorio (`TableFilters`) puesto en
- * vertical y con el orden al lado, porque en el teléfono no hay cabecera de
+ * vertical y con el orden arriba, porque en el teléfono no hay cabecera de
  * columna que tocar. Las mismas reglas: la columna y el operador salen de
- * listas cerradas, el valor viaja como parámetro y nada de lo escrito entra en
- * el texto de la consulta. Las condiciones se combinan con Y.
+ * listas cerradas —hojas con `Selector`—, el valor viaja como parámetro y
+ * nada de lo escrito entra en el texto de la consulta. Las condiciones se
+ * combinan con Y.
  */
 export function FiltroYOrden({
+  tabla,
   columnas,
   vista,
   onAplicar,
   onCerrar,
 }: {
+  tabla: string;
   columnas: readonly Column[];
   vista: Vista;
   /** Lo elegido y, para el resumen de la tabla, cada condición en palabras. */
@@ -87,128 +92,148 @@ export function FiltroYOrden({
   // La primera opción es «ninguna»: la lista es cerrada y sin ella no habría
   // forma de volver al orden por clave primaria una vez elegida una columna.
   const opcionesDeOrden = [{ value: "", label: "clave primaria (por defecto)" }, ...opcionesDeColumna];
+  const opcionesDeOperador = operadores.map((o) => ({
+    value: o.key,
+    label: o.label,
+    tag: o.values === 0 ? "sin valor" : o.values === 2 ? "2 valores" : o.values < 0 ? "lista" : "1 valor",
+  }));
 
   return (
-    <Dialog
-      open
-      title="Filtrar y ordenar"
-      onClose={onCerrar}
-      footer={
-        <>
-          <Button
-            variant="ghost"
-            onClick={() => onAplicar({ orden: null, filtros: [] }, [])}
-            disabled={vista.orden === null && vista.filtros.length === 0}
-          >
-            Quitar todo
-          </Button>
-          <Button onClick={onCerrar}>Cancelar</Button>
-          <Button
-            variant="primary"
-            disabled={!listo}
-            onClick={() =>
-              onAplicar(
-                { orden, filtros: borrador.map(clonar) },
-                borrador.map((c) => describir(c, operadores)),
-              )
-            }
-          >
-            Aplicar
-          </Button>
-        </>
-      }
-    >
-      <div className={styles.detalle}>
-        <div className={styles.campo}>
-          <label>Ordenar por</label>
-          <Combobox
-            value={orden?.columna ?? ""}
-            options={opcionesDeOrden}
+    <div className={styles.pantalla}>
+      <header className={cx(styles.barra, styles.barraConAtras)}>
+        <button type="button" className={styles.plano} onClick={onCerrar} aria-label="Cerrar">
+          ✕
+        </button>
+        <div className={styles.tituloCaja}>
+          <span className={styles.titulo}>Filtrar y ordenar</span>
+        </div>
+        <span className={cx(styles.subtitulo, styles.tituloDerecha)}>{tabla}</span>
+      </header>
+
+      <main className={cx(styles.cuerpo, styles.cuerpoGap20)}>
+        <section className={cx(styles.columna, styles.gap10)}>
+          <span className={styles.rotulo}>Ordenar por</span>
+          <Selector
+            valor={orden?.columna ?? ""}
+            opciones={opcionesDeOrden}
+            titulo="Columna"
             ariaLabel="Columna para ordenar"
-            estricto
             onChange={(v) => setOrden(v ? { columna: v, descendente: orden?.descendente ?? false } : null)}
           />
           {orden ? (
-            <div className={styles.resumen}>
-              <Button size="sm" variant={orden.descendente ? "ghost" : "secondary"} onClick={() => setOrden({ ...orden, descendente: false })}>
-                ↑ ascendente
+            <div className={styles.direccion}>
+              <Button className={cx(!orden.descendente && styles.elegido)} aria-pressed={!orden.descendente} onClick={() => setOrden({ ...orden, descendente: false })}>
+                ↑ Ascendente
               </Button>
-              <Button size="sm" variant={orden.descendente ? "secondary" : "ghost"} onClick={() => setOrden({ ...orden, descendente: true })}>
-                ↓ descendente
+              <Button className={cx(orden.descendente && styles.elegido)} aria-pressed={orden.descendente} onClick={() => setOrden({ ...orden, descendente: true })}>
+                ↓ Descendente
               </Button>
             </div>
           ) : (
-            <span className={styles.nota}>Sin elegir, el orden es la clave primaria.</span>
+            <span className={styles.ayuda}>Sin elegir, el orden es la clave primaria.</span>
           )}
-        </div>
+        </section>
 
-        <div className={styles.seccion}>
-          <span>Filtrar</span>
-          <span>
-            {borrador.length === 0 ? "sin condiciones" : `${borrador.length} ${plural(borrador.length, "condición", "condiciones")}, con Y`}
-          </span>
-        </div>
+        <div className={styles.divisor} />
 
-        {borrador.map((c, i) => {
-          const n = cuantosValores(c.operator, c);
-          return (
-            <div key={i} className={styles.condicion}>
-              <div className={styles.fila1}>
-                <strong>{i === 0 ? "donde" : "y"}</strong>
-                <Button size="sm" variant="ghost" aria-label="Quitar esta condición" onClick={() => setBorrador((cs) => cs.filter((_, j) => j !== i))}>
-                  ✕
-                </Button>
-              </div>
-              <Combobox
-                value={c.column}
-                options={opcionesDeColumna}
-                ariaLabel="Columna"
-                placeholder="columna"
-                estricto
-                onChange={(v) => cambiar(i, (x) => ({ ...x, column: v }))}
-              />
-              <Combobox
-                value={c.operator}
-                options={operadores.map((o) => ({ value: o.key, label: o.label }))}
-                ariaLabel="Operador"
-                estricto
-                onChange={(v) => cambiarOperador(i, v as Operator)}
-              />
-              {n === 0 ? null : n === -1 ? (
-                <Input
-                  value={(c.values ?? []).join(", ")}
-                  placeholder="uno, otro, otro más"
-                  aria-label="Valores separados por coma"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  onChange={(e) => cambiar(i, (x) => ({ ...x, values: partirLista(e.target.value) }))}
+        <section className={cx(styles.columna, styles.gap12)}>
+          <div className={styles.rotuloFila}>
+            <span className={styles.rotulo}>Filtrar</span>
+            <span>{borrador.length === 0 ? "sin condiciones" : `${borrador.length} ${plural(borrador.length, "condición", "condiciones")}, con Y`}</span>
+          </div>
+
+          {borrador.map((c, i) => {
+            const n = cuantosValores(c.operator, c);
+            return (
+              <div key={i} className={styles.condicion}>
+                <div className={styles.condicionCabeza}>
+                  <span className={cx(i === 0 && styles.primera)}>{i === 0 ? "Donde" : "Y"}</span>
+                  <button type="button" className={styles.quitar} aria-label="Quitar esta condición" onClick={() => setBorrador((cs) => cs.filter((_, j) => j !== i))}>
+                    ✕
+                  </button>
+                </div>
+                <Selector
+                  valor={c.column}
+                  opciones={opcionesDeColumna}
+                  titulo="Columna"
+                  ariaLabel="Columna"
+                  placeholder="columna"
+                  onChange={(v) => cambiar(i, (x) => ({ ...x, column: v }))}
                 />
-              ) : (
-                Array.from({ length: n }, (_, k) => (
+                <Selector
+                  valor={c.operator}
+                  opciones={opcionesDeOperador}
+                  titulo="Operador"
+                  ariaLabel="Operador"
+                  ui
+                  onChange={(v) => cambiarOperador(i, v as Operator)}
+                />
+                {n === 0 ? null : n === -1 ? (
                   <Input
-                    key={k}
-                    value={(c.values ?? [])[k] ?? ""}
-                    placeholder={n === 2 ? (k === 0 ? "desde" : "hasta") : "valor"}
-                    aria-label={n === 2 ? (k === 0 ? "Desde" : "Hasta") : "Valor"}
+                    className={styles.entradaValor}
+                    value={(c.values ?? []).join(", ")}
+                    placeholder="uno, otro, otro más"
+                    aria-label="Valores separados por coma"
                     autoCapitalize="off"
                     autoCorrect="off"
-                    onChange={(e) => cambiar(i, (x) => ({ ...x, values: (x.values ?? []).map((y, m) => (m === k ? e.target.value : y)) }))}
+                    onChange={(e) => cambiar(i, (x) => ({ ...x, values: partirLista(e.target.value) }))}
                   />
-                ))
-              )}
+                ) : (
+                  <div className={styles.valores}>
+                    {Array.from({ length: n }, (_, k) => (
+                      <Input
+                        key={k}
+                        className={styles.entradaValor}
+                        value={(c.values ?? [])[k] ?? ""}
+                        placeholder={n === 2 ? (k === 0 ? "desde" : "hasta") : "valor"}
+                        aria-label={n === 2 ? (k === 0 ? "Desde" : "Hasta") : "Valor"}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        onChange={(e) => cambiar(i, (x) => ({ ...x, values: (x.values ?? []).map((y, m) => (m === k ? e.target.value : y)) }))}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {errorOperadores ? (
+            <div className={cx(styles.aviso, styles.avisoMal)} role="alert">
+              <span>No se pudo leer la lista de operadores, así que el desplegable está vacío. {errorOperadores}</span>
             </div>
-          );
-        })}
+          ) : null}
 
-        {errorOperadores ? (
-          <div className={styles.error} role="alert">
-            No se pudo leer la lista de operadores, así que el desplegable está vacío. {errorOperadores}
-          </div>
-        ) : null}
+          <Button className={styles.agregar} onClick={() => setBorrador((cs) => [...cs, nueva(columnas)])}>
+            + Agregar condición
+          </Button>
+        </section>
+      </main>
 
-        <Button onClick={() => setBorrador((cs) => [...cs, nueva(columnas)])}>+ Agregar condición</Button>
+      <div className={styles.pie}>
+        <Button
+          variant="ghost"
+          className={styles.fijo}
+          onClick={() => onAplicar({ orden: null, filtros: [] }, [])}
+          disabled={vista.orden === null && vista.filtros.length === 0}
+        >
+          Quitar todo
+        </Button>
+        <Button onClick={onCerrar}>Cancelar</Button>
+        <Button
+          variant="primary"
+          disabled={!listo}
+          onClick={() =>
+            onAplicar(
+              { orden, filtros: borrador.map(clonar) },
+              borrador.map((c) => describir(c, operadores)),
+            )
+          }
+        >
+          Aplicar
+        </Button>
       </div>
-    </Dialog>
+    </div>
   );
 }
 
@@ -226,7 +251,7 @@ function partirLista(v: string): string[] {
   return partes.length > 1 ? partes.filter((s, i) => s !== "" || i === partes.length - 1) : partes;
 }
 
-/** «nombre contiene "ana"», para el resumen de arriba de la lista. */
+/** «nombre contiene "ana"», para los chips de arriba de la lista. */
 function describir(c: Condition, operadores: readonly OperatorInfo[]): string {
   const op = operadores.find((o) => o.key === c.operator);
   const etiqueta = op?.label ?? c.operator;

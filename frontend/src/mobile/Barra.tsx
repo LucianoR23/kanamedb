@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { SessionView } from "../../bindings/github.com/LucianoR23/kanamedb/internal/service";
 import { cx } from "../lib/cx";
 import styles from "./mobile.module.css";
 
@@ -46,5 +47,31 @@ export function Barra({
       </div>
       {derecha}
     </header>
+  );
+}
+
+/** La barra de una pestaña de la sesión: nombre de la sesión y `describe`. */
+export function BarraDeSesion({
+  sesion,
+  titulo,
+  mono = false,
+  atras,
+  derecha,
+}: {
+  sesion: SessionView;
+  titulo?: string;
+  mono?: boolean;
+  atras?: () => void;
+  derecha?: ReactNode;
+}) {
+  return (
+    <Barra
+      titulo={titulo ?? sesion.name}
+      mono={mono}
+      subtitulo={sesion.describe + (sesion.readOnly ? " · solo lectura" : "")}
+      prod={sesion.environment === "production"}
+      {...(atras ? { atras } : {})}
+      {...(derecha ? { derecha } : {})}
+    />
   );
 }

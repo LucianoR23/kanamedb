@@ -2,18 +2,20 @@ import { useState } from "react";
 import { Button, Dialog } from "../components/ui";
 import type { ToastItem } from "../components/ui";
 import { textoDe } from "../lib/dialogos";
+import { cx } from "../lib/cx";
 import { copiar } from "./portapapeles";
 import type { Valor } from "./Tarjeta";
 import styles from "./mobile.module.css";
 
-/** Un campo que alguien mantuvo apretado: de qué columna y qué valor. */
+/** Un campo que alguien mantuvo apretado: de qué columna, de qué tipo y qué valor. */
 export interface CampoElegido {
   columna: string;
   valor: Valor;
+  tipo?: string;
 }
 
 /**
- * El valor de un campo, entero y con «Copiar».
+ * M09: el valor de un campo, entero y con «Copiar».
  *
  * Se abre al mantener apretado un campo de una tarjeta o de la fila. Hace dos
  * cosas: mostrar el valor completo —la tarjeta lo corta a tres líneas— y
@@ -33,7 +35,7 @@ export function HojaDeValor({
 }) {
   const [error, setError] = useState("");
   if (!campo) return null;
-  const { columna, valor } = campo;
+  const { columna, valor, tipo } = campo;
 
   // El error es de este intento: la próxima hoja arranca limpia.
   function cerrar() {
@@ -46,7 +48,7 @@ export function HojaDeValor({
     setError("");
     try {
       await copiar(valor);
-      onAviso({ id: `copiado-${Date.now()}`, tone: "success", title: "Copiado", detail: columna });
+      onAviso({ id: `copiado-${Date.now()}`, tone: "success", title: `Copiado · ${columna}` });
       cerrar();
     } catch (err) {
       setError(textoDe(err));
@@ -67,24 +69,31 @@ export function HojaDeValor({
         </>
       }
     >
-      <div className={styles.detalle}>
+      <div className={styles.columna}>
+        {tipo ? <span className={styles.metaChica}>{tipo}</span> : null}
         {valor === null ? (
-          <div className={styles.valor}>
-            <span className={styles.nulo}>NULL</span>
-          </div>
+          <>
+            <div className={cx(styles.valorEntero, styles.valorEnteroNulo, styles.nulo)}>NULL</div>
+            <span className={styles.ayuda}>Sin valor. No hay nada que copiar.</span>
+          </>
         ) : valor === "" ? (
-          <div className={styles.valor}>
-            <span className={styles.nulo}>vacío</span>
-          </div>
+          <>
+            <div className={cx(styles.valorEntero, styles.valorEnteroNulo, styles.vacioValor)}>vacío</div>
+            <span className={styles.ayuda}>La cadena vacía: se copia, y no es lo mismo que NULL.</span>
+          </>
         ) : (
-          <pre className={styles.valorEntero}>{valor}</pre>
+          <>
+            <pre className={styles.valorEntero}>{valor}</pre>
+            <span className={styles.metaChica}>
+              {valor.length} {valor.length === 1 ? "carácter" : "caracteres"}
+            </span>
+          </>
         )}
-        {valor !== null && valor !== "" ? (
-          <span className={styles.nota}>
-            {valor.length} {valor.length === 1 ? "carácter" : "caracteres"}
-          </span>
+        {error ? (
+          <div className={cx(styles.aviso, styles.avisoMal)}>
+            <span>No se pudo copiar. {error}</span>
+          </div>
         ) : null}
-        {error ? <div className={styles.error}>{error}</div> : null}
       </div>
     </Dialog>
   );
