@@ -7,7 +7,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/wailsapp/wails/v3 v3.0.0-beta.17
+	github.com/wailsapp/wails/v3 v3.0.0-beta.28
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.56.0
 	modernc.org/sqlite v1.58.0
@@ -25,7 +25,6 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
