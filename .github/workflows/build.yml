@@ -20,7 +20,7 @@ jobs:
     name: Lint y typecheck
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -122,7 +122,7 @@ jobs:
     name: Secretos en el historial
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # Sin esto checkout baja UN commit y «todo el historial» es uno. El
           # último paso lo comprueba en vez de confiar.
@@ -188,7 +188,7 @@ jobs:
         # La estable actual, más las anteriores que se declaran soportadas.
         postgres: ["18", "17", "16", "14"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -264,7 +264,7 @@ jobs:
             goarch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -316,7 +316,7 @@ jobs:
     needs: check
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -392,7 +392,7 @@ jobs:
     needs: check
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -451,7 +451,7 @@ jobs:
       # `secrets` no se puede usar en el `if` de un paso; pasa por env.
       HAY_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_B64 }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -552,7 +552,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # El tag tiene que ser la versión que llevan los binarios. Alcanza con
       # mirar appinfo.Version: `go test ./` ya obliga a que config.yml,
