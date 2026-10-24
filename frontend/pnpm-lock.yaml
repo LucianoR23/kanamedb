@@ -49,7 +49,7 @@ importers:
         version: 3.0.0-beta.17
       '@xyflow/react':
         specifier: 12.11.6
-        version: 12.11.6(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 12.11.6(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -64,8 +64,8 @@ importers:
         specifier: 19.2.18
         version: 19.2.18
       '@types/react-dom':
-        specifier: 19.2.5
-        version: 19.2.5(@types/react@19.2.18)
+        specifier: 19.2.7
+        version: 19.2.7(@types/react@19.2.18)
       '@vitejs/plugin-react':
         specifier: 6.1.1
         version: 6.1.1(babel-plugin-react-compiler@1.0.0)(vite@8.2.2)
@@ -283,8 +283,8 @@ packages:
   '@types/d3-zoom@3.0.8':
     resolution: {integrity: sha512-iqMC4/YlFCSlO8+2Ii1GGGliCAY4XdeG748w5vQUbevlbDu0zSjH/+jojorQVBK/se0j6DUFNPBGSqD3YWYnDw==}
 
-  '@types/react-dom@19.2.5':
-    resolution: {integrity: sha512-fMPwH9v7r/pp43yUd2/Mbiex5KouJwwR3dzHkhLREUC6764VyDsqxhAxv6OFEYR1RhjOyD1naqba8ECDBe7ZQg==}
+  '@types/react-dom@19.2.7':
+    resolution: {integrity: sha512-I8bPpDLcHBv1qiIiXDCy71Rt8eQDKJP0sMSWJphDdAcdqiJ1sGpZamavoEIRZmYzjia9LuEb2HlYdDpmoENpvQ==}
     peerDependencies:
       '@types/react': ^19.2.0
 
@@ -909,7 +909,7 @@ snapshots:
       '@types/d3-interpolate': 3.0.4
       '@types/d3-selection': 3.0.11
 
-  '@types/react-dom@19.2.5(@types/react@19.2.18)':
+  '@types/react-dom@19.2.7(@types/react@19.2.18)':
     dependencies:
       '@types/react': 19.2.18
 
@@ -986,7 +986,7 @@ snapshots:
 
   '@wailsio/runtime@3.0.0-beta.17': {}
 
-  '@xyflow/react@12.11.6(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@xyflow/react@12.11.6(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@xyflow/system': 0.0.82
       classcat: 5.0.5
@@ -995,7 +995,7 @@ snapshots:
       zustand: 4.5.7(@types/react@19.2.18)(react@19.2.8)
     optionalDependencies:
       '@types/react': 19.2.18
-      '@types/react-dom': 19.2.5(@types/react@19.2.18)
+      '@types/react-dom': 19.2.7(@types/react@19.2.18)
     transitivePeerDependencies:
       - immer
 
